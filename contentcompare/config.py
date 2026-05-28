@@ -1,0 +1,124 @@
+"""설정 로딩 및 프록시 정책 처리.
+
+YAML 파일을 읽어 :class:`AppConfig` 로 만들고, 환경변수로 일부 값을 오버라이드한다.
+사내(internal) LLM 연결 시 ``HTTP_PROXY``/``HTTPS_PROXY`` 를 비우는 정책도 여기서 담당한다(기획 1번).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import os
+from dataclasses import dataclass, field
+from typing import Any, Iterator, Optional
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - 선택적 의존성
+    yaml = None
+
+
+# --------------------------------------------------------------------------- #
+# 설정 데이터클래스
+# --------------------------------------------------------------------------- #
+@dataclass
+class OllamaConfig:
+    host: str = "http://localhost:11434"
+
+
+@dataclass
+class InternalConfig:
+    base_url: str = "https://llm.intra.corp/v1"
+    api_key_env: str = "INTERNAL_LLM_API_KEY"
+    unset_proxy: bool = True
+    """True 면 사내 호출 시 HTTP(S)_PROXY 를 빈 값으로 만든다."""
+    verify_ssl: bool = False
+
+
+@dataclass
+class LLMConfig:
+    backend: str = "ollama"  # "ollama" | "internal"
+    chat_model: str = "qwen2.5:14b"
+    embed_model: str = "bge-m3"
+    timeout: float = 120.0
+    ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    internal: InternalConfig = field(default_factory=InternalConfig)
+
+
+@dataclass
+class ExcelConfig:
+    header_row: int = 1
+    max_rows: Optional[int] = None
+    """비교할 최대 row 수(None=전체)."""
+
+
+@dataclass
+class SimilarityConfig:
+    top_k: int = 5
+    min_score: float = 0.55
+    chunk_chars: int = 800
+
+
+@dataclass
+class ReportConfig:
+    format: str = "markdown"
+
+
+@dataclass
+class AppConfig:
+    llm: LLMConfig = field(default_factory=LLMConfig)
+    excel: ExcelConfig = field(default_factory=ExcelConfig)
+    similarity: SimilarityConfig = field(default_factory=SimilarityConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
+
+    # ----------------------------------------------------------------- #
+    # 로딩
+    # ----------------------------------------------------------------- #
+    @classmethod
+    def load(cls, path: Optional[str] = None) -> "AppConfig":
+        """YAML 파일에서 설정을 읽는다. path 가 없으면 기본값을 사용."""
+        data: dict[str, Any] = {}
+        if path:
+            if yaml is None:
+                raise RuntimeError("PyYAML 이 필요합니다: pip install pyyaml")
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        return cls.from_dict(data)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AppConfig":
+        llm_raw = dict(data.get("llm", {}))
+        ollama = OllamaConfig(**llm_raw.pop("ollama", {}) or {})
+        internal = InternalConfig(**llm_raw.pop("internal", {}) or {})
+        llm = LLMConfig(ollama=ollama, internal=internal, **llm_raw)
+        return cls(
+            llm=llm,
+            excel=ExcelConfig(**data.get("excel", {}) or {}),
+            similarity=SimilarityConfig(**data.get("similarity", {}) or {}),
+            report=ReportConfig(**data.get("report", {}) or {}),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# 프록시 정책
+# --------------------------------------------------------------------------- #
+_PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+
+
+@contextlib.contextmanager
+def no_proxy() -> Iterator[None]:
+    """블록 동안 HTTP(S)_PROXY 를 빈 값으로 만들고, 빠져나오면 복원한다.
+
+    사내 LLM 호출처럼 프록시를 우회해야 하는 구간에만 적용해 다른 외부 호출에
+    영향을 주지 않도록 한다(기획 1번).
+    """
+    saved = {k: os.environ.get(k) for k in _PROXY_VARS}
+    try:
+        for k in _PROXY_VARS:
+            os.environ[k] = ""
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v

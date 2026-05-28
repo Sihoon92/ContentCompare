@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contentcompare"
+version = "0.1.0"
+description = "엑셀 기준 문서를 여러 대상 문서와 LLM 으로 비교하는 에이전트"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+# Windows + MS Office 환경에서만 설치 가능.
+office = [
+    "xlwings>=0.30",
+    "pywin32>=306",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+contentcompare = "contentcompare.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["contentcompare*"]

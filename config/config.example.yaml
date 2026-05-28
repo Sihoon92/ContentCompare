@@ -1,0 +1,28 @@
+# ContentCompare 설정 예시. config.yaml 로 복사 후 환경에 맞게 수정하세요.
+
+llm:
+  backend: ollama          # ollama | internal  ← 이 값만 바꾸면 백엔드 전환
+  chat_model: qwen2.5:14b
+  embed_model: bge-m3
+  timeout: 120
+
+  ollama:
+    host: http://localhost:11434
+
+  internal:                # 사내(in-house) LLM
+    base_url: https://llm.intra.corp/v1
+    api_key_env: INTERNAL_LLM_API_KEY   # API 키가 담긴 환경변수 이름
+    unset_proxy: true      # true 면 호출 시 HTTP_PROXY/HTTPS_PROXY 를 비움
+    verify_ssl: false
+
+excel:
+  header_row: 1            # 헤더가 위치한 행(1-based). 이 행 다음부터 비교.
+  max_rows: null           # 비교할 최대 row 수(null=전체)
+
+similarity:
+  top_k: 5                 # 항목당 LLM 에 투입할 후보 수
+  min_score: 0.55          # 코사인 유사도 임계값(미만이면 후보 제외)
+  chunk_chars: 800         # 긴 항목 청킹 길이
+
+report:
+  format: markdown
