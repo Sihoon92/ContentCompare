@@ -136,8 +136,12 @@ report:
 
 ## 10. 향후 작업(TODO)
 
-- [ ] Ollama/Internal 백엔드 실제 HTTP 본문 마감 및 재시도/타임아웃.
-- [ ] xlwings/win32com 실제 파싱 로직 + COM 리소스 정리(finally).
-- [ ] 임베딩 캐시(문서 해시 기반)로 재실행 비용 절감.
-- [ ] 대용량 문서 배치/스트리밍, 진행률 표시.
-- [ ] 테스트: 가짜(fake) LLM/임베딩 백엔드로 파이프라인 단위 테스트.
+구체적인 단계별 구현 계획은 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) 참고.
+확정된 방향: 엑셀 **hybrid 분해**(행 검색 + 필드 판정), **하이브리드 검색**(임베딩+BM25 RRF)+캐시,
+**Streamlit 로컬 UI**.
+
+- [ ] Phase 1: 엑셀 hybrid 분해 + 리더 하드닝
+- [ ] Phase 2: 하이브리드 검색(RRF/MMR) + 임베딩 디스크 캐시
+- [ ] Phase 3: LLM 필드별 비교 판정 + JSON 강제/폴백
+- [ ] Phase 4: Streamlit 로컬 UI
+- [ ] Phase 5: 백엔드 HTTP 마감(재시도/타임아웃) + 패키징/매뉴얼
