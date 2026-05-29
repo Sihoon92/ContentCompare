@@ -153,7 +153,13 @@ similarity:
 
 ---
 
-## Phase 4 — Streamlit 로컬 UI
+## Phase 4 — Streamlit 로컬 UI ✅ (완료)
+
+> 구현 요약: `app/streamlit_app.py`(UI) + `contentcompare/ui/runner.py`(streamlit 무의존 헬퍼).
+> 사이드바 런타임 설정→`build_config`, 업로드(임시저장)/폴더경로 입력, `st.progress` 진행률,
+> 판정 메트릭 + 레코드별 필드 표 + `.md` 다운로드. `pyproject` 에 `ui` extra.
+> `tests/test_ui_runner.py` 11케이스(설정오버라이드/파일수집/집계/표변환).
+
 
 ### 새 파일 `app/streamlit_app.py`
 - [ ] 사이드바: 백엔드 선택(ollama/internal), 모델명, granularity, top_k, rerank 토글 → 런타임 `AppConfig` 구성

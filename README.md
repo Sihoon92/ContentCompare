@@ -65,6 +65,20 @@ contentcompare \
   --out report.md
 ```
 
+## 웹 UI (로컬, Streamlit)
+
+CLI 대신 브라우저에서 사용할 수 있습니다. COM 자동화 특성상 **사용자 PC의
+localhost** 에서 구동합니다(Windows + MS Office 필요).
+
+```bash
+pip install -e .[ui]
+streamlit run app/streamlit_app.py
+```
+
+- 사이드바: LLM 백엔드/모델, 엑셀 분해(hybrid/field/row), recall_k·top_k, 융합(rrf/cosine), 재랭킹
+- 입력: 기준 엑셀 + 대상 문서를 **업로드**하거나 **로컬 경로/폴더**로 지정
+- 결과: 판정 요약 메트릭 + 레코드별 **필드 판정 표** + 리포트 `.md` 다운로드
+
 ## LLM 백엔드 전환
 
 `config.yaml` 의 `llm.backend` 값만 바꾸면 됩니다.

@@ -19,6 +19,9 @@ office = [
     "xlwings>=0.30",
     "pywin32>=306",
 ]
+ui = [
+    "streamlit>=1.30",
+]
 dev = [
     "pytest>=7.0",
 ]
