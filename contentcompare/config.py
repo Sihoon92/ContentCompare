@@ -78,9 +78,35 @@ class ExcelConfig:
 
 @dataclass
 class SimilarityConfig:
-    top_k: int = 5
-    min_score: float = 0.55
+    recall_k: int = 30
+    """1차 검색(임베딩·BM25)에서 각각 추려낼 후보 수."""
+
+    top_k: int = 10
+    """MMR 후 LLM 에 투입할 최종 후보 수."""
+
+    fusion: str = "rrf"
+    """후보 융합 방식: ``rrf``(임베딩+BM25) | ``cosine``(임베딩 단독)."""
+
+    rrf_k: int = 60
+    """RRF 상수(클수록 상위 순위 가중이 완만)."""
+
+    mmr_lambda: float = 0.5
+    """MMR 관련도/다양성 가중(1=관련도만, 0=다양성만)."""
+
+    per_doc_cap: int = 4
+    """한 대상 문서가 최종 후보를 독식하지 않도록 문서별 상한."""
+
+    rerank: bool = False
+    """교차 인코더 재랭킹 사용 여부(Phase 2.5, 기본 off)."""
+
+    cache_dir: str = ".cache/embeddings"
+    """임베딩 디스크 캐시 경로(빈 문자열이면 캐시 비활성)."""
+
     chunk_chars: int = 800
+    """긴 항목 청킹 길이."""
+
+    min_score: float = 0.0
+    """``fusion=cosine`` 일 때 코사인 임계값(rrf 에서는 사실상 미사용)."""
 
 
 @dataclass

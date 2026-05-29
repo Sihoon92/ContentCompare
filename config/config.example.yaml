@@ -26,9 +26,16 @@ excel:
   max_rows: null            # 비교할 최대 row 수(null=전체)
 
 similarity:
-  top_k: 5                 # 항목당 LLM 에 투입할 후보 수
-  min_score: 0.55          # 코사인 유사도 임계값(미만이면 후보 제외)
+  recall_k: 30             # 1차 검색(임베딩·BM25)에서 각각 추릴 후보 수
+  top_k: 10                # MMR 후 LLM 에 투입할 최종 후보 수
+  fusion: rrf              # rrf(임베딩+BM25) | cosine(임베딩 단독)
+  rrf_k: 60                # RRF 상수
+  mmr_lambda: 0.5          # MMR 관련도/다양성 가중(1=관련도, 0=다양성)
+  per_doc_cap: 4           # 한 대상 문서의 최종 후보 상한
+  rerank: false            # 교차 인코더 재랭킹(Phase 2.5, 기본 off)
+  cache_dir: .cache/embeddings  # 임베딩 디스크 캐시(빈 값이면 비활성)
   chunk_chars: 800         # 긴 항목 청킹 길이
+  min_score: 0.0           # fusion=cosine 일 때만 쓰는 코사인 임계값
 
 report:
   format: markdown

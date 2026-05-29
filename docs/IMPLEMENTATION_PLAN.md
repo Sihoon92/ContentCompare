@@ -85,7 +85,14 @@ excel:
 
 ---
 
-## Phase 2 — 하이브리드 검색 + 캐시
+## Phase 2 — 하이브리드 검색 + 캐시 ✅ (완료)
+
+> 구현 요약: `tokenize`/`bm25`/`fusion`(RRF)/`mmr`/`cache`/`hybrid_index` 신규.
+> 모두 순수 파이썬(numpy 무의존). `HybridIndex` = 임베딩 코사인 + BM25 → RRF → MMR+per_doc_cap.
+> `CachedEmbedder` 로 재실행 시 임베딩 0비용. 파이프라인이 `HybridIndex`+캐시 사용하도록 교체.
+> `tests/test_hybrid_search.py` 13케이스 통과(어휘매칭/RRF합의/MMR다양성·상한/캐시히트).
+> 재랭커(rerank)는 토글만 마련(기본 off) — Phase 2.5.
+
 
 ### 새 모듈 `similarity/`
 - [ ] `bm25.py`: 경량 BM25(Okapi). 한글 토크나이즈는 공백+자모 분해 최소화(의존성 없이), 추후 형태소기 교체 가능 인터페이스.

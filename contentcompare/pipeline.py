@@ -18,7 +18,7 @@ from .config import AppConfig
 from .llm import build_clients
 from .models import ComparisonResult, DocItem
 from .readers import get_reader
-from .similarity import VectorIndex, chunk_items
+from .similarity import CachedEmbedder, HybridIndex, chunk_items
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +49,22 @@ class ComparePipeline:
             logger.info("대상 항목 %d개 추출: %s", len(items), path)
             target_items.extend(items)
 
-        # 2) 임베딩 인덱스 구축 (청킹 후)
-        chunks = chunk_items(target_items, self.config.similarity.chunk_chars)
-        index = VectorIndex(self.embedder)
+        # 2) 하이브리드 인덱스 구축 (청킹 후, 임베딩 캐시 적용)
+        sim = self.config.similarity
+        chunks = chunk_items(target_items, sim.chunk_chars)
+        embedder = CachedEmbedder(
+            self.embedder, sim.cache_dir, model_name=self.config.llm.embed_model
+        )
+        index = HybridIndex(
+            embedder,
+            fusion=sim.fusion,
+            rrf_k=sim.rrf_k,
+            mmr_lambda=sim.mmr_lambda,
+            per_doc_cap=sim.per_doc_cap,
+            min_score=sim.min_score,
+        )
         index.add(chunks)
-        logger.info("임베딩 인덱스 구축 완료: 벡터 %d개", len(index))
+        logger.info("하이브리드 인덱스 구축 완료: 벡터 %d개", len(index))
 
         # 3~4) 기준 항목 순차 비교
         results: list[ComparisonResult] = []
@@ -63,8 +74,8 @@ class ComparePipeline:
                 continue
             candidates = index.search(
                 ref.text,
-                top_k=self.config.similarity.top_k,
-                min_score=self.config.similarity.min_score,
+                recall_k=sim.recall_k,
+                top_k=sim.top_k,
             )
             result = self.comparator.compare(ref, candidates)
             results.append(result)
