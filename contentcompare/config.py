@@ -46,7 +46,32 @@ class LLMConfig:
 
 @dataclass
 class ExcelConfig:
+    granularity: str = "hybrid"
+    """비교 분해 단위: ``row`` | ``field`` | ``hybrid``.
+
+    - row    : 행 전체를 하나의 비교 단위(DocItem)로.
+    - field  : 셀 하나를 독립 비교 단위로(키 문맥 포함).
+    - hybrid : 행=검색 단위(RecordItem), 셀=판정 단위(FieldClaim). 기본값.
+    """
+
     header_row: int = 1
+    """헤더가 시작하는 행(1-based, 절대 위치)."""
+
+    header_rows: int = 1
+    """헤더가 차지하는 행 수(다단 헤더 지원). ``header_row`` 부터 이 수만큼."""
+
+    key_columns: list = field(default_factory=list)
+    """행을 식별하는 키 컬럼들. 헤더명(str) 또는 1-based 인덱스(int). 비면 자동 추정."""
+
+    compare_columns: Optional[list] = None
+    """비교 대상 컬럼들. None 이면 키/스킵 제외 전체. 헤더명 또는 1-based 인덱스."""
+
+    skip_columns: list = field(default_factory=list)
+    """비교에서 완전히 제외할 컬럼들. 헤더명 또는 1-based 인덱스."""
+
+    value_as_displayed: bool = True
+    """True 면 화면 표시 문자열(서식 적용)을 비교에 사용, False 면 원시값."""
+
     max_rows: Optional[int] = None
     """비교할 최대 row 수(None=전체)."""
 

@@ -35,7 +35,12 @@
 
 ---
 
-## Phase 1 — 엑셀 hybrid 분해 + 리더 하드닝
+## Phase 1 — 엑셀 hybrid 분해 + 리더 하드닝 ✅ (완료)
+
+> 구현 요약: COM I/O(`_extract_grid`)와 순수 파싱(`_parse_sheet(SheetGrid)`)을 분리해
+> Excel 없이 단위테스트 가능. `tests/test_excel_reader.py` 18케이스 통과.
+> 표시문자/병합셀은 COM 계층에서 best-effort 처리(예외 시 폴백).
+
 
 ### 모델 추가 (`models.py`)
 ```python

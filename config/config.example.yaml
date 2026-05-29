@@ -16,8 +16,14 @@ llm:
     verify_ssl: false
 
 excel:
-  header_row: 1            # 헤더가 위치한 행(1-based). 이 행 다음부터 비교.
-  max_rows: null           # 비교할 최대 row 수(null=전체)
+  granularity: hybrid       # row | field | hybrid (행=검색, 셀=판정)
+  header_row: 1             # 헤더가 시작하는 행(1-based)
+  header_rows: 1            # 헤더가 차지하는 행 수(다단 헤더면 2 이상)
+  key_columns: []           # 행 식별 키. 헤더명 또는 1-based 인덱스. 비면 자동 추정
+  compare_columns: null     # 비교 대상 컬럼. null=키/스킵 제외 전체
+  skip_columns: []          # 비교 제외 컬럼(헤더명/인덱스)
+  value_as_displayed: true  # 화면 표시문자(서식 적용)로 비교. false=원시값
+  max_rows: null            # 비교할 최대 row 수(null=전체)
 
 similarity:
   top_k: 5                 # 항목당 LLM 에 투입할 후보 수

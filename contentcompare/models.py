@@ -46,6 +46,44 @@ class DocItem:
 
 
 @dataclass
+class FieldClaim:
+    """엑셀 셀 하나 = 하나의 검증 대상 주장(예: 매출액=1,200).
+
+    레코드(행)는 검색 단위, 필드(셀)는 판정 단위다(엑셀 hybrid 분해, 기획).
+    """
+
+    field_id: str
+    """문서 내 안정 식별자 (예: ``기준.xlsx#Sheet1!D5``)."""
+
+    header: str
+    """컬럼 헤더 라벨(다단 헤더는 ``2024>매출`` 처럼 결합)."""
+
+    value_raw: Any
+    """원본 셀 값(숫자/문자/날짜 등)."""
+
+    value_norm: str
+    """비교용 정규화 문자열(콤마/통화기호 제거, 단위 보존)."""
+
+    cell_ref: str
+    """A1 표기 셀 주소 (예: ``D5``)."""
+
+
+@dataclass
+class RecordItem(DocItem):
+    """엑셀 한 행을 나타내는 검색 단위. 내부에 셀 단위 :class:`FieldClaim` 들을 가진다.
+
+    :class:`DocItem` 을 그대로 상속하므로 임베딩/검색 파이프라인에서는 일반 항목처럼
+    다뤄지고, 필드별 판정(Phase 3)에서는 ``fields`` 를 사용한다.
+    """
+
+    key_context: str = ""
+    """행을 식별하는 키 컬럼 문맥 (예: ``[제품명=A, 연도=2023]``)."""
+
+    fields: list[FieldClaim] = field(default_factory=list)
+    """비교 대상 셀(주장)들."""
+
+
+@dataclass
 class Candidate:
     """임베딩 유사도 검색으로 찾은 후보."""
 
