@@ -16,13 +16,14 @@ from typing import Callable, Optional
 from .comparison import Comparator
 from .config import AppConfig
 from .llm import build_clients
-from .models import ComparisonResult, DocItem
+from .models import ComparisonResult, DocItem, RecordItem, RecordResult
 from .readers import get_reader
 from .similarity import CachedEmbedder, HybridIndex, chunk_items
 
 logger = logging.getLogger(__name__)
 
-ProgressFn = Callable[[int, int, ComparisonResult], None]
+CompareResult = ComparisonResult | RecordResult
+ProgressFn = Callable[[int, int, CompareResult], None]
 
 
 class ComparePipeline:
@@ -38,7 +39,7 @@ class ComparePipeline:
         target_paths: list[str],
         *,
         progress: Optional[ProgressFn] = None,
-    ) -> list[ComparisonResult]:
+    ) -> list[CompareResult]:
         # 1) 문서 읽기
         reference_items = self._read(reference_path)
         logger.info("기준 항목 %d개 추출: %s", len(reference_items), reference_path)
@@ -67,7 +68,7 @@ class ComparePipeline:
         logger.info("하이브리드 인덱스 구축 완료: 벡터 %d개", len(index))
 
         # 3~4) 기준 항목 순차 비교
-        results: list[ComparisonResult] = []
+        results: list[CompareResult] = []
         total = len(reference_items)
         for i, ref in enumerate(reference_items, start=1):
             if ref.is_empty():
@@ -77,7 +78,11 @@ class ComparePipeline:
                 recall_k=sim.recall_k,
                 top_k=sim.top_k,
             )
-            result = self.comparator.compare(ref, candidates)
+            # 엑셀 hybrid/field: 필드를 가진 RecordItem 이면 필드별 판정.
+            if isinstance(ref, RecordItem) and ref.fields:
+                result: CompareResult = self.comparator.compare_record(ref, candidates)
+            else:
+                result = self.comparator.compare(ref, candidates)
             results.append(result)
             if progress:
                 progress(i, total, result)

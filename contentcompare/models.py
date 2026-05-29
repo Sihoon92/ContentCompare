@@ -119,3 +119,62 @@ class ComparisonResult:
         """매칭된 후보들의 출처 라벨 목록."""
         by_id = {c.item.item_id: c.item.source_label for c in self.candidates}
         return [by_id[i] for i in self.matched_item_ids if i in by_id]
+
+
+@dataclass
+class FieldResult:
+    """필드(셀) 1건에 대한 판정 결과 (엑셀 hybrid 판정 단위)."""
+
+    field: "FieldClaim"
+    verdict: Verdict
+    reasoning: str
+    matched_item_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RecordResult:
+    """기준 레코드(행) 1건에 대한 비교 결과 — 필드별 판정들의 묶음.
+
+    리포트/요약에서는 :attr:`verdict`(필드 판정 집계)로 레코드 단위 상태를 보여준다.
+    """
+
+    record: DocItem
+    fields: list[FieldResult] = field(default_factory=list)
+    candidates: list[Candidate] = field(default_factory=list)
+
+    @property
+    def verdict(self) -> Verdict:
+        """필드 판정들을 레코드 단위로 집계."""
+        if not self.fields:
+            return Verdict.NOT_FOUND
+        counts = {v: 0 for v in Verdict}
+        for fr in self.fields:
+            counts[fr.verdict] += 1
+        total = len(self.fields)
+        if counts[Verdict.SAME] == total:
+            return Verdict.SAME
+        if counts[Verdict.NOT_FOUND] == total:
+            return Verdict.NOT_FOUND
+        if counts[Verdict.SAME] == 0 and counts[Verdict.PARTIAL] == 0 and counts[Verdict.DIFFERENT] > 0:
+            return Verdict.DIFFERENT
+        return Verdict.PARTIAL
+
+    @property
+    def matched_item_ids(self) -> list[str]:
+        """모든 필드에서 매칭된 후보 id 의 합집합(순서 보존)."""
+        seen: list[str] = []
+        for fr in self.fields:
+            for i in fr.matched_item_ids:
+                if i not in seen:
+                    seen.append(i)
+        return seen
+
+    @property
+    def reference(self) -> DocItem:
+        """리포트 호환용 별칭(기준 항목)."""
+        return self.record
+
+    @property
+    def sources(self) -> list[str]:
+        by_id = {c.item.item_id: c.item.source_label for c in self.candidates}
+        return [by_id[i] for i in self.matched_item_ids if i in by_id]

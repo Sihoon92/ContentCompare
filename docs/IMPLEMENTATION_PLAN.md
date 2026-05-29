@@ -126,7 +126,14 @@ similarity:
 
 ---
 
-## Phase 3 — LLM 비교 강화 (필드별 판정)
+## Phase 3 — LLM 비교 강화 (필드별 판정) ✅ (완료)
+
+> 구현 요약: `RECORD_SYSTEM_PROMPT`+`build_record_prompt`(레코드+필드목록+후보→필드별 JSON),
+> `Comparator.compare_record() -> RecordResult`(필드별 verdict/매칭/사유, 잘못된 매칭id 필터,
+> 누락 필드는 different 표시, 후보 0개면 LLM 없이 전필드 not_found), `_complete_json` 1회 재요청 폴백.
+> `models`: `FieldResult`/`RecordResult`(필드 판정 집계 verdict). 리포트는 레코드별 필드 표 렌더.
+> 파이프라인이 RecordItem이면 compare_record 로 분기. `tests/test_field_comparison.py` 7케이스.
+
 
 ### `comparison/`
 - [ ] `prompts.py`: 레코드+필드목록+후보10개 → **필드별 JSON 배열** 요구.
