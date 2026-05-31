@@ -5,6 +5,8 @@ llm:
   chat_model: qwen2.5:14b
   embed_model: bge-m3
   timeout: 120
+  max_retries: 3           # 일시 오류(연결/타임아웃/5xx/429) 재시도 횟수
+  backoff_base: 2          # 지수 백오프 기준(2 → 2s,4s,8s,…)
 
   ollama:
     host: http://localhost:11434
@@ -14,6 +16,7 @@ llm:
     api_key_env: INTERNAL_LLM_API_KEY   # API 키가 담긴 환경변수 이름
     unset_proxy: true      # true 면 호출 시 HTTP_PROXY/HTTPS_PROXY 를 비움
     verify_ssl: false
+    log_proxy: false       # true 면 호출 직전 적용 프록시 env 를 로그로 출력
 
 excel:
   granularity: hybrid       # row | field | hybrid (행=검색, 셀=판정)

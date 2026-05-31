@@ -4,9 +4,11 @@
 "내용이 같은지/다른지", "같다면 어디에 있는지(출처)", "다르다면 무엇이 왜 다른지"를
 LLM 으로 분석·서술해 주는 에이전트 서비스입니다.
 
-> 현재 단계: **설계 + 골격(skeleton)**. 인터페이스/파이프라인/설정 구조가 완성되어 있으며,
-> 무거운 로직(임베딩 호출, LLM 호출 본문, win32com/xlwings 실제 파싱)은 명확한 `TODO` 로
-> 표시되어 있습니다. 실제 실행은 Windows + MS Office(Excel/Word/PowerPoint) 환경이 필요합니다.
+> 현재 단계: **엔진 + 웹 UI 구현 완료**. 엑셀 hybrid 분해 → 하이브리드 검색(임베딩+BM25 RRF)
+> → 필드별 LLM 판정 → 리포트, Streamlit UI, 재시도/타임아웃 HTTP 까지 구현·테스트되어 있습니다.
+> (남은 환경 의존부: win32com 기반 Word/PPT 실제 파싱.) 실제 실행은 Windows + MS Office 환경이 필요합니다.
+> 단계별 진행 현황은 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md), 사용법은
+> [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) 참고.
 
 ## 핵심 설계 포인트 (기획 대응)
 

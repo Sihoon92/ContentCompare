@@ -32,6 +32,8 @@ class InternalConfig:
     unset_proxy: bool = True
     """True 면 사내 호출 시 HTTP(S)_PROXY 를 빈 값으로 만든다."""
     verify_ssl: bool = False
+    log_proxy: bool = False
+    """True 면 호출 직전 적용되는 프록시 환경변수를 로그로 남긴다(우회 실검증용)."""
 
 
 @dataclass
@@ -40,6 +42,10 @@ class LLMConfig:
     chat_model: str = "qwen2.5:14b"
     embed_model: str = "bge-m3"
     timeout: float = 120.0
+    max_retries: int = 3
+    """일시 오류(연결/타임아웃/5xx/429) 재시도 횟수."""
+    backoff_base: float = 2.0
+    """재시도 지수 백오프 기준(2 → 2s,4s,8s,…)."""
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     internal: InternalConfig = field(default_factory=InternalConfig)
 

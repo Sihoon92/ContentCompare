@@ -140,8 +140,9 @@ report:
 확정된 방향: 엑셀 **hybrid 분해**(행 검색 + 필드 판정), **하이브리드 검색**(임베딩+BM25 RRF)+캐시,
 **Streamlit 로컬 UI**.
 
-- [ ] Phase 1: 엑셀 hybrid 분해 + 리더 하드닝
-- [ ] Phase 2: 하이브리드 검색(RRF/MMR) + 임베딩 디스크 캐시
-- [ ] Phase 3: LLM 필드별 비교 판정 + JSON 강제/폴백
-- [ ] Phase 4: Streamlit 로컬 UI
-- [ ] Phase 5: 백엔드 HTTP 마감(재시도/타임아웃) + 패키징/매뉴얼
+- [x] Phase 1: 엑셀 hybrid 분해 + 리더 하드닝
+- [x] Phase 2: 하이브리드 검색(RRF/MMR) + 임베딩 디스크 캐시
+- [x] Phase 3: LLM 필드별 비교 판정 + JSON 강제/폴백
+- [x] Phase 4: Streamlit 로컬 UI
+- [x] Phase 5: 백엔드 HTTP 마감(재시도/타임아웃) + 패키징/매뉴얼
+- [ ] 잔여: win32com 기반 Word/PPT 실제 파싱(환경 의존)

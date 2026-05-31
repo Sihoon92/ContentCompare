@@ -176,7 +176,15 @@ similarity:
 
 ---
 
-## Phase 5 — 백엔드 마감 / 패키징 / 문서
+## Phase 5 — 백엔드 마감 / 패키징 / 문서 ✅ (완료)
+
+> 구현 요약: `llm/http.py`(공용 post_json — 일시오류 지수백오프 재시도/타임아웃/
+> 명확한 LLMRequestError/안전한 extract). Ollama·Internal 백엔드가 공유, poster/sleep
+> 주입으로 네트워크 없이 테스트. `LLMConfig.max_retries/backoff_base`,
+> `InternalConfig.log_proxy`(프록시 우회 실검증 로깅). `docs/USER_GUIDE.md` 매뉴얼.
+> `tests/test_llm_http.py` 14케이스.
+
+### (원래 계획 항목)
 
 - [ ] Ollama·Internal HTTP 재시도(지수백오프)·타임아웃·에러 메시지
 - [ ] 사내 프록시 우회 실검증 체크리스트(요청 직전 env 확인 로깅 옵션)
