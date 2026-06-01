@@ -128,8 +128,19 @@ contentcompare ^
 ```bash
 streamlit run app\streamlit_app.py
 ```
-브라우저(localhost)에서 사이드바 설정 → 기준/대상 업로드(또는 경로 입력) →
-**비교 실행** → 필드별 판정 표 확인 → 리포트 `.md` 다운로드.
+사이드바에서:
+1. **config.yaml 경로** 입력 후 **📂 설정 불러오기** → 파일의 값이 위젯에 그대로 채워집니다.
+2. LLM 백엔드(ollama/internal/**langchain**)·모델·base_url·api_key, **임베딩 백엔드**
+   (fastembed/onnx/ollama 등)·모델/폴더 경로를 조정.
+3. **🔌 LLM 연결 테스트**로 확인.
+
+본문에서 **기준 엑셀 경로**와 **대상 폴더 경로**를 입력하고 **🚀 비교 실행** →
+필드별 판정 표 확인 → 리포트 `.md` 다운로드.
+
+> 파일 **업로드** 시 `Failed to fetch dynamically imported module` 오류가 나면(사내망/프록시
+> 환경에서 종종 발생): 브라우저 강력 새로고침(Ctrl+Shift+R), `pip install -U streamlit`,
+> 그래도 안 되면 **업로드 대신 경로 입력**을 사용하세요(권장). 저장소의 `.streamlit/config.toml`
+> 에 우회 옵션(enableXsrfProtection/enableCORS=false)이 준비되어 있습니다.
 
 ## 5. 결과 보는 법
 

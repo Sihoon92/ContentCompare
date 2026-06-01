@@ -1,0 +1,12 @@
+# Streamlit 로컬 실행 설정.
+# 사내망/프록시 환경에서 파일 업로더의 'Failed to fetch dynamically imported module'
+# 오류가 날 때 아래 설정이 도움이 될 수 있다(로컬 localhost 전용 권장).
+
+[server]
+headless = true
+# 리버스 프록시/사내망 뒤에서 업로드가 막히면 아래 둘을 false 로(로컬에서만 사용).
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false

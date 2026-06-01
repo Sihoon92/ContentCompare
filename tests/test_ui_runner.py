@@ -41,6 +41,41 @@ def test_build_config_defaults_when_none():
     assert cfg.excel.granularity == "hybrid"
 
 
+def test_build_config_embedding_and_internal_overrides():
+    cfg = runner.build_config(
+        backend="langchain",
+        embed_backend="onnx",
+        embed_model_path=r"C:\m\e5-onnx",
+        embed_prefix="query: ",
+        base_url="https://api/v1",
+        api_key="sk-1",
+    )
+    assert cfg.llm.backend == "langchain"
+    assert cfg.llm.embed_backend == "onnx"
+    assert cfg.llm.embed_model_path == r"C:\m\e5-onnx"
+    assert cfg.llm.embed_prefix == "query: "
+    assert cfg.llm.internal.base_url == "https://api/v1"
+    assert cfg.llm.internal.api_key == "sk-1"
+
+
+def test_config_to_state_roundtrip():
+    cfg = runner.build_config(
+        backend="langchain", embed_backend="onnx",
+        embed_model_path="/m", base_url="https://api/v1",
+    )
+    state = runner.config_to_state(cfg)
+    assert state["backend"] == "langchain"
+    assert state["embed_backend"] == "onnx"
+    assert state["embed_model_path"] == "/m"
+    assert state["base_url"] == "https://api/v1"
+
+
+def test_config_to_state_empty_embed_backend_shows_same_label():
+    cfg = runner.build_config()  # embed_backend 비움
+    state = runner.config_to_state(cfg)
+    assert state["embed_backend"] == "(chat와 동일)"
+
+
 # --------------------------------------------------------------------------- #
 # 입력 파일
 # --------------------------------------------------------------------------- #

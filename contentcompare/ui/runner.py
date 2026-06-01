@@ -38,8 +38,17 @@ def build_config(
     top_k: Optional[int] = None,
     fusion: Optional[str] = None,
     rerank: Optional[bool] = None,
+    embed_backend: Optional[str] = None,
+    embed_model_path: Optional[str] = None,
+    embed_prefix: Optional[str] = None,
+    embed_cache_dir: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> AppConfig:
-    """기본 설정(파일/기본값)에 UI 입력을 덮어써 :class:`AppConfig` 를 만든다."""
+    """기본 설정(파일/기본값)에 UI 입력을 덮어써 :class:`AppConfig` 를 만든다.
+
+    None 인 인자는 건드리지 않으므로, config.yaml 에서 읽은 값이 그대로 유지된다.
+    """
     config = AppConfig.load(base)
     if backend is not None:
         config.llm.backend = backend
@@ -47,6 +56,18 @@ def build_config(
         config.llm.chat_model = chat_model
     if embed_model:
         config.llm.embed_model = embed_model
+    if embed_backend is not None:
+        config.llm.embed_backend = embed_backend
+    if embed_model_path is not None:
+        config.llm.embed_model_path = embed_model_path
+    if embed_prefix is not None:
+        config.llm.embed_prefix = embed_prefix
+    if embed_cache_dir is not None:
+        config.llm.embed_cache_dir = embed_cache_dir
+    if base_url:
+        config.llm.internal.base_url = base_url
+    if api_key:
+        config.llm.internal.api_key = api_key
     if granularity:
         config.excel.granularity = granularity
     if recall_k is not None:
@@ -58,6 +79,28 @@ def build_config(
     if rerank is not None:
         config.similarity.rerank = rerank
     return config
+
+
+def config_to_state(config: AppConfig) -> dict[str, Any]:
+    """AppConfig → UI 위젯 상태 dict. config.yaml 선택 시 그 값을 화면에 채운다."""
+    llm = config.llm
+    sim = config.similarity
+    return {
+        "backend": llm.backend,
+        "embed_backend": llm.embed_backend or "(chat와 동일)",
+        "chat_model": llm.chat_model,
+        "embed_model": llm.embed_model,
+        "embed_model_path": llm.embed_model_path,
+        "embed_prefix": llm.embed_prefix,
+        "embed_cache_dir": llm.embed_cache_dir,
+        "base_url": llm.internal.base_url,
+        "api_key": llm.internal.api_key,
+        "granularity": config.excel.granularity,
+        "recall_k": sim.recall_k,
+        "top_k": sim.top_k,
+        "fusion": sim.fusion,
+        "rerank": sim.rerank,
+    }
 
 
 # --------------------------------------------------------------------------- #
