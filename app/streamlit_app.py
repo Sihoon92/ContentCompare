@@ -194,6 +194,11 @@ def sidebar_config() -> AppConfig:
 # --------------------------------------------------------------------------- #
 def collect_inputs(tmp_dir: str):
     """기준 1개 + 대상 N개의 (경로) 를 반환."""
+    st.info(
+        "💡 사내 보안(nasca)/DRM 문서는 **경로 입력**을 사용하세요. "
+        "업로드는 파일을 임시 폴더에 복사하는데, 보안정책이 이를 막거나(Permission denied) "
+        "DRM 문서는 원본 위치에서만 열리기 때문입니다. 경로 입력은 원본을 직접 엽니다."
+    )
     st.subheader("1) 기준 엑셀")
     ref_path = st.text_input("기준 엑셀 경로", value="", placeholder=r"C:\data\기준.xlsx").strip()
 
@@ -206,11 +211,11 @@ def collect_inputs(tmp_dir: str):
         st.caption(f"폴더에서 {len(found)}개 문서 발견")
         target_paths.extend(found)
 
-    # 업로드는 보조 수단(일부 사내망/브라우저에서 업로더 모듈 로딩 오류가 있을 수 있음).
-    with st.expander("📎 또는 파일 업로드 (경로 입력이 안 될 때)"):
+    # 업로드는 보조 수단(사내 보안/DRM, 업로더 모듈 오류 시 실패할 수 있음).
+    with st.expander("📎 또는 파일 업로드 (일반 환경에서만 권장)"):
         st.caption(
-            "업로드 시 'Failed to fetch dynamically imported module' 오류가 나면, "
-            "브라우저 새로고침(Ctrl+Shift+R) 후 다시 시도하거나 위의 경로 입력을 사용하세요."
+            "업로드는 파일을 임시 폴더에 복사합니다. 사내 보안(nasca)/DRM 환경에서는 "
+            "'Permission denied' 가 날 수 있으니 위의 경로 입력을 사용하세요."
         )
         ref_up = st.file_uploader("기준 엑셀", type=["xlsx", "xls", "xlsm"], key="ref_up")
         tgt_ups = st.file_uploader(
@@ -218,10 +223,17 @@ def collect_inputs(tmp_dir: str):
             type=["xlsx", "xls", "xlsm", "docx", "doc", "pptx", "ppt"],
             accept_multiple_files=True, key="tgt_ups",
         )
-        if ref_up is not None and not ref_path:
-            ref_path = runner.save_upload(ref_up.name, ref_up.getbuffer(), tmp_dir)
-        for up in tgt_ups or []:
-            target_paths.append(runner.save_upload(up.name, up.getbuffer(), tmp_dir))
+        try:
+            if ref_up is not None and not ref_path:
+                ref_path = runner.save_upload(ref_up.name, ref_up.getbuffer(), tmp_dir)
+            for up in tgt_ups or []:
+                target_paths.append(runner.save_upload(up.name, up.getbuffer(), tmp_dir))
+        except OSError as exc:
+            st.error(
+                f"업로드 파일 저장 실패: {exc}\n\n"
+                "사내 보안정책(nasca)/DRM 으로 임시 저장이 막혔을 수 있습니다. "
+                "업로드 대신 **위의 파일 경로 입력**을 사용하세요(원본을 직접 엽니다)."
+            )
 
     return ref_path, target_paths
 

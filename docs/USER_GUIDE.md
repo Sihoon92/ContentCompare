@@ -155,6 +155,7 @@ streamlit run app\streamlit_app.py
 |------|------|
 | `xlwings 가 필요합니다` | `pip install -e .[office]`, Excel 설치 여부 |
 | COM 권한/실행 오류 | 데스크톱 세션에서 실행, 다른 Excel 인스턴스 종료 |
+| 업로드 시 Permission denied | 사내 보안(nasca)/DRM 이 임시저장 차단 → **파일 경로 입력** 사용(원본 직접 오픈) |
 | 사내 LLM 연결 실패 | `unset_proxy`/`base_url`/API 키 env 확인, `log_proxy: true` 로 실제 프록시 확인 |
 | 타임아웃/간헐 실패 | `timeout` 상향, `max_retries` 확인(자동 지수 백오프 재시도) |
 | 임베딩 매번 느림 | `cache_dir` 설정 확인(파일 해시 기반 캐시 재사용) |
