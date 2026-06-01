@@ -33,11 +33,19 @@ def main() -> int:
         print("[설치 필요] pip install fastembed")
         return 2
 
+    # 오프라인(사내망): 미리 받아둔 모델 폴더 지정.
+    cache_dir = os.environ.get("EMBED_CACHE_DIR", "")
+    kwargs = {"cache_dir": cache_dir} if cache_dir else {}
+
     print(f"- 모델: {model_name}")
-    print("  (최초 실행 시 모델 다운로드가 일어날 수 있습니다)\n")
+    if cache_dir:
+        print(f"- 캐시 폴더: {cache_dir} (오프라인)")
+    else:
+        print("  (최초 실행 시 모델 다운로드가 일어날 수 있습니다)")
+    print()
 
     try:
-        model = TextEmbedding(model_name=model_name)
+        model = TextEmbedding(model_name=model_name, **kwargs)
     except Exception as exc:  # noqa: BLE001 - 미지원 모델 등
         print(f"❌ 모델 로드 실패: {exc}\n")
         names = [

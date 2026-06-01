@@ -50,6 +50,11 @@ class LLMConfig:
     """
     chat_model: str = "qwen2.5:14b"
     embed_model: str = "bge-m3"
+    embed_cache_dir: str = ""
+    """fastembed 모델 캐시 폴더. 오프라인(사내망)이면 미리 받은 폴더를 지정.
+
+    비우면 fastembed 기본 캐시(~/.cache/fastembed)를 쓰며 최초 1회 다운로드한다.
+    """
     timeout: float = 120.0
     max_retries: int = 3
     """일시 오류(연결/타임아웃/5xx/429) 재시도 횟수."""

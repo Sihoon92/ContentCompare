@@ -7,6 +7,7 @@ llm:
   chat_model: qwen2.5:14b
   embed_model: bge-m3      # fastembed 면 지원모델명 사용. 다국어 권장: intfloat/multilingual-e5-large
                            # (미지원 에러 시 메시지의 '지원 목록' 참고, 또는 pip install -U fastembed)
+  embed_cache_dir: ""      # 오프라인(사내망): 미리 받아둔 fastembed 모델 폴더 경로
   timeout: 120
   max_retries: 3           # 일시 오류(연결/타임아웃/5xx/429) 재시도 횟수
   backoff_base: 2          # 지수 백오프 기준(2 → 2s,4s,8s,…)

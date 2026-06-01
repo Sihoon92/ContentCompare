@@ -75,6 +75,29 @@ llm:
 ```
 대안: `embed_backend: ollama` (로컬 Ollama 의 `bge-m3` 등 사용).
 
+#### 오프라인(사내망에서 HuggingFace 차단 시) 임베딩 모델 직접 받기
+fastembed 는 첫 실행 때 HF 에서 모델을 받습니다. 사내망에서 막히면 **인터넷 되는
+PC 에서 미리 받아 폴더째 복사**하세요.
+
+1) 인터넷 PC:
+```bash
+pip install fastembed
+python scripts/download_embed_model.py intfloat/multilingual-e5-large ./fastembed_models
+```
+2) `./fastembed_models` 폴더를 사내 PC 로 복사.
+3) 사내 PC config:
+```yaml
+llm:
+  embed_backend: fastembed
+  embed_model: intfloat/multilingual-e5-large
+  embed_cache_dir: C:\path\to\fastembed_models   # ← 복사한 폴더
+```
+4) 확인(오프라인):
+```bash
+set EMBED_CACHE_DIR=C:\path\to\fastembed_models
+python scripts\embed_test.py intfloat/multilingual-e5-large
+```
+
 ### CLI
 ```bash
 contentcompare ^

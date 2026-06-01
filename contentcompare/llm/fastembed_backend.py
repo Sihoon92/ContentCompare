@@ -52,8 +52,12 @@ class FastEmbedBackend:
                     "fastembed 가 필요합니다: pip install -e .[fastembed]"
                 ) from exc
             name = self.config.embed_model or _DEFAULT_MODEL
+            kwargs: dict[str, Any] = {}
+            if self.config.embed_cache_dir:
+                # 오프라인: 미리 받아둔 모델 폴더를 사용(다운로드 시도 안 함).
+                kwargs["cache_dir"] = self.config.embed_cache_dir
             try:
-                self._model = TextEmbedding(model_name=name)
+                self._model = TextEmbedding(model_name=name, **kwargs)
             except (ValueError, KeyError) as exc:  # 미지원 모델명
                 supported = _supported_names(TextEmbedding)
                 hint = ", ".join(supported) if supported else "(목록 조회 실패)"
