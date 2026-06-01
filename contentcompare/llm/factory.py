@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from ..config import AppConfig
+from ..config import AppConfig, disable_proxy
 from .base import EmbeddingClient, LLMClient
 from .internal import InternalBackend
 from .ollama import OllamaBackend
@@ -16,6 +16,10 @@ from .ollama import OllamaBackend
 def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
     """(chat_client, embedding_client) 튜플을 반환한다."""
     backend = config.llm.backend.lower()
+    # 사내망 직결 설정이면 프로세스 전역에서 프록시를 영구히 비운다(복원 없음).
+    if backend in ("internal", "langchain") and config.llm.internal.unset_proxy:
+        disable_proxy()
+
     if backend == "ollama":
         obj = OllamaBackend(config.llm)
     elif backend == "internal":

@@ -17,7 +17,7 @@ llm:
     base_url: https://llm.intra.corp/v1
     api_key: ""            # 키를 직접 지정(간단). 비우면 api_key_env 사용
     api_key_env: INTERNAL_LLM_API_KEY   # 위가 비었을 때 읽을 환경변수 이름
-    unset_proxy: true      # true 면 호출 시 HTTP_PROXY/HTTPS_PROXY 를 비움
+    unset_proxy: true      # true 면 시작 시 HTTP(S)_PROXY 를 전역으로 비움(복원 없음)
     verify_ssl: false
     log_proxy: false       # true 면 호출 직전 적용 프록시 env 를 로그로 출력
 

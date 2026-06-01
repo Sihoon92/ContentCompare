@@ -164,12 +164,22 @@ class AppConfig:
 _PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 
 
+def disable_proxy() -> None:
+    """프로세스 전역에서 HTTP(S)_PROXY 를 빈 값으로 만든다(복원하지 않음).
+
+    사내망 직결을 위해 프로그램 시작 시 한 번 호출하면, 이후 실행 내내
+    프록시를 거치지 않는다(기획 1번). 멱등적이라 여러 번 불러도 안전하다.
+    """
+    for k in _PROXY_VARS:
+        os.environ[k] = ""
+
+
 @contextlib.contextmanager
 def no_proxy() -> Iterator[None]:
     """블록 동안 HTTP(S)_PROXY 를 빈 값으로 만들고, 빠져나오면 복원한다.
 
-    사내 LLM 호출처럼 프록시를 우회해야 하는 구간에만 적용해 다른 외부 호출에
-    영향을 주지 않도록 한다(기획 1번).
+    :func:`disable_proxy` 가 전역으로 비우는 것과 달리, 특정 호출 구간에만
+    적용하고 복원하는 안전망 컨텍스트다.
     """
     saved = {k: os.environ.get(k) for k in _PROXY_VARS}
     try:
