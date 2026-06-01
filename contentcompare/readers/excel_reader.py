@@ -246,14 +246,31 @@ class ExcelReader:
     def _parse_sheet(self, grid: SheetGrid, doc_id: str) -> list[DocItem]:
         """SheetGrid → 항목 리스트. granularity 에 따라 분해 방식이 달라진다."""
         cfg = self.config
+        ncols = max((len(r) for r in grid.values), default=0)
+
+        # 상위 행 미리보기 로그 — 엑셀을 어떻게 인식하는지 확인용.
+        preview = min(8, len(grid.values))
+        logger.info("[Excel] 시트 '%s' 상위 %d행 미리보기 (ncols=%d):", grid.name, preview, ncols)
+        for r in range(preview):
+            cells = [_cell_text(v) for v in grid.values[r][:12]]
+            logger.info("  행 %d: %s", grid.first_row + r, cells)
+
         # 헤더/본문 인덱스를 그리드 시작행 기준 상대 인덱스로 환산.
-        header_start = (cfg.header_row - grid.first_row)
-        header_end = header_start + max(1, cfg.header_rows)
+        header_start = cfg.header_row - grid.first_row
         if header_start < 0 or len(grid.values) <= header_start:
+            logger.warning("[Excel] header_row=%d 가 데이터 범위를 벗어남", cfg.header_row)
             return []
 
-        ncols = max((len(r) for r in grid.values), default=0)
+        # '대외비' 같은 전열 통합 배너행은 헤더가 아니므로 건너뛴다.
+        if cfg.skip_banner_rows:
+            header_start = self._skip_banner_rows(grid, header_start, ncols)
+
+        header_end = header_start + max(1, cfg.header_rows)
         headers = self._build_headers(grid.values[header_start:header_end], ncols)
+        logger.info(
+            "[Excel] 헤더 행 %d~%d → 결합 헤더: %s",
+            grid.first_row + header_start, grid.first_row + header_end - 1, headers,
+        )
 
         body = grid.values[header_end:]
         body_offset = header_end  # 그리드 상대 → 절대행 환산용
@@ -261,6 +278,11 @@ class ExcelReader:
             body = body[: cfg.max_rows]
 
         key_idx, compare_idx = self._resolve_columns(headers, ncols, body)
+        logger.info(
+            "[Excel] 키 컬럼=%s, 비교 컬럼=%s",
+            [headers[i] or f"col{i+1}" for i in key_idx],
+            [headers[i] or f"col{i+1}" for i in compare_idx],
+        )
 
         items: list[DocItem] = []
         for r_off, row in enumerate(body):
@@ -276,6 +298,27 @@ class ExcelReader:
             else:  # hybrid
                 items.append(item)
         return items
+
+    def _skip_banner_rows(self, grid: "SheetGrid", start: int, ncols: int) -> int:
+        """전열(全列) 통합 배너행(예: '대외비')을 건너뛴 헤더 시작 인덱스를 반환.
+
+        배너 = 모든 열이 채워져 있고 그 값이 전부 동일한 행(통합셀이 전체로 퍼진 경우).
+        멀티헤더의 상위행(예: 일부 열만 '정량규격')은 빈 열이 있어 배너로 보지 않는다.
+        """
+        r = start
+        while r < len(grid.values):
+            row = grid.values[r]
+            texts = [_cell_text(row[c]) if c < len(row) else "" for c in range(ncols)]
+            nonempty = [t for t in texts if t]
+            if ncols >= 2 and len(nonempty) == ncols and len(set(nonempty)) == 1:
+                logger.info(
+                    "[Excel] 배너행 건너뜀 (행 %d, 값='%s')",
+                    grid.first_row + r, nonempty[0],
+                )
+                r += 1
+                continue
+            break
+        return r
 
     def _build_headers(self, header_rows: list[list[Any]], ncols: int) -> list[str]:
         """다단 헤더를 컬럼별 단일 라벨로 결합. 가로 병합은 좌측값으로 전파."""

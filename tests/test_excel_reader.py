@@ -89,6 +89,47 @@ def test_first_row_offset_shifts_cell_refs():
 # --------------------------------------------------------------------------- #
 # 다단 헤더
 # --------------------------------------------------------------------------- #
+def test_skips_full_width_banner_row():
+    # 1행이 전열 통합 '대외비' 배너 → 헤더가 아니라 2행을 헤더로 인식해야 한다.
+    grid = _grid([
+        ["대외비", "대외비", "대외비"],
+        ["제품명", "매출액", "직원수"],
+        ["A", "1200", "50"],
+    ])
+    items = _reader(granularity="hybrid", key_columns=["제품명"]).\
+        _parse_sheet(grid, "기준.xlsx")
+    assert items[0].key_context == "[제품명=A]"
+    assert {f.header for f in items[0].fields} == {"매출액", "직원수"}
+
+
+def test_multi_header_group_label_combined():
+    # [정량규격] 이 3개 열(하한/중심/상한)을 묶는 멀티헤더.
+    grid = _grid([
+        ["", "정량규격", "정량규격", "정량규격"],
+        ["제품", "하한치", "중심치", "상한치"],
+        ["A", "1", "2", "3"],
+    ])
+    items = _reader(granularity="hybrid", header_rows=2, key_columns=["제품"]).\
+        _parse_sheet(grid, "기준.xlsx")
+    headers = {f.header for f in items[0].fields}
+    assert headers == {"정량규격>하한치", "정량규격>중심치", "정량규격>상한치"}
+
+
+def test_banner_then_multi_header():
+    # 배너(대외비) + 멀티헤더 동시: 배너 건너뛰고 2줄 헤더 결합.
+    grid = _grid([
+        ["대외비", "대외비", "대외비", "대외비"],
+        ["", "정량규격", "정량규격", "정량규격"],
+        ["제품", "하한치", "중심치", "상한치"],
+        ["A", "1", "2", "3"],
+    ])
+    items = _reader(granularity="hybrid", header_rows=2, key_columns=["제품"]).\
+        _parse_sheet(grid, "기준.xlsx")
+    headers = {f.header for f in items[0].fields}
+    assert headers == {"정량규격>하한치", "정량규격>중심치", "정량규격>상한치"}
+    assert items[0].key_context == "[제품=A]"
+
+
 def test_multi_row_header_combines_labels():
     grid = _grid([
         ["구분", "2024", None, "2023"],   # 상위(가로 병합: None 은 좌측 전파)

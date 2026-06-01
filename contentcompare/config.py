@@ -87,6 +87,9 @@ class ExcelConfig:
     header_rows: int = 1
     """헤더가 차지하는 행 수(다단 헤더 지원). ``header_row`` 부터 이 수만큼."""
 
+    skip_banner_rows: bool = True
+    """'대외비'처럼 전체 열이 같은 값으로 통합된 배너행을 헤더에서 자동 제외."""
+
     key_columns: list = field(default_factory=list)
     """행을 식별하는 키 컬럼들. 헤더명(str) 또는 1-based 인덱스(int). 비면 자동 추정."""
 
