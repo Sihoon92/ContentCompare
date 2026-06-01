@@ -28,8 +28,8 @@ _EXT_MAP = {
 }
 
 
-def get_reader(path: str, config: AppConfig) -> DocumentReader:
-    """파일 확장자에 맞는 리더를 생성한다."""
+def get_reader(path: str, config: AppConfig, *, llm=None) -> DocumentReader:
+    """파일 확장자에 맞는 리더를 생성한다. llm 은 엑셀 헤더 자동 추정에 사용."""
     # 순환 import 방지를 위해 지연 import.
     from .excel_reader import ExcelReader
     from .ppt_reader import PptReader
@@ -38,7 +38,7 @@ def get_reader(path: str, config: AppConfig) -> DocumentReader:
     ext = os.path.splitext(path)[1].lower()
     kind = _EXT_MAP.get(ext)
     if kind == "excel":
-        return ExcelReader(config.excel)
+        return ExcelReader(config.excel, llm=llm)
     if kind == "word":
         return WordReader()
     if kind == "ppt":

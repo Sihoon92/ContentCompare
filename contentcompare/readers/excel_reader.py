@@ -122,8 +122,9 @@ class SheetGrid:
 # 리더
 # --------------------------------------------------------------------------- #
 class ExcelReader:
-    def __init__(self, config: ExcelConfig) -> None:
+    def __init__(self, config: ExcelConfig, *, llm=None) -> None:
         self.config = config
+        self.llm = llm  # auto_header 추정에 사용(없으면 규칙 기반)
 
     # ------------------------------ COM I/O ------------------------------- #
     def read(self, path: str) -> list[DocItem]:
@@ -255,17 +256,12 @@ class ExcelReader:
             cells = [_cell_text(v) for v in grid.values[r][:12]]
             logger.info("  행 %d: %s", grid.first_row + r, cells)
 
-        # 헤더/본문 인덱스를 그리드 시작행 기준 상대 인덱스로 환산.
-        header_start = cfg.header_row - grid.first_row
-        if header_start < 0 or len(grid.values) <= header_start:
-            logger.warning("[Excel] header_row=%d 가 데이터 범위를 벗어남", cfg.header_row)
+        # 헤더 시작/행수 결정(LLM 자동 추정 또는 규칙 기반).
+        header_start, header_rows_count = self._determine_header(grid, ncols)
+        if header_start is None:
             return []
 
-        # '대외비' 같은 전열 통합 배너행은 헤더가 아니므로 건너뛴다.
-        if cfg.skip_banner_rows:
-            header_start = self._skip_banner_rows(grid, header_start, ncols)
-
-        header_end = header_start + max(1, cfg.header_rows)
+        header_end = header_start + max(1, header_rows_count)
         headers = self._build_headers(grid.values[header_start:header_end], ncols)
         logger.info(
             "[Excel] 헤더 행 %d~%d → 결합 헤더: %s",
@@ -298,6 +294,34 @@ class ExcelReader:
             else:  # hybrid
                 items.append(item)
         return items
+
+    def _determine_header(self, grid: "SheetGrid", ncols: int):
+        """(header_start, header_rows) 를 결정. 실패 시 (None, 0).
+
+        auto_header + llm 이 있으면 LLM 으로 상위 행을 분석해 추정하고,
+        실패하거나 비활성이면 규칙 기반(header_row + 배너 건너뛰기)으로 폴백한다.
+        """
+        cfg = self.config
+        if cfg.auto_header and self.llm is not None:
+            from .header_detect import detect_header
+
+            preview = [[_cell_text(v) for v in row] for row in grid.values[:12]]
+            spec = detect_header(preview, self.llm)
+            if spec is not None:
+                logger.info(
+                    "[Excel] LLM 헤더 추정: 시작=행%d, 헤더 %d행",
+                    grid.first_row + spec.header_start, spec.header_rows,
+                )
+                return spec.header_start, spec.header_rows
+            logger.warning("[Excel] LLM 헤더 추정 실패 → 규칙 기반으로 폴백")
+
+        start = cfg.header_row - grid.first_row
+        if start < 0 or len(grid.values) <= start:
+            logger.warning("[Excel] header_row=%d 가 데이터 범위를 벗어남", cfg.header_row)
+            return None, 0
+        if cfg.skip_banner_rows:
+            start = self._skip_banner_rows(grid, start, ncols)
+        return start, cfg.header_rows
 
     def _skip_banner_rows(self, grid: "SheetGrid", start: int, ncols: int) -> int:
         """전열(全列) 통합 배너행(예: '대외비')을 건너뛴 헤더 시작 인덱스를 반환.

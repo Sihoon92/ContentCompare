@@ -31,6 +31,8 @@ copy config\config.example.yaml config\config.yaml
 | `llm.internal.unset_proxy` | 사내 호출 시 `HTTP(S)_PROXY` 비우기(직결) |
 | `llm.internal.log_proxy` | 호출 직전 적용 프록시 env 로깅(우회 실검증) |
 | `excel.granularity` | `hybrid`(행검색+셀판정) / `field` / `row` |
+| `excel.auto_header` | true 면 LLM 이 상위 행을 보고 헤더 시작/행수 자동 추정(대외비·멀티헤더 대응) |
+| `excel.header_rows` | 다단 헤더 행 수(예: 2 → '정량규격>하한치' 결합). auto_header=false 일 때 |
 | `excel.key_columns` | 행 식별 키(헤더명/인덱스). 비우면 자동 추정 |
 | `excel.compare_columns` / `skip_columns` | 비교/제외 컬럼 |
 | `similarity.recall_k` / `top_k` | 1차 후보 / LLM 투입 후보 수 |

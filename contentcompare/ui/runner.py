@@ -38,6 +38,7 @@ def build_config(
     chat_model: Optional[str] = None,
     embed_model: Optional[str] = None,
     granularity: Optional[str] = None,
+    auto_header: Optional[bool] = None,
     recall_k: Optional[int] = None,
     top_k: Optional[int] = None,
     fusion: Optional[str] = None,
@@ -74,6 +75,8 @@ def build_config(
         config.llm.internal.api_key = api_key
     if granularity:
         config.excel.granularity = granularity
+    if auto_header is not None:
+        config.excel.auto_header = auto_header
     if recall_k is not None:
         config.similarity.recall_k = recall_k
     if top_k is not None:
@@ -100,6 +103,7 @@ def config_to_state(config: AppConfig) -> dict[str, Any]:
         "base_url": llm.internal.base_url,
         "api_key": llm.internal.api_key,
         "granularity": config.excel.granularity,
+        "auto_header": config.excel.auto_header,
         "recall_k": sim.recall_k,
         "top_k": sim.top_k,
         "fusion": sim.fusion,

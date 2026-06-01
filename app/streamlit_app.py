@@ -46,6 +46,7 @@ _DEFAULTS = {
     "base_url": "https://llm.intra.corp/v1",
     "api_key": "",
     "granularity": "hybrid",
+    "auto_header": False,
     "recall_k": 30,
     "top_k": 10,
     "fusion": "rrf",
@@ -169,6 +170,8 @@ def sidebar_config() -> AppConfig:
     st.sidebar.subheader("검색/분해")
     st.sidebar.selectbox("엑셀 분해", GRANULARITY, key="granularity",
                          help="hybrid=행 검색+셀 판정, field=셀 단위, row=행 단위")
+    st.sidebar.checkbox("헤더 자동 추정(LLM)", key="auto_header",
+                        help="상위 행을 LLM 이 보고 헤더 시작/행수를 추정(대외비·멀티헤더 대응)")
     st.sidebar.slider("recall_k(1차 후보)", 5, 100, key="recall_k", step=5)
     st.sidebar.slider("top_k(LLM 투입)", 1, 30, key="top_k")
     st.sidebar.selectbox("검색 융합", FUSION, key="fusion")
@@ -188,6 +191,7 @@ def sidebar_config() -> AppConfig:
         base_url=st.session_state["base_url"],
         api_key=st.session_state["api_key"],
         granularity=st.session_state["granularity"],
+        auto_header=st.session_state["auto_header"],
         recall_k=st.session_state["recall_k"],
         top_k=st.session_state["top_k"],
         fusion=st.session_state["fusion"],

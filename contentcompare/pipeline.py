@@ -90,5 +90,5 @@ class ComparePipeline:
 
     # ------------------------------------------------------------------ #
     def _read(self, path: str) -> list[DocItem]:
-        reader = get_reader(path, self.config)
+        reader = get_reader(path, self.config, llm=self.llm)
         return reader.read(path)
