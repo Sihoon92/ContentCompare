@@ -31,16 +31,31 @@ def _rows():
 # detect_header
 # --------------------------------------------------------------------------- #
 def test_detect_header_parses_json():
-    llm = FixedLLM('{"header_start": 1, "header_rows": 1}')
+    llm = FixedLLM('{"header_start": 1, "header_rows": 1, "reason": "행1이 라벨"}')
     spec = detect_header(_rows(), llm)
     assert spec == HeaderSpec(header_start=1, header_rows=1)
     assert "행 0:" in llm.seen_user  # 미리보기가 프롬프트에 포함
 
 
 def test_detect_header_extracts_json_from_text():
-    llm = FixedLLM('분석 결과: {"header_start": 0, "header_rows": 2} 입니다')
+    rows = [["제품명", "매출액"], ["A", "1200"]]
+    llm = FixedLLM('분석 결과: {"header_start": 0, "header_rows": 1} 입니다')
+    spec = detect_header(rows, llm)
+    assert spec == HeaderSpec(header_start=0, header_rows=1)
+
+
+def test_detect_header_guard_skips_banner_even_if_llm_picks_it():
+    # LLM 이 배너(행0='대외비')를 헤더로 골라도 결정적으로 다음 행으로 보정.
+    llm = FixedLLM('{"header_start": 0, "header_rows": 1}')
     spec = detect_header(_rows(), llm)
-    assert spec == HeaderSpec(header_start=0, header_rows=2)
+    assert spec.header_start == 1
+
+
+def test_signal_hint_in_prompt():
+    llm = FixedLLM('{"header_start": 1, "header_rows": 1}')
+    detect_header(_rows(), llm)
+    # 배너 행에 대한 신호가 프롬프트에 포함되어야 한다.
+    assert "배너" in llm.seen_user
 
 
 def test_detect_header_bad_json_returns_none():
