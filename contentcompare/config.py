@@ -55,6 +55,13 @@ class LLMConfig:
 
     비우면 fastembed 기본 캐시(~/.cache/fastembed)를 쓰며 최초 1회 다운로드한다.
     """
+    embed_model_path: str = ""
+    """직접 받은 ONNX 임베딩 모델 폴더 경로(backend=onnx 일 때).
+
+    폴더에 model.onnx + tokenizer.json 이 있어야 한다. 다운로드 없이 로컬 사용.
+    """
+    embed_prefix: str = ""
+    """임베딩 입력 앞에 붙일 접두어. e5 계열은 'query: ' 를 권장."""
     timeout: float = 120.0
     max_retries: int = 3
     """일시 오류(연결/타임아웃/5xx/429) 재시도 횟수."""

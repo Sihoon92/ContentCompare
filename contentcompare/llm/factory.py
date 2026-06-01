@@ -14,7 +14,7 @@ from .base import EmbeddingClient, LLMClient
 from .internal import InternalBackend
 from .ollama import OllamaBackend
 
-_VALID = "ollama | internal | langchain | fastembed(embed 전용)"
+_VALID = "ollama | internal | langchain | fastembed/onnx(embed 전용)"
 
 
 def _make(backend: str, llm: LLMConfig):
@@ -32,6 +32,10 @@ def _make(backend: str, llm: LLMConfig):
         from .fastembed_backend import FastEmbedBackend
 
         return FastEmbedBackend(llm)
+    if backend in ("onnx", "local"):
+        from .local_onnx import LocalOnnxEmbedding
+
+        return LocalOnnxEmbedding(llm)
     raise ValueError(f"알 수 없는 LLM backend: {backend!r} ({_VALID})")
 
 

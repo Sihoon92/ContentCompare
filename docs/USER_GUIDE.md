@@ -98,6 +98,23 @@ set EMBED_CACHE_DIR=C:\path\to\fastembed_models
 python scripts\embed_test.py intfloat/multilingual-e5-large
 ```
 
+#### ONNX 파일을 직접 받아 폴더로 둔 경우 (가장 단순)
+HuggingFace 등에서 ONNX 모델 파일을 직접 받아 한 폴더(예: `multilingual-e5-large-onnx`)에
+두었다면, fastembed 캐시 구조와 무관하게 그 폴더를 바로 가리킬 수 있습니다.
+
+폴더에 필요한 파일: **`model.onnx`** (또는 `*.onnx` 하나) + **`tokenizer.json`**.
+
+```bash
+pip install -e .[onnx]     # onnxruntime + tokenizers + numpy
+```
+```yaml
+llm:
+  embed_backend: onnx
+  embed_model_path: C:\models\multilingual-e5-large-onnx   # ← 받은 폴더
+  embed_prefix: "query: "   # e5 계열 권장(없어도 동작)
+```
+폴더 위치는 어디든 상관없고, 경로만 맞으면 됩니다. 다운로드를 전혀 하지 않습니다.
+
 ### CLI
 ```bash
 contentcompare ^
