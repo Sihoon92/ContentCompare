@@ -50,7 +50,10 @@ class InternalBackend:
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
-        api_key = os.environ.get(self.config.internal.api_key_env, "")
+        # 직접 지정한 api_key 우선, 없으면 환경변수에서 읽는다.
+        api_key = self.config.internal.api_key or os.environ.get(
+            self.config.internal.api_key_env, ""
+        )
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         return headers

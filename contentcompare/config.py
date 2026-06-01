@@ -28,7 +28,10 @@ class OllamaConfig:
 @dataclass
 class InternalConfig:
     base_url: str = "https://llm.intra.corp/v1"
+    api_key: str = ""
+    """API 키를 직접 지정(간단). 보안상 비워두고 api_key_env 를 쓰는 것을 권장."""
     api_key_env: str = "INTERNAL_LLM_API_KEY"
+    """API 키가 담긴 환경변수 이름. api_key 가 비어있을 때 사용."""
     unset_proxy: bool = True
     """True 면 사내 호출 시 HTTP(S)_PROXY 를 빈 값으로 만든다."""
     verify_ssl: bool = False
