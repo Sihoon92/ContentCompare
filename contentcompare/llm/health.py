@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 from ..config import AppConfig
 from .base import EmbeddingClient, LLMClient
 from .factory import build_clients
+
+_PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 
 
 @dataclass
@@ -45,13 +48,13 @@ def check_llm(
 
     # 0) 대상 정보
     llm = config.llm
-    if llm.backend == "internal":
+    if llm.backend in ("internal", "langchain"):
         target = config.llm.internal.base_url
     else:
         target = config.llm.ollama.host
     results.append(CheckResult(f"백엔드={llm.backend}", True, target))
 
-    # 백엔드 생성
+    # 백엔드 생성 (internal/langchain + unset_proxy 면 이 시점에 프록시가 전역으로 비워짐)
     if chat_client is None or embed_client is None:
         try:
             built_chat, built_embed = build_clients(config)
@@ -60,6 +63,9 @@ def check_llm(
             return results
         chat_client = chat_client or built_chat
         embed_client = embed_client or built_embed
+
+    # 0-1) 프록시 상태(실제 비어 있는지 확인)
+    results.append(_proxy_result(config))
 
     # 1) chat 핑
     try:
@@ -87,3 +93,20 @@ def check_llm(
 
 def all_ok(results: list[CheckResult]) -> bool:
     return all(r.ok for r in results)
+
+
+def _proxy_result(config: AppConfig) -> CheckResult:
+    """현재 프로세스의 프록시 환경변수 상태를 점검 결과로 만든다."""
+    vals = {k: os.environ.get(k) for k in _PROXY_VARS}
+    nonempty = {k: v for k, v in vals.items() if v}
+    expect_empty = (
+        config.llm.backend in ("internal", "langchain")
+        and config.llm.internal.unset_proxy
+    )
+    if expect_empty:
+        ok = not nonempty
+        detail = "모두 비어있음 — 프록시 우회 적용됨" if ok else f"아직 설정됨: {nonempty}"
+    else:
+        ok = True
+        detail = str(nonempty) if nonempty else "(설정 없음)"
+    return CheckResult("프록시 env", ok, detail)

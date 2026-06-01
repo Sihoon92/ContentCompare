@@ -44,7 +44,7 @@ def _progress(i: int, total: int, result) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
+        level=logging.INFO if (args.verbose or args.check) else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
 
