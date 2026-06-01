@@ -67,8 +67,26 @@ def main() -> int:
         traceback.print_exc()
         return 1
 
-    print("✅ 연결 성공")
+    print("✅ chat 연결 성공")
     print("응답:", getattr(resp, "content", resp))
+
+    # (선택) 로컬 임베딩 테스트 — 사내 chat 이 임베딩을 제공하지 않을 때.
+    #   pip install fastembed
+    try:
+        from fastembed import TextEmbedding
+    except ImportError:
+        print("\n[임베딩 생략] 로컬 임베딩을 테스트하려면: pip install fastembed")
+        return 0
+
+    print("\n로컬 임베딩(fastembed) 테스트...")
+    try:
+        model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        vec = next(iter(model.embed(["연결 테스트"])))
+        print(f"✅ 임베딩 성공 — 차원 {len(vec.tolist())}")
+    except Exception:  # noqa: BLE001
+        print("❌ 임베딩 실패:")
+        traceback.print_exc()
+        return 1
     return 0
 
 

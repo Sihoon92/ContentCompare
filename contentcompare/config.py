@@ -41,7 +41,13 @@ class InternalConfig:
 
 @dataclass
 class LLMConfig:
-    backend: str = "ollama"  # "ollama" | "internal"
+    backend: str = "ollama"  # "ollama" | "internal" | "langchain"
+    embed_backend: str = ""
+    """임베딩 백엔드를 chat 과 다르게 쓸 때 지정.
+
+    비우면 backend 와 동일. 사내 chat 엔드포인트가 임베딩을 제공하지 않으면
+    ``fastembed``(로컬) 또는 ``ollama`` 를 지정해 분리한다.
+    """
     chat_model: str = "qwen2.5:14b"
     embed_model: str = "bge-m3"
     timeout: float = 120.0

@@ -1,9 +1,11 @@
 # ContentCompare 설정 예시. config.yaml 로 복사 후 환경에 맞게 수정하세요.
 
 llm:
-  backend: ollama          # ollama | internal | langchain  ← 이 값만 바꾸면 백엔드 전환
+  backend: ollama          # ollama | internal | langchain  ← chat 백엔드
+  embed_backend: ""        # 비우면 backend 와 동일. 사내 chat 이 임베딩을 안 주면
+                           # fastembed(로컬) 또는 ollama 로 분리 지정
   chat_model: qwen2.5:14b
-  embed_model: bge-m3
+  embed_model: bge-m3      # fastembed 면 예: BAAI/bge-m3, intfloat/multilingual-e5-large
   timeout: 120
   max_retries: 3           # 일시 오류(연결/타임아웃/5xx/429) 재시도 횟수
   backoff_base: 2          # 지수 백오프 기준(2 → 2s,4s,8s,…)

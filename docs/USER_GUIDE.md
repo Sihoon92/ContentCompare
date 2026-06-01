@@ -54,8 +54,26 @@ contentcompare --config config\config.yaml --check
 실패하면 어느 단계(chat/embeddings)에서 어떤 오류인지 메시지로 보여줍니다.
 웹 UI 에서는 사이드바의 **🔌 LLM 연결 테스트** 버튼으로 동일하게 확인할 수 있습니다.
 
-> 임베딩 항목이 실패하면(예: 404) 사내 엔드포인트에 embedding 모델이 없을 수 있습니다.
-> 이 경우 임베딩만 로컬 Ollama 로 돌리는 혼합 구성을 검토하세요.
+> 임베딩 항목이 실패하면(예: 404) 사내 chat 엔드포인트에 embedding 모델이 없는 경우입니다.
+> chat 과 embedding 은 서로 다른 모델이므로, 임베딩만 **로컬**로 분리하세요(아래).
+
+### chat=사내 / embedding=로컬 혼합 구성 (사내 chat 이 임베딩을 안 줄 때)
+사내 chat 엔드포인트가 임베딩을 제공하지 않으면, 임베딩만 로컬에서 생성합니다.
+가장 간단한 건 **fastembed**(오픈소스 ONNX, 서버 불필요):
+```bash
+pip install -e .[fastembed]
+```
+```yaml
+llm:
+  backend: langchain          # 또는 internal — chat 은 사내
+  embed_backend: fastembed    # ← 임베딩만 로컬 분리
+  chat_model: /models/llm/gemma-4-31B-it
+  embed_model: BAAI/bge-m3    # 한국어 포함이면 다국어 모델 권장
+  internal:
+    base_url: https://api-gernsi.samsungsdi.net/api/llm/openai/v1
+    api_key: 발급키
+```
+대안: `embed_backend: ollama` (로컬 Ollama 의 `bge-m3` 등 사용).
 
 ### CLI
 ```bash
