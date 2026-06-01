@@ -1,7 +1,7 @@
 # ContentCompare 설정 예시. config.yaml 로 복사 후 환경에 맞게 수정하세요.
 
 llm:
-  backend: ollama          # ollama | internal  ← 이 값만 바꾸면 백엔드 전환
+  backend: ollama          # ollama | internal | langchain  ← 이 값만 바꾸면 백엔드 전환
   chat_model: qwen2.5:14b
   embed_model: bge-m3
   timeout: 120
@@ -11,9 +11,12 @@ llm:
   ollama:
     host: http://localhost:11434
 
-  internal:                # 사내(in-house) LLM
+  # internal(requests 직접 호출) 과 langchain(langchain-openai) 백엔드는
+  # 아래 internal 섹션 설정을 공유한다. backend 값만 바꾸면 된다.
+  internal:                # 사내(in-house) OpenAI 호환 LLM
     base_url: https://llm.intra.corp/v1
-    api_key_env: INTERNAL_LLM_API_KEY   # API 키가 담긴 환경변수 이름
+    api_key: ""            # 키를 직접 지정(간단). 비우면 api_key_env 사용
+    api_key_env: INTERNAL_LLM_API_KEY   # 위가 비었을 때 읽을 환경변수 이름
     unset_proxy: true      # true 면 호출 시 HTTP_PROXY/HTTPS_PROXY 를 비움
     verify_ssl: false
     log_proxy: false       # true 면 호출 직전 적용 프록시 env 를 로그로 출력

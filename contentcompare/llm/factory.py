@@ -20,8 +20,12 @@ def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
         obj = OllamaBackend(config.llm)
     elif backend == "internal":
         obj = InternalBackend(config.llm)
+    elif backend == "langchain":
+        from .langchain_backend import LangChainBackend
+
+        obj = LangChainBackend(config.llm)
     else:
         raise ValueError(
-            f"알 수 없는 LLM backend: {config.llm.backend!r} (ollama|internal)"
+            f"알 수 없는 LLM backend: {config.llm.backend!r} (ollama|internal|langchain)"
         )
     return obj, obj

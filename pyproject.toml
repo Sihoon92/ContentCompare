@@ -22,6 +22,10 @@ office = [
 ui = [
     "streamlit>=1.30",
 ]
+langchain = [
+    "langchain-openai>=0.1",
+    "httpx>=0.27",
+]
 dev = [
     "pytest>=7.0",
 ]
