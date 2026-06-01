@@ -13,7 +13,6 @@ localhost 에서 구동하는 것을 전제로 한다. 입력은 로컬 경로 �
 from __future__ import annotations
 
 import os
-import tempfile
 
 import streamlit as st
 
@@ -62,10 +61,10 @@ def _load_config_into_state(path: str) -> None:
         st.session_state[k] = v
 
 
-def _pick_config_file() -> str:
-    """네이티브 파일 선택 창을 띄워 config.yaml 경로를 받는다(로컬 데스크톱 전용).
+def _tk_dialog(kind: str, **kwargs):
+    """네이티브 선택 창(로컬 데스크톱 전용). kind: open|opens|dir.
 
-    tkinter 가 없거나 실패하면 빈 문자열을 반환하고, 경로 직접 입력으로 폴백한다.
+    실패(GUI 불가)하면 경고 후 None 반환 → 경로 직접 입력으로 폴백.
     """
     try:
         import tkinter as tk
@@ -74,15 +73,31 @@ def _pick_config_file() -> str:
         root = tk.Tk()
         root.withdraw()
         root.wm_attributes("-topmost", 1)
-        path = filedialog.askopenfilename(
-            title="config.yaml 선택",
-            filetypes=[("YAML", ("*.yaml", "*.yml")), ("모든 파일", "*.*")],
-        )
+        fn = {
+            "open": filedialog.askopenfilename,
+            "opens": filedialog.askopenfilenames,
+            "dir": filedialog.askdirectory,
+        }[kind]
+        result = fn(**kwargs)
         root.destroy()
-        return path or ""
+        return result
     except Exception as exc:  # noqa: BLE001 - GUI 불가 환경
-        st.sidebar.warning(f"파일 선택 창을 열 수 없습니다({exc}). 경로를 직접 입력하세요.")
-        return ""
+        st.warning(f"선택 창을 열 수 없습니다({exc}). 경로를 직접 입력하세요.")
+        return None
+
+
+_DOC_TYPES = [
+    ("문서", ("*.xlsx", "*.xls", "*.xlsm", "*.docx", "*.doc", "*.pptx", "*.ppt")),
+    ("모든 파일", "*.*"),
+]
+_XLS_TYPES = [("Excel", ("*.xlsx", "*.xls", "*.xlsm")), ("모든 파일", "*.*")]
+
+
+def _pick_config_file() -> str:
+    """config.yaml 경로를 네이티브 창으로 선택."""
+    path = _tk_dialog("open", title="config.yaml 선택",
+                      filetypes=[("YAML", ("*.yaml", "*.yml")), ("모든 파일", "*.*")])
+    return path or ""
 
 
 # --------------------------------------------------------------------------- #
@@ -192,48 +207,60 @@ def sidebar_config() -> AppConfig:
 # --------------------------------------------------------------------------- #
 # 입력 수집 (로컬 경로 우선 — 사내망 업로더 오류 회피)
 # --------------------------------------------------------------------------- #
-def collect_inputs(tmp_dir: str):
-    """기준 1개 + 대상 N개의 (경로) 를 반환."""
-    st.info(
-        "💡 사내 보안(nasca)/DRM 문서는 **경로 입력**을 사용하세요. "
-        "업로드는 파일을 임시 폴더에 복사하는데, 보안정책이 이를 막거나(Permission denied) "
-        "DRM 문서는 원본 위치에서만 열리기 때문입니다. 경로 입력은 원본을 직접 엽니다."
-    )
+def collect_inputs():
+    """기준 1개 + 대상 N개의 (경로) 를 반환. 네이티브 선택 창으로 경로만 불러온다.
+
+    업로드(파일 복사)가 아니라 **원본 경로**를 그대로 사용 → xlwings/win32com 이
+    원본을 직접 연다(사내 보안/DRM 환경 친화적).
+    """
+    st.session_state.setdefault("ref_path", "")
+    st.session_state.setdefault("target_dir", "")
+    st.session_state.setdefault("target_list", [])
+
+    st.info("📁 버튼으로 파일/폴더를 고르면 **경로만** 불러옵니다(원본을 직접 엽니다. 업로드/복사 아님).")
+
+    # --- 기준 엑셀 --- (버튼을 text_input 보다 먼저: 클릭 시 상태 갱신) ---
     st.subheader("1) 기준 엑셀")
-    ref_path = st.text_input("기준 엑셀 경로", value="", placeholder=r"C:\data\기준.xlsx").strip()
+    if st.button("📁 기준 엑셀 선택", key="pick_ref"):
+        p = _tk_dialog("open", title="기준 엑셀 선택", filetypes=_XLS_TYPES)
+        if p:
+            st.session_state["ref_path"] = p
+            st.rerun()
+    st.text_input("기준 엑셀 경로", key="ref_path", placeholder=r"C:\data\기준.xlsx")
+    ref_path = st.session_state.get("ref_path", "").strip()
 
+    # --- 대상 문서들 ---
     st.subheader("2) 대상 문서들")
-    folder = st.text_input("대상 폴더 경로(하위 폴더 포함)", value="",
-                           placeholder=r"C:\data\대상문서").strip()
-    target_paths: list[str] = []
-    if folder:
-        found = runner.gather_target_paths(folder)
-        st.caption(f"폴더에서 {len(found)}개 문서 발견")
-        target_paths.extend(found)
+    c1, c2, c3 = st.columns(3)
+    if c1.button("📁 파일 선택(여러 개)", key="pick_tgts"):
+        ps = _tk_dialog("opens", title="대상 문서 선택(여러 개)", filetypes=_DOC_TYPES)
+        if ps:
+            st.session_state["target_list"] = list(ps)
+            st.rerun()
+    if c2.button("📂 폴더 선택", key="pick_dir"):
+        d = _tk_dialog("dir", title="대상 폴더 선택")
+        if d:
+            st.session_state["target_dir"] = d
+            st.rerun()
+    if c3.button("🗑️ 목록 비우기", key="clear_tgts"):
+        st.session_state["target_list"] = []
+        st.session_state["target_dir"] = ""
+        st.rerun()
 
-    # 업로드는 보조 수단(사내 보안/DRM, 업로더 모듈 오류 시 실패할 수 있음).
-    with st.expander("📎 또는 파일 업로드 (일반 환경에서만 권장)"):
-        st.caption(
-            "업로드는 파일을 임시 폴더에 복사합니다. 사내 보안(nasca)/DRM 환경에서는 "
-            "'Permission denied' 가 날 수 있으니 위의 경로 입력을 사용하세요."
-        )
-        ref_up = st.file_uploader("기준 엑셀", type=["xlsx", "xls", "xlsm"], key="ref_up")
-        tgt_ups = st.file_uploader(
-            "대상 문서(여러 개)",
-            type=["xlsx", "xls", "xlsm", "docx", "doc", "pptx", "ppt"],
-            accept_multiple_files=True, key="tgt_ups",
-        )
-        try:
-            if ref_up is not None and not ref_path:
-                ref_path = runner.save_upload(ref_up.name, ref_up.getbuffer(), tmp_dir)
-            for up in tgt_ups or []:
-                target_paths.append(runner.save_upload(up.name, up.getbuffer(), tmp_dir))
-        except OSError as exc:
-            st.error(
-                f"업로드 파일 저장 실패: {exc}\n\n"
-                "사내 보안정책(nasca)/DRM 으로 임시 저장이 막혔을 수 있습니다. "
-                "업로드 대신 **위의 파일 경로 입력**을 사용하세요(원본을 직접 엽니다)."
-            )
+    st.text_input("대상 폴더 경로(하위 폴더 포함)", key="target_dir",
+                  placeholder=r"C:\data\대상문서")
+
+    # 선택 파일 + 폴더 수집을 합치고 중복 제거(순서 보존).
+    target_paths: list[str] = list(st.session_state.get("target_list", []))
+    folder = st.session_state.get("target_dir", "").strip()
+    if folder:
+        target_paths.extend(runner.gather_target_paths(folder))
+    seen: set[str] = set()
+    target_paths = [p for p in target_paths if not (p in seen or seen.add(p))]
+
+    if target_paths:
+        st.caption(f"대상 {len(target_paths)}개")
+        st.code("\n".join(target_paths), language=None)
 
     return ref_path, target_paths
 
@@ -279,10 +306,7 @@ def main():
     st.caption("엑셀 기준 문서를 여러 대상 문서와 대조 — 항목별 같음/다름·출처·사유")
 
     config = sidebar_config()
-
-    if "tmp_dir" not in st.session_state:
-        st.session_state.tmp_dir = tempfile.mkdtemp(prefix="contentcompare_")
-    ref_path, target_paths = collect_inputs(st.session_state.tmp_dir)
+    ref_path, target_paths = collect_inputs()
 
     if st.button("🚀 비교 실행", type="primary"):
         if not ref_path:
