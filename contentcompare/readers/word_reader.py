@@ -33,16 +33,19 @@ class WordReader:
         items: list[DocItem] = []
 
         logger.info("[Word] 열기 시작: %s", abspath)
-        # 독립 인스턴스(DispatchEx)로 다른 Word 세션과 충돌 회피.
-        word = win32.DispatchEx("Word.Application")
-        word.Visible = False
-        try:
-            word.DisplayAlerts = False  # 일부 환경에서 속성 없음 가능
-        except Exception:  # noqa: BLE001
-            pass
-
+        # Streamlit 등 워커 스레드에서 COM 을 쓰려면 스레드별 초기화가 필요하다.
+        pythoncom.CoInitialize()
+        word = None
         doc = None
         try:
+            # 독립 인스턴스(DispatchEx)로 다른 Word 세션과 충돌 회피.
+            word = win32.DispatchEx("Word.Application")
+            word.Visible = False
+            try:
+                word.DisplayAlerts = False  # 일부 환경에서 속성 없음 가능
+            except Exception:  # noqa: BLE001
+                pass
+
             # Open(FileName, ConfirmConversions=False, ReadOnly=True) — 위치 인자.
             doc = word.Documents.Open(abspath, False, True)
             total = doc.Paragraphs.Count
@@ -77,8 +80,13 @@ class WordReader:
                     doc.Close(False)  # SaveChanges=False
                 except Exception as exc:  # noqa: BLE001 - 정리 실패는 경고만
                     logger.warning("[Word] doc.Close 실패(무시): %s", exc)
+            if word is not None:
+                try:
+                    word.Quit()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[Word] word.Quit 실패(무시): %s", exc)
             try:
-                word.Quit()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[Word] word.Quit 실패(무시): %s", exc)
+                pythoncom.CoUninitialize()
+            except Exception:  # noqa: BLE001
+                pass
         return items

@@ -36,10 +36,12 @@ class PptReader:
         items: list[DocItem] = []
 
         logger.info("[PPT] 열기 시작: %s", abspath)
-        ppt = win32.DispatchEx("PowerPoint.Application")
-
+        # 워커 스레드(예: Streamlit)에서 COM 을 쓰려면 스레드별 초기화가 필요하다.
+        pythoncom.CoInitialize()
+        ppt = None
         pres = None
         try:
+            ppt = win32.DispatchEx("PowerPoint.Application")
             # Open(FileName, ReadOnly=msoTrue, Untitled=msoFalse, WithWindow=msoFalse)
             pres = ppt.Presentations.Open(abspath, _MSO_TRUE, _MSO_FALSE, _MSO_FALSE)
             total = pres.Slides.Count
@@ -73,10 +75,15 @@ class PptReader:
                     pres.Close()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[PPT] pres.Close 실패(무시): %s", exc)
+            if ppt is not None:
+                try:
+                    ppt.Quit()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[PPT] ppt.Quit 실패(무시): %s", exc)
             try:
-                ppt.Quit()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[PPT] ppt.Quit 실패(무시): %s", exc)
+                pythoncom.CoUninitialize()
+            except Exception:  # noqa: BLE001
+                pass
         return items
 
     @staticmethod

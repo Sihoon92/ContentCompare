@@ -137,6 +137,14 @@ class ExcelReader:
         doc_id = os.path.basename(path)
         items: list[DocItem] = []
 
+        # 워커 스레드(예: Streamlit)에서 COM 을 쓰려면 스레드별 초기화가 필요하다.
+        try:
+            import pythoncom
+
+            pythoncom.CoInitialize()
+        except Exception:  # noqa: BLE001 - 비윈도우/이미 초기화 등
+            pythoncom = None
+
         logger.info("[Excel] 열기 시작: %s", os.path.abspath(path))
         app = xw.App(visible=False, add_book=False)
         book = None
@@ -162,6 +170,11 @@ class ExcelReader:
                 app.quit()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[Excel] app.quit 실패(무시): %s", exc)
+            if pythoncom is not None:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:  # noqa: BLE001
+                    pass
         return items
 
     def _extract_grid(self, sheet) -> Optional["SheetGrid"]:  # pragma: no cover - COM 의존
