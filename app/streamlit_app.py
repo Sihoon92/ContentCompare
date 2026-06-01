@@ -62,6 +62,29 @@ def _load_config_into_state(path: str) -> None:
         st.session_state[k] = v
 
 
+def _pick_config_file() -> str:
+    """네이티브 파일 선택 창을 띄워 config.yaml 경로를 받는다(로컬 데스크톱 전용).
+
+    tkinter 가 없거나 실패하면 빈 문자열을 반환하고, 경로 직접 입력으로 폴백한다.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes("-topmost", 1)
+        path = filedialog.askopenfilename(
+            title="config.yaml 선택",
+            filetypes=[("YAML", ("*.yaml", "*.yml")), ("모든 파일", "*.*")],
+        )
+        root.destroy()
+        return path or ""
+    except Exception as exc:  # noqa: BLE001 - GUI 불가 환경
+        st.sidebar.warning(f"파일 선택 창을 열 수 없습니다({exc}). 경로를 직접 입력하세요.")
+        return ""
+
+
 # --------------------------------------------------------------------------- #
 # 사이드바: 설정
 # --------------------------------------------------------------------------- #
@@ -69,14 +92,42 @@ def sidebar_config() -> AppConfig:
     _init_state()
     st.sidebar.header("⚙️ 설정")
 
-    cfg_path = st.sidebar.text_input("config.yaml 경로(선택)", key="cfg_path")
-    if st.sidebar.button("📂 설정 불러오기", use_container_width=True):
+    # 최초 진입 시: 지난 실행에서 쓰던 config 를 자동으로 불러온다.
+    if not st.session_state.get("_autoloaded"):
+        st.session_state["_autoloaded"] = True
+        last = runner.recall_config_path()
+        if last and os.path.exists(last):
+            st.session_state["cfg_path"] = last
+            try:
+                _load_config_into_state(last)
+            except Exception:  # noqa: BLE001
+                pass
+
+    # 버튼은 text_input 보다 먼저 — 클릭 시 cfg_path 상태를 갱신해야 하므로.
+    c1, c2 = st.sidebar.columns(2)
+    if c1.button("📁 파일 선택", use_container_width=True):
+        picked = _pick_config_file()
+        if picked:
+            st.session_state["cfg_path"] = picked
+            try:
+                _load_config_into_state(picked)
+                runner.remember_config_path(picked)
+            except Exception as exc:  # noqa: BLE001
+                st.sidebar.error(f"불러오기 실패: {exc}")
+            st.rerun()
+    if c2.button("📂 불러오기", use_container_width=True):
+        p = st.session_state.get("cfg_path", "")
         try:
-            _load_config_into_state(cfg_path)
+            _load_config_into_state(p)
+            runner.remember_config_path(p)
             st.sidebar.success("설정을 불러왔습니다.")
         except Exception as exc:  # noqa: BLE001
             st.sidebar.error(f"불러오기 실패: {exc}")
         st.rerun()
+
+    st.sidebar.text_input("config.yaml 경로", key="cfg_path",
+                          placeholder=r"C:\path\config.yaml")
+    cfg_path = st.session_state.get("cfg_path", "")
 
     st.sidebar.divider()
     st.sidebar.subheader("LLM (대화)")

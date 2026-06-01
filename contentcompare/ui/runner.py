@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Iterable, Optional, Union
 
@@ -12,6 +13,9 @@ from ..config import AppConfig
 from ..models import ComparisonResult, RecordResult, Verdict
 
 Result = Union[ComparisonResult, RecordResult]
+
+# UI 상태(마지막 사용 설정 경로 등) 저장 파일.
+_STATE_FILE = os.path.join(os.path.expanduser("~"), ".contentcompare", "ui_state.json")
 
 # get_reader 와 동일한 지원 확장자.
 SUPPORTED_EXTS = (".xlsx", ".xls", ".xlsm", ".docx", ".doc", ".pptx", ".ppt")
@@ -101,6 +105,30 @@ def config_to_state(config: AppConfig) -> dict[str, Any]:
         "fusion": sim.fusion,
         "rerank": sim.rerank,
     }
+
+
+# --------------------------------------------------------------------------- #
+# UI 상태 영속화(마지막 사용 설정 경로 기억)
+# --------------------------------------------------------------------------- #
+def remember_config_path(path: str, *, state_file: str = _STATE_FILE) -> None:
+    """다음 실행 때 자동으로 불러오도록 마지막 config 경로를 저장한다."""
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump({"config_path": path}, f)
+    except OSError:
+        pass  # 저장 실패는 치명적이지 않음
+
+
+def recall_config_path(*, state_file: str = _STATE_FILE) -> str:
+    """지난 실행에서 저장한 config 경로를 돌려준다(없으면 빈 문자열)."""
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            return str(json.load(f).get("config_path") or "")
+    except (OSError, ValueError):
+        return ""
 
 
 # --------------------------------------------------------------------------- #

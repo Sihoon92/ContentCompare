@@ -129,7 +129,8 @@ contentcompare ^
 streamlit run app\streamlit_app.py
 ```
 사이드바에서:
-1. **config.yaml 경로** 입력 후 **📂 설정 불러오기** → 파일의 값이 위젯에 그대로 채워집니다.
+1. **📁 파일 선택**(네이티브 창)으로 config.yaml 을 고르거나 경로를 입력 후 **📂 불러오기**
+   → 파일의 값이 위젯에 그대로 채워집니다. 한 번 고른 경로는 **다음 실행 때 자동으로 불러옵니다.**
 2. LLM 백엔드(ollama/internal/**langchain**)·모델·base_url·api_key, **임베딩 백엔드**
    (fastembed/onnx/ollama 등)·모델/폴더 경로를 조정.
 3. **🔌 LLM 연결 테스트**로 확인.

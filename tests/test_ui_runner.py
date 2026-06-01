@@ -76,6 +76,25 @@ def test_config_to_state_empty_embed_backend_shows_same_label():
     assert state["embed_backend"] == "(chat와 동일)"
 
 
+def test_remember_and_recall_config_path(tmp_path):
+    state_file = str(tmp_path / "ui_state.json")
+    assert runner.recall_config_path(state_file=state_file) == ""   # 처음엔 없음
+    runner.remember_config_path(r"C:\cfg\config.yaml", state_file=state_file)
+    assert runner.recall_config_path(state_file=state_file) == r"C:\cfg\config.yaml"
+
+
+def test_remember_config_path_ignores_empty(tmp_path):
+    state_file = str(tmp_path / "ui_state.json")
+    runner.remember_config_path("", state_file=state_file)
+    assert runner.recall_config_path(state_file=state_file) == ""
+
+
+def test_recall_handles_corrupt_state(tmp_path):
+    state_file = tmp_path / "ui_state.json"
+    state_file.write_text("{not json")
+    assert runner.recall_config_path(state_file=str(state_file)) == ""
+
+
 # --------------------------------------------------------------------------- #
 # 입력 파일
 # --------------------------------------------------------------------------- #
