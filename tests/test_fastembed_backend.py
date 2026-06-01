@@ -33,6 +33,17 @@ class NpLike:
         return list(self._data)
 
 
+def test_supported_names_handles_key_variants():
+    from contentcompare.llm.fastembed_backend import _supported_names
+
+    class Cls:
+        @staticmethod
+        def list_supported_models():
+            return [{"model": "a"}, {"model_name": "b"}, {"other": "x"}]
+
+    assert _supported_names(Cls) == ["a", "b"]
+
+
 def test_fastembed_embed_returns_lists():
     be = FastEmbedBackend(LLMConfig(), model=FakeModel(dim=3))
     out = be.embed(["ab", "cde"])

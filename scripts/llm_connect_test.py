@@ -79,13 +79,16 @@ def main() -> int:
         return 0
 
     print("\n로컬 임베딩(fastembed) 테스트...")
+    embed_model = os.environ.get("EMBED_MODEL", "intfloat/multilingual-e5-large")
     try:
-        model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        model = TextEmbedding(model_name=embed_model)
         vec = next(iter(model.embed(["연결 테스트"])))
-        print(f"✅ 임베딩 성공 — 차원 {len(vec.tolist())}")
+        print(f"✅ 임베딩 성공 ({embed_model}) — 차원 {len(vec.tolist())}")
     except Exception:  # noqa: BLE001
         print("❌ 임베딩 실패:")
         traceback.print_exc()
+        names = [m.get("model") or m.get("model_name") for m in TextEmbedding.list_supported_models()]
+        print("\n지원 모델 목록:", names)
         return 1
     return 0
 

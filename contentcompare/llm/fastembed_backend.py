@@ -6,10 +6,12 @@ fastembed 는 ONNX 런타임 기반의 가벼운 오픈소스 임베딩 라이�
 
     pip install -e .[fastembed]
 
-한국어가 섞이면 다국어 모델을 쓰세요(config.embed_model):
-    - BAAI/bge-m3                     (다국어, 고품질)
-    - intfloat/multilingual-e5-large  (다국어)
-    - BAAI/bge-small-en-v1.5          (영어 위주, 가벼움)
+한국어가 섞이면 다국어 모델을 쓰세요(config.embed_model). 지원 모델은 fastembed
+버전마다 다르므로, 실패하면 에러 메시지에 출력되는 '지원 목록'에서 고르세요. 예:
+    - intfloat/multilingual-e5-large   (다국어, 널리 지원됨 — 권장)
+    - intfloat/multilingual-e5-small   (다국어, 가벼움)
+    - BAAI/bge-m3                       (다국어, 최신 fastembed 필요: pip install -U fastembed)
+    - BAAI/bge-small-en-v1.5            (영어 위주, 가벼움)
 """
 
 from __future__ import annotations
@@ -18,7 +20,20 @@ from typing import Any, Optional
 
 from ..config import LLMConfig
 
-_DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+_DEFAULT_MODEL = "intfloat/multilingual-e5-large"
+
+
+def _supported_names(text_embedding_cls) -> list[str]:
+    """설치된 fastembed 가 지원하는 모델명 목록(키 이름 차이 흡수)."""
+    names: list[str] = []
+    try:
+        for m in text_embedding_cls.list_supported_models():
+            name = m.get("model") or m.get("model_name") if isinstance(m, dict) else None
+            if name:
+                names.append(name)
+    except Exception:  # pragma: no cover - 버전 차이
+        pass
+    return names
 
 
 class FastEmbedBackend:
@@ -37,7 +52,18 @@ class FastEmbedBackend:
                     "fastembed 가 필요합니다: pip install -e .[fastembed]"
                 ) from exc
             name = self.config.embed_model or _DEFAULT_MODEL
-            self._model = TextEmbedding(model_name=name)
+            try:
+                self._model = TextEmbedding(model_name=name)
+            except (ValueError, KeyError) as exc:  # 미지원 모델명
+                supported = _supported_names(TextEmbedding)
+                hint = ", ".join(supported) if supported else "(목록 조회 실패)"
+                raise RuntimeError(
+                    f"fastembed 가 임베딩 모델 '{name}' 을(를) 지원하지 않습니다.\n"
+                    f"config 의 embed_model 을 지원 모델 중 하나로 바꾸세요"
+                    f"(다국어 권장: intfloat/multilingual-e5-large).\n"
+                    f"또는 최신 버전 설치: pip install -U fastembed\n"
+                    f"지원 목록: {hint}"
+                ) from exc
         return self._model
 
     # --- EmbeddingClient -------------------------------------------------- #

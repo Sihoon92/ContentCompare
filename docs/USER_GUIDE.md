@@ -68,7 +68,7 @@ llm:
   backend: langchain          # 또는 internal — chat 은 사내
   embed_backend: fastembed    # ← 임베딩만 로컬 분리
   chat_model: /models/llm/gemma-4-31B-it
-  embed_model: BAAI/bge-m3    # 한국어 포함이면 다국어 모델 권장
+  embed_model: intfloat/multilingual-e5-large   # 다국어(한국어 포함). bge-m3 는 최신 fastembed 필요
   internal:
     base_url: https://api-gernsi.samsungsdi.net/api/llm/openai/v1
     api_key: 발급키
