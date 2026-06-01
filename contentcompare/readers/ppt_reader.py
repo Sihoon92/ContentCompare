@@ -4,13 +4,21 @@
 슬라이드별 도형(텍스트 프레임)·표 셀의 텍스트를 추출한다.
 
 win32com 은 Windows + PowerPoint 설치가 필요하므로 import 를 ``read()`` 시점으로 지연한다.
+정리(Close/Quit)는 try/except 로 감싸 진짜 오류가 가려지지 않게 하고, 단계는 로그로 남긴다.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 
 from ..models import DocItem, DocType
+
+logger = logging.getLogger(__name__)
+
+# PowerPoint msoTriState 상수.
+_MSO_TRUE = -1
+_MSO_FALSE = 0
 
 
 class PptReader:
@@ -24,37 +32,51 @@ class PptReader:
             ) from exc
 
         doc_id = os.path.basename(path)
+        abspath = os.path.abspath(path)
         items: list[DocItem] = []
 
-        ppt = win32.Dispatch("PowerPoint.Application")
+        logger.info("[PPT] 열기 시작: %s", abspath)
+        ppt = win32.DispatchEx("PowerPoint.Application")
+
+        pres = None
         try:
-            # WithWindow=False 로 백그라운드 오픈.
-            pres = ppt.Presentations.Open(
-                os.path.abspath(path), ReadOnly=True, WithWindow=False
-            )
-            try:
-                for slide_idx, slide in enumerate(pres.Slides, start=1):
-                    for shape_idx, shape in enumerate(slide.Shapes, start=1):
-                        text = self._shape_text(shape)
-                        if not text:
-                            continue
-                        items.append(
-                            DocItem(
-                                item_id=f"{doc_id}#s{slide_idx}_sh{shape_idx}",
-                                doc_id=doc_id,
-                                doc_type=DocType.PPT,
-                                text=text,
-                                source_label=(
-                                    f"{doc_id} > {slide_idx}번 슬라이드 > "
-                                    f"{shape_idx}번째 도형"
-                                ),
-                                locator={"slide": slide_idx, "shape": shape_idx},
-                            )
+            # Open(FileName, ReadOnly=msoTrue, Untitled=msoFalse, WithWindow=msoFalse)
+            pres = ppt.Presentations.Open(abspath, _MSO_TRUE, _MSO_FALSE, _MSO_FALSE)
+            total = pres.Slides.Count
+            logger.info("[PPT] 열림: 슬라이드 %s개", total)
+
+            for slide_idx, slide in enumerate(pres.Slides, start=1):
+                for shape_idx, shape in enumerate(slide.Shapes, start=1):
+                    text = self._shape_text(shape)
+                    if not text:
+                        continue
+                    items.append(
+                        DocItem(
+                            item_id=f"{doc_id}#s{slide_idx}_sh{shape_idx}",
+                            doc_id=doc_id,
+                            doc_type=DocType.PPT,
+                            text=text,
+                            source_label=(
+                                f"{doc_id} > {slide_idx}번 슬라이드 > "
+                                f"{shape_idx}번째 도형"
+                            ),
+                            locator={"slide": slide_idx, "shape": shape_idx},
                         )
-            finally:
-                pres.Close()
+                    )
+            logger.info("[PPT] 추출 완료: %d개 항목", len(items))
+        except Exception:
+            logger.exception("[PPT] 처리 실패: %s", abspath)
+            raise
         finally:
-            ppt.Quit()
+            if pres is not None:
+                try:
+                    pres.Close()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[PPT] pres.Close 실패(무시): %s", exc)
+            try:
+                ppt.Quit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[PPT] ppt.Quit 실패(무시): %s", exc)
         return items
 
     @staticmethod
@@ -62,6 +84,6 @@ class PptReader:
         try:
             if shape.HasTextFrame and shape.TextFrame.HasText:
                 return (shape.TextFrame.TextRange.Text or "").strip()
-        except Exception:  # pragma: no cover - COM 변동성
+        except Exception:  # noqa: BLE001 - COM 변동성
             pass
         return ""

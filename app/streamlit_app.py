@@ -12,16 +12,20 @@ localhost 에서 구동하는 것을 전제로 한다. 입력은 로컬 경로 �
 
 from __future__ import annotations
 
+import logging
 import os
 
 import streamlit as st
 
 from contentcompare.config import AppConfig
 from contentcompare.llm.health import all_ok, check_llm
+from contentcompare.logging_setup import read_log_text, setup_logging
 from contentcompare.pipeline import ComparePipeline
 from contentcompare.models import RecordResult, Verdict
 from contentcompare.report import render_markdown
 from contentcompare.ui import runner
+
+logger = logging.getLogger("contentcompare.ui")
 
 st.set_page_config(page_title="ContentCompare", page_icon="📑", layout="wide")
 
@@ -301,12 +305,30 @@ def show_results(results, reference_doc, target_docs):
 
 
 # --------------------------------------------------------------------------- #
+def _log_panel():
+    """사이드바: 로그 파일 경로 + 보기/다운로드."""
+    log_path = st.session_state.get("log_path", "")
+    st.sidebar.divider()
+    st.sidebar.caption(f"🧾 로그: {log_path}")
+    with st.sidebar.expander("로그 보기/다운로드"):
+        text = read_log_text()
+        st.code(text or "(아직 로그 없음)", language=None)
+        if text:
+            st.download_button("로그 다운로드", data=text,
+                               file_name=os.path.basename(log_path), mime="text/plain")
+
+
 def main():
     st.title("📑 ContentCompare")
     st.caption("엑셀 기준 문서를 여러 대상 문서와 대조 — 항목별 같음/다름·출처·사유")
 
+    # 실행 로그를 파일로 저장(세션 1회).
+    if "log_path" not in st.session_state:
+        st.session_state["log_path"] = setup_logging()
+
     config = sidebar_config()
     ref_path, target_paths = collect_inputs()
+    _log_panel()
 
     if st.button("🚀 비교 실행", type="primary"):
         if not ref_path:
@@ -323,11 +345,16 @@ def main():
             progress.progress(i / total)
             status.text(f"[{i}/{total}] {result.verdict.value} — {result.reference.source_label}")
 
+        logger.info("비교 실행 시작: 기준=%s, 대상=%d개", ref_path, len(target_paths))
         try:
             pipeline = ComparePipeline(config)
             results = pipeline.run(ref_path, target_paths, progress=on_progress)
+            logger.info("비교 실행 완료: %d개 항목", len(results))
         except Exception as exc:  # noqa: BLE001 - 사용자에게 오류 노출
+            logger.exception("비교 실행 실패")
             st.exception(exc)
+            st.error("자세한 원인은 아래 로그를 확인하세요(사이드바 '로그 보기'에서도 가능).")
+            st.code(read_log_text(8000), language=None)
             return
         finally:
             progress.empty()

@@ -4,13 +4,18 @@
 단락과 표 셀을 텍스트 단위로 추출한다.
 
 win32com 은 Windows + Word 설치가 필요하므로 import 를 ``read()`` 시점으로 지연한다.
+COM 정리(Close/Quit)는 try/except 로 감싸 **진짜 오류(문서 열기 실패 등)가 정리 단계
+오류에 가려지지 않도록** 한다. 각 단계는 로그로 남긴다.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 
 from ..models import DocItem, DocType
+
+logger = logging.getLogger(__name__)
 
 
 class WordReader:
@@ -24,35 +29,56 @@ class WordReader:
             ) from exc
 
         doc_id = os.path.basename(path)
+        abspath = os.path.abspath(path)
         items: list[DocItem] = []
 
-        word = win32.Dispatch("Word.Application")
+        logger.info("[Word] 열기 시작: %s", abspath)
+        # 독립 인스턴스(DispatchEx)로 다른 Word 세션과 충돌 회피.
+        word = win32.DispatchEx("Word.Application")
         word.Visible = False
         try:
-            doc = word.Documents.Open(os.path.abspath(path), ReadOnly=True)
-            try:
-                for idx, para in enumerate(doc.Paragraphs, start=1):
-                    text = (para.Range.Text or "").strip()
-                    if not text:
-                        continue
-                    # 페이지 번호는 wdActiveEndPageNumber(=3) 정보로 얻는다.
-                    try:
-                        page = para.Range.Information(3)
-                    except Exception:  # pragma: no cover - COM 변동성
-                        page = None
-                    page_label = f"{page}페이지 > " if page else ""
-                    items.append(
-                        DocItem(
-                            item_id=f"{doc_id}#p{idx}",
-                            doc_id=doc_id,
-                            doc_type=DocType.WORD,
-                            text=text,
-                            source_label=f"{doc_id} > {page_label}{idx}번째 단락",
-                            locator={"paragraph": idx, "page": page},
-                        )
+            word.DisplayAlerts = False  # 일부 환경에서 속성 없음 가능
+        except Exception:  # noqa: BLE001
+            pass
+
+        doc = None
+        try:
+            # Open(FileName, ConfirmConversions=False, ReadOnly=True) — 위치 인자.
+            doc = word.Documents.Open(abspath, False, True)
+            total = doc.Paragraphs.Count
+            logger.info("[Word] 문서 열림: 단락 %s개", total)
+
+            for idx, para in enumerate(doc.Paragraphs, start=1):
+                text = (para.Range.Text or "").strip()
+                if not text:
+                    continue
+                try:
+                    page = para.Range.Information(3)  # wdActiveEndPageNumber
+                except Exception:  # noqa: BLE001 - COM 변동성
+                    page = None
+                page_label = f"{page}페이지 > " if page else ""
+                items.append(
+                    DocItem(
+                        item_id=f"{doc_id}#p{idx}",
+                        doc_id=doc_id,
+                        doc_type=DocType.WORD,
+                        text=text,
+                        source_label=f"{doc_id} > {page_label}{idx}번째 단락",
+                        locator={"paragraph": idx, "page": page},
                     )
-            finally:
-                doc.Close(SaveChanges=False)
+                )
+            logger.info("[Word] 추출 완료: %d개 항목", len(items))
+        except Exception:
+            logger.exception("[Word] 처리 실패: %s", abspath)
+            raise
         finally:
-            word.Quit()
+            if doc is not None:
+                try:
+                    doc.Close(False)  # SaveChanges=False
+                except Exception as exc:  # noqa: BLE001 - 정리 실패는 경고만
+                    logger.warning("[Word] doc.Close 실패(무시): %s", exc)
+            try:
+                word.Quit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[Word] word.Quit 실패(무시): %s", exc)
         return items

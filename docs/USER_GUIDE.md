@@ -153,6 +153,8 @@ xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 �
 | `xlwings 가 필요합니다` | `pip install -e .[office]`, Excel 설치 여부 |
 | COM 권한/실행 오류 | 데스크톱 세션에서 실행, 다른 Excel 인스턴스 종료 |
 | 업로드 시 Permission denied | 사내 보안(nasca)/DRM 이 임시저장 차단 → **파일 경로 입력** 사용(원본 직접 오픈) |
+| Word `Open.Close`/COM AttributeError | 문서 열기 자체가 실패(DRM/권한) 또는 gen_py 캐시 손상. `logs\` 의 `[Word] 처리 실패` 직전 로그 확인. 캐시 정리: `%LOCALAPPDATA%\Temp\gen_py` 폴더 삭제 후 재시도 |
+| 내부 동작 로그 | 모든 실행은 `logs\contentcompare_<시각>.log` 에 기록(웹 UI 사이드바 '로그 보기'에서도 확인/다운로드) |
 | 사내 LLM 연결 실패 | `unset_proxy`/`base_url`/API 키 env 확인, `log_proxy: true` 로 실제 프록시 확인 |
 | 타임아웃/간헐 실패 | `timeout` 상향, `max_retries` 확인(자동 지수 백오프 재시도) |
 | 임베딩 매번 느림 | `cache_dir` 설정 확인(파일 해시 기반 캐시 재사용) |

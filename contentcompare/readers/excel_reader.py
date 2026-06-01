@@ -16,6 +16,7 @@ xlwings 는 Windows + Excel 설치가 필요하므로 import 는 :meth:`read` �
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -23,6 +24,8 @@ from typing import Any, Optional
 
 from ..config import ExcelConfig
 from ..models import DocItem, DocType, FieldClaim, RecordItem
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -134,21 +137,31 @@ class ExcelReader:
         doc_id = os.path.basename(path)
         items: list[DocItem] = []
 
+        logger.info("[Excel] 열기 시작: %s", os.path.abspath(path))
         app = xw.App(visible=False, add_book=False)
         book = None
         try:
             book = app.books.open(path)
+            logger.info("[Excel] 열림: 시트 %d개", len(book.sheets))
             for sheet in book.sheets:
                 grid = self._extract_grid(sheet)
                 if grid is not None:
                     items.extend(self._parse_sheet(grid, doc_id))
+            logger.info("[Excel] 추출 완료: %d개 항목", len(items))
+        except Exception:
+            logger.exception("[Excel] 처리 실패: %s", path)
+            raise
         finally:
-            # 예외가 나도 COM 리소스가 새지 않도록 close → quit 을 모두 보장.
+            # 예외가 나도 COM 리소스가 새지 않도록 close → quit 을 보장(정리 실패는 경고만).
             try:
                 if book is not None:
                     book.close()
-            finally:
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[Excel] book.close 실패(무시): %s", exc)
+            try:
                 app.quit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[Excel] app.quit 실패(무시): %s", exc)
         return items
 
     def _extract_grid(self, sheet) -> Optional["SheetGrid"]:  # pragma: no cover - COM 의존

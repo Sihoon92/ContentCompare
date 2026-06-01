@@ -47,6 +47,11 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO if (args.verbose or args.check) else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    # 실행 로그를 파일로도 저장.
+    from .logging_setup import setup_logging
+
+    log_path = setup_logging(level=logging.INFO)
+    print(f"로그 파일: {log_path}")
 
     config = AppConfig.load(args.config)
 
