@@ -39,6 +39,24 @@ copy config\config.example.yaml config\config.yaml
 
 ## 4. 실행
 
+### 먼저 LLM 연결 점검 (권장)
+비교를 돌리기 전에 chat/embedding 이 연결되는지 확인합니다.
+```bash
+contentcompare --config config\config.yaml --check
+```
+출력 예(성공):
+```
+✅ 백엔드=internal: https://llm.intra.corp/v1
+✅ chat (사내모델): OK
+✅ embeddings (bge-m3): 차원 1024
+✅ 모든 점검 통과
+```
+실패하면 어느 단계(chat/embeddings)에서 어떤 오류인지 메시지로 보여줍니다.
+웹 UI 에서는 사이드바의 **🔌 LLM 연결 테스트** 버튼으로 동일하게 확인할 수 있습니다.
+
+> 임베딩 항목이 실패하면(예: 404) 사내 엔드포인트에 embedding 모델이 없을 수 있습니다.
+> 이 경우 임베딩만 로컬 Ollama 로 돌리는 혼합 구성을 검토하세요.
+
 ### CLI
 ```bash
 contentcompare ^

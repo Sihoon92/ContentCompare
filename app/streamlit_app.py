@@ -17,6 +17,7 @@ import tempfile
 
 import streamlit as st
 
+from contentcompare.llm.health import all_ok, check_llm
 from contentcompare.pipeline import ComparePipeline
 from contentcompare.models import RecordResult, Verdict
 from contentcompare.report import render_markdown
@@ -45,7 +46,7 @@ def sidebar_config():
     fusion = st.sidebar.selectbox("검색 융합", ["rrf", "cosine"], index=0)
     rerank = st.sidebar.checkbox("재랭킹(rerank)", value=False)
 
-    return runner.build_config(
+    config = runner.build_config(
         base=base or None,
         backend=backend,
         chat_model=chat_model,
@@ -56,6 +57,19 @@ def sidebar_config():
         fusion=fusion,
         rerank=rerank,
     )
+
+    st.sidebar.divider()
+    if st.sidebar.button("🔌 LLM 연결 테스트"):
+        with st.sidebar.status("점검 중...", expanded=True):
+            checks = check_llm(config)
+            for r in checks:
+                (st.sidebar.success if r.ok else st.sidebar.error)(r.line())
+        st.sidebar.caption(
+            "모두 ✅ 면 비교 실행 준비 완료" if all_ok(checks)
+            else "실패 항목의 메시지를 확인하세요"
+        )
+
+    return config
 
 
 # --------------------------------------------------------------------------- #
