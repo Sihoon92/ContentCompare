@@ -21,7 +21,7 @@ class FakeEmbedder:
     def __init__(self):
         self.calls: list[list[str]] = []
 
-    def embed(self, texts):
+    def embed(self, texts, *, kind="passage"):
         self.calls.append(list(texts))
         return [[1.0 if w in t else 0.0 for w in self.VOCAB] for t in texts]
 
@@ -108,6 +108,34 @@ def test_cached_embedder_reuses_disk(tmp_path):
     assert len(base.calls) == 1  # 추가 호출 없음
 
 
+class KindAwareEmbedder:
+    """kind 를 받아 query/passage 를 다르게 임베딩하는 가짜(접두어 분리 모사)."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, list[str]]] = []
+
+    def embed(self, texts, *, kind="passage"):
+        self.calls.append((kind, list(texts)))
+        bump = 0.5 if kind == "query" else 0.0
+        return [[float(len(t)) + bump] for t in texts]
+
+
+def test_cached_embedder_separates_by_kind(tmp_path):
+    """같은 텍스트라도 query/passage 는 다른 키로 캐시된다(e5 접두어 분리)."""
+    base = KindAwareEmbedder()
+    e = CachedEmbedder(base, str(tmp_path / "emb"), model_name="e5")
+
+    p = e.embed(["전류"], kind="passage")
+    q = e.embed(["전류"], kind="query")
+    assert p != q  # 종류가 다르면 벡터도 다름 → 키 분리 확인
+    assert len(base.calls) == 2  # 둘 다 백엔드 호출(캐시 충돌 없음)
+
+    # 재호출은 각 종류별로 캐시 히트(추가 백엔드 호출 없음).
+    assert e.embed(["전류"], kind="passage") == p
+    assert e.embed(["전류"], kind="query") == q
+    assert len(base.calls) == 2
+
+
 def test_cached_embedder_passthrough_without_dir():
     base = FakeEmbedder()
     e = CachedEmbedder(base, "", model_name="m")
@@ -167,3 +195,15 @@ def test_hybrid_index_respects_per_doc_cap():
 def test_hybrid_index_empty_returns_nothing():
     idx = HybridIndex(FakeEmbedder())
     assert idx.search("아무거나", recall_k=5, top_k=3) == []
+
+
+def test_hybrid_index_uses_passage_for_add_and_query_for_search():
+    """본문은 kind=passage, 검색어는 kind=query 로 임베딩되는지 확인(e5 접두어 분리)."""
+    emb = KindAwareEmbedder()
+    idx = HybridIndex(emb, fusion="cosine")
+    idx.add([_item("a", "전류", doc_id="d1")])
+    idx.search("전류", recall_k=5, top_k=1)
+
+    kinds = [kind for kind, _ in emb.calls]
+    assert kinds[0] == "passage"   # add() → 본문
+    assert kinds[-1] == "query"    # search() → 검색어

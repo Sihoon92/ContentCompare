@@ -18,7 +18,7 @@ class FakeEmbedder:
 
     VOCAB = ["매출", "영업이익", "직원수", "2023", "2024", "억원", "명"]
 
-    def embed(self, texts):
+    def embed(self, texts, *, kind="passage"):
         vecs = []
         for t in texts:
             vecs.append([1.0 if w in t else 0.0 for w in self.VOCAB])

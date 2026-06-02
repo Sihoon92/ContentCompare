@@ -52,7 +52,8 @@ class HybridIndex:
         items = [it for it in items if not it.is_empty()]
         for start in range(0, len(items), batch_size):
             batch = items[start : start + batch_size]
-            vectors = self.embedder.embed([it.text for it in batch])
+            # 본문 청크 → passage 로 임베딩(e5 계열 접두어 분리).
+            vectors = self.embedder.embed([it.text for it in batch], kind="passage")
             for it, vec in zip(batch, vectors):
                 self._items.append(it)
                 self._vectors.append(_normalize(list(vec)))
@@ -82,7 +83,8 @@ class HybridIndex:
         lam = self.mmr_lambda if mmr_lambda is None else mmr_lambda
         cap = self.per_doc_cap if per_doc_cap is None else per_doc_cap
 
-        q_vec = _normalize(list(self.embedder.embed([query_text])[0]))
+        # 검색어(기준 항목) → query 로 임베딩(e5 계열 접두어 분리).
+        q_vec = _normalize(list(self.embedder.embed([query_text], kind="query")[0]))
         cos = [_dot(q_vec, v) for v in self._vectors]
 
         if self.fusion == "cosine":

@@ -9,7 +9,11 @@ llm:
                            # (미지원 에러 시 메시지의 '지원 목록' 참고, 또는 pip install -U fastembed)
   embed_cache_dir: ""      # (fastembed) 오프라인: 미리 받아둔 fastembed 캐시 폴더
   embed_model_path: ""     # (onnx) 직접 받은 ONNX 모델 폴더 경로(model.onnx + tokenizer.json)
-  embed_prefix: ""         # (onnx) e5 계열이면 'query: ' 권장
+  embed_prefix: ""         # 공통 접두어(아래 query/passage 미지정 시 폴백). e5 면 'query: '
+  # e5 계열(multilingual-e5-large 등)은 검색어/본문에 다른 접두어가 필요하다.
+  # 한↔영 등 교차언어 검색 정확도를 위해 아래처럼 분리 지정 권장(비우면 embed_prefix 폴백):
+  embed_query_prefix: ""     # 검색어(기준 항목)용. e5 권장: 'query: '
+  embed_passage_prefix: ""   # 본문(대상 청크)용.   e5 권장: 'passage: '
   timeout: 120
   max_retries: 3           # 일시 오류(연결/타임아웃/5xx) 재시도 횟수
   backoff_base: 2          # 지수 백오프 기준(2 → 2s,4s,8s,…)

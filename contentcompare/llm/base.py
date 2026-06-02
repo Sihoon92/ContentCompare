@@ -22,6 +22,10 @@ class LLMClient(Protocol):
 class EmbeddingClient(Protocol):
     """임베딩 백엔드."""
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        """텍스트 리스트를 임베딩 벡터 리스트로 변환한다(입력 순서 유지)."""
+    def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
+        """텍스트 리스트를 임베딩 벡터 리스트로 변환한다(입력 순서 유지).
+
+        ``kind`` 는 입력 종류로 ``passage``(본문) | ``query``(검색어). e5 계열처럼
+        종류별 접두어가 필요한 모델을 위해 백엔드가 접두어를 달리 붙일 수 있다.
+        접두어가 설정돼 있지 않으면 무시되어 기존 동작과 같다."""
         ...

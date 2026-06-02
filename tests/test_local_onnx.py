@@ -94,6 +94,34 @@ def test_embed_applies_prefix(tmp_path):
     assert tok.seen == ["query: 안녕"]
 
 
+def test_embed_applies_query_passage_prefix_by_kind(tmp_path):
+    """e5 접두어 분리: kind=query/passage 에 따라 다른 접두어가 붙는다."""
+    cfg = _cfg(str(tmp_path))
+    cfg.embed_query_prefix = "query: "
+    cfg.embed_passage_prefix = "passage: "
+
+    tok = FakeTokenizer([Enc([1], [1])])
+    sess = FakeSession(last_hidden=[[[1.0, 0.0]]])
+    be = LocalOnnxEmbedding(cfg, session=sess, tokenizer=tok)
+
+    be.embed(["최대충전전류"], kind="query")
+    assert tok.seen == ["query: 최대충전전류"]
+
+    be.embed(["maximum charging current"], kind="passage")
+    assert tok.seen == ["passage: maximum charging current"]
+
+
+def test_embed_kind_prefix_falls_back_to_common(tmp_path):
+    """query/passage 전용 접두어가 비면 공통 embed_prefix 로 폴백한다."""
+    cfg = _cfg(str(tmp_path), prefix="common: ")  # 전용값 미설정
+    tok = FakeTokenizer([Enc([1], [1])])
+    sess = FakeSession(last_hidden=[[[1.0, 0.0]]])
+    be = LocalOnnxEmbedding(cfg, session=sess, tokenizer=tok)
+
+    be.embed(["x"], kind="query")
+    assert tok.seen == ["common: x"]
+
+
 def test_embed_feeds_only_declared_inputs(tmp_path):
     encs = [Enc([7, 8], [1, 1])]
     sess = FakeSession(

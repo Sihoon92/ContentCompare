@@ -74,9 +74,9 @@ class LocalOnnxEmbedding:
         return self._sess, self._tok
 
     # --- EmbeddingClient -------------------------------------------------- #
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
         sess, tok = self._ensure()
-        prefix = self.config.embed_prefix or ""
+        prefix = self.config.embed_prefix_for(kind)
         encs = tok.encode_batch([prefix + t for t in texts])
         input_ids = [list(e.ids) for e in encs]
         attention = [list(e.attention_mask) for e in encs]

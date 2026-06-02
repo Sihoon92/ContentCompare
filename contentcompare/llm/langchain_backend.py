@@ -112,7 +112,10 @@ class LangChainBackend:
         return content if isinstance(content, str) else str(content)
 
     # --- EmbeddingClient -------------------------------------------------- #
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
         emb = self._ensure_emb()
+        prefix = self.config.embed_prefix_for(kind)
+        if prefix:
+            texts = [prefix + t for t in texts]
         with self._proxy_ctx():
             return emb.embed_documents(list(texts))

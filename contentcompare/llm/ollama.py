@@ -64,11 +64,14 @@ class OllamaBackend:
         return extract(data, "message", "content", url=url)
 
     # --- EmbeddingClient -------------------------------------------------- #
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
         url = f"{self.host}/api/embeddings"
+        prefix = self.config.embed_prefix_for(kind)
         vectors: list[list[float]] = []
         for text in texts:
             # TODO: Ollama 가 배치 임베딩을 지원하면 한 번에 보내도록 개선.
-            data = self._post(url, {"model": self.config.embed_model, "prompt": text})
+            data = self._post(
+                url, {"model": self.config.embed_model, "prompt": prefix + text}
+            )
             vectors.append(extract(data, "embedding", url=url))
         return vectors

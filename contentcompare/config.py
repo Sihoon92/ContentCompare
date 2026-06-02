@@ -61,7 +61,21 @@ class LLMConfig:
     폴더에 model.onnx + tokenizer.json 이 있어야 한다. 다운로드 없이 로컬 사용.
     """
     embed_prefix: str = ""
-    """임베딩 입력 앞에 붙일 접두어. e5 계열은 'query: ' 를 권장."""
+    """임베딩 입력 앞에 붙일 공통 접두어(query/passage 별도 미지정 시 폴백).
+
+    e5 계열은 접두어가 필수다(없으면 성능 저하). 단일 값만 쓰려면 'query: ' 권장.
+    """
+    embed_query_prefix: str = ""
+    """검색 쿼리(기준 항목)에 붙일 접두어. e5 계열 권장값: 'query: '.
+
+    비우면 embed_prefix 로 폴백. 교차언어 검색(한↔영)에서는 query/passage 를
+    구분해 주는 것이 정확도에 유리하다.
+    """
+    embed_passage_prefix: str = ""
+    """본문(대상 문서 청크)에 붙일 접두어. e5 계열 권장값: 'passage: '.
+
+    비우면 embed_prefix 로 폴백.
+    """
     timeout: float = 120.0
     max_retries: int = 3
     """일시 오류(연결/타임아웃/5xx) 재시도 횟수."""
@@ -77,6 +91,18 @@ class LLMConfig:
     """요청 한도(429) 전용 재시도 횟수(일반 일시오류와 별도 예산)."""
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     internal: InternalConfig = field(default_factory=InternalConfig)
+
+    def embed_prefix_for(self, kind: str) -> str:
+        """임베딩 입력 종류별 접두어를 고른다.
+
+        kind 가 ``query``/``passage`` 면 각 전용 접두어를 우선 쓰고, 비어 있으면
+        공통 ``embed_prefix`` 로 폴백한다. e5 계열에서 query/passage 를 구분해
+        붙이기 위한 헬퍼(미설정 시 빈 문자열 → 기존 동작 그대로)."""
+        if kind == "query" and self.embed_query_prefix:
+            return self.embed_query_prefix
+        if kind == "passage" and self.embed_passage_prefix:
+            return self.embed_passage_prefix
+        return self.embed_prefix or ""
 
 
 @dataclass

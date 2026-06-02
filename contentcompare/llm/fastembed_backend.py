@@ -71,8 +71,12 @@ class FastEmbedBackend:
         return self._model
 
     # --- EmbeddingClient -------------------------------------------------- #
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
         model = self._ensure_model()
+        # fastembed 는 e5 의 query/passage 접두어를 자동으로 붙이지 않으므로 직접 붙인다.
+        prefix = self.config.embed_prefix_for(kind)
+        if prefix:
+            texts = [prefix + t for t in texts]
         out: list[list[float]] = []
         for vec in model.embed(list(texts)):
             # fastembed 는 numpy 배열을 내놓는다 → 리스트로 변환.

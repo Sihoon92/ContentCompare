@@ -96,8 +96,11 @@ class InternalBackend:
         return extract(data, "choices", 0, "message", "content", url=url)
 
     # --- EmbeddingClient -------------------------------------------------- #
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
         url = f"{self.base_url}/embeddings"
+        prefix = self.config.embed_prefix_for(kind)
+        if prefix:
+            texts = [prefix + t for t in texts]
         data = self._post(url, {"model": self.config.embed_model, "input": texts})
         items = extract(data, "data", url=url)
         # input 순서 유지를 위해 index 로 정렬.

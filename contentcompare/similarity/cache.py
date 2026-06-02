@@ -50,9 +50,13 @@ class CachedEmbedder:
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", self._model) or "default"
         return os.path.join(self._dir, f"emb_{safe}.json")
 
-    def _key(self, text: str) -> str:
+    def _key(self, text: str, kind: str) -> str:
+        # kind(query/passage)를 키에 포함한다. e5 처럼 종류별 접두어가 붙는 모델은
+        # 같은 텍스트라도 query/passage 벡터가 달라지므로 분리 저장해야 한다.
         h = hashlib.sha1()
         h.update(self._model.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(kind.encode("utf-8"))
         h.update(b"\x00")
         h.update(text.encode("utf-8"))
         return h.hexdigest()
@@ -103,26 +107,26 @@ class CachedEmbedder:
             )
 
     # ------------------------------------------------------------------ #
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
         """캐시 히트는 재사용하고, 미스만 백엔드로 임베딩한다(입력 순서 유지)."""
         if self._dir is None:  # 캐시 비활성 → 그대로 위임
-            return [list(v) for v in self._embedder.embed(texts)]
+            return [list(v) for v in self._embedder.embed(texts, kind=kind)]
         self._load()
         results: list[Optional[list[float]]] = [None] * len(texts)
         misses: list[int] = []
         for i, t in enumerate(texts):
-            cached = self._cache.get(self._key(t))
+            cached = self._cache.get(self._key(t, kind))
             if cached is not None:
                 results[i] = cached
             else:
                 misses.append(i)
 
         if misses:
-            fresh = self._embedder.embed([texts[i] for i in misses])
+            fresh = self._embedder.embed([texts[i] for i in misses], kind=kind)
             for i, vec in zip(misses, fresh):
                 vec = list(vec)
                 results[i] = vec
-                self._cache[self._key(texts[i])] = vec
+                self._cache[self._key(texts[i], kind)] = vec
             self._dirty = True
             self._save()
 
