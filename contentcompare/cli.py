@@ -13,8 +13,9 @@ import sys
 
 from .config import AppConfig
 from .llm.health import all_ok, check_llm
+from .logging_setup import log_print, setup_logging
 from .pipeline import ComparePipeline
-from .report import render_markdown
+from .report import render_markdown, save_report
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _progress(i: int, total: int, result) -> None:
-    print(f"[{i}/{total}] {result.verdict.value:9} {result.reference.source_label}")
+    log_print(f"[{i}/{total}] {result.verdict.value:9} {result.reference.source_label}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,26 +48,24 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO if (args.verbose or args.check) else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
-    # 실행 로그를 파일로도 저장.
-    from .logging_setup import setup_logging
-
-    log_path = setup_logging(level=logging.INFO)
-    print(f"로그 파일: {log_path}")
+    # 실행 로그를 파일로도 저장(파일에는 DEBUG 까지 — 프롬프트/응답 포함).
+    log_path = setup_logging()
+    log_print(f"로그 파일: {log_path}")
 
     config = AppConfig.load(args.config)
 
     # 연결 점검 모드: chat/embedding 핑 후 종료.
     if args.check:
-        print("LLM 연결 점검 중...\n")
+        log_print("LLM 연결 점검 중...\n")
         results = check_llm(config)
         for r in results:
-            print(r.line())
+            log_print(r.line())
         ok = all_ok(results)
-        print("\n" + ("✅ 모든 점검 통과" if ok else "❌ 일부 점검 실패 — 위 메시지를 확인하세요"))
+        log_print("\n" + ("✅ 모든 점검 통과" if ok else "❌ 일부 점검 실패 — 위 메시지를 확인하세요"))
         return 0 if ok else 1
 
     if not args.reference or not args.targets:
-        print("오류: --reference 와 --targets 가 필요합니다 (또는 --check 로 연결만 점검).")
+        log_print("오류: --reference 와 --targets 가 필요합니다 (또는 --check 로 연결만 점검).")
         return 2
 
     pipeline = ComparePipeline(config)
@@ -77,7 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(report)
-    print(f"\n완료: {len(results)}개 항목 비교 → {args.out}")
+    # Streamlit '리포트 보기' 에서도 열람할 수 있도록 reports/ 에 사본을 남긴다.
+    saved = save_report(report)
+    log_print(f"\n완료: {len(results)}개 항목 비교 → {args.out} (사본: {saved})")
     return 0
 
 

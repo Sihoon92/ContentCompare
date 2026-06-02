@@ -194,18 +194,15 @@ def summary_rows(results: Iterable[Result]) -> list[dict[str, Any]]:
 
 
 def field_rows(result: RecordResult) -> list[dict[str, Any]]:
-    """레코드 결과의 필드별 표 행."""
-    by_id = {c.item.item_id: c.item.source_label for c in result.candidates}
+    """레코드 결과의 열(항목)별 확인 내역 표 행(행 종합 판정의 세부 근거)."""
     rows: list[dict[str, Any]] = []
-    for fr in result.fields:
-        srcs = [by_id[m] for m in fr.matched_item_ids if m in by_id]
+    for fd in result.findings:
         rows.append(
             {
-                "필드": fr.field.header,
-                "기준값": fr.field.value_norm,
-                "판정": VERDICT_LABEL[fr.verdict],
-                "출처": "; ".join(srcs) if srcs else "-",
-                "사유": fr.reasoning,
+                "항목(열)": fd.field.header,
+                "기준값": fd.field.value_norm,
+                "확인": "✅ 있음" if fd.found else "⚪ 없음",
+                "근거": fd.note,
             }
         )
     return rows

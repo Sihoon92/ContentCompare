@@ -15,6 +15,7 @@ from typing import Callable, Optional
 
 from .comparison import Comparator
 from .config import AppConfig
+from .knowledge import load_knowledge
 from .llm import build_clients
 from .models import ComparisonResult, DocItem, RecordItem, RecordResult
 from .readers import get_reader
@@ -30,7 +31,14 @@ class ComparePipeline:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.llm, self.embedder = build_clients(config)
-        self.comparator = Comparator(self.llm)
+        # 사람이 작성한 도메인 지식을 비교 프롬프트에 항상 주입(요청 5번).
+        knowledge = ""
+        kcfg = config.knowledge
+        if kcfg.enabled:
+            knowledge = load_knowledge(kcfg.dir, max_chars=kcfg.max_chars)
+            if knowledge:
+                logger.info("도메인 지식 주입 활성화: %s (%d자)", kcfg.dir, len(knowledge))
+        self.comparator = Comparator(self.llm, knowledge=knowledge)
 
     # ------------------------------------------------------------------ #
     def run(

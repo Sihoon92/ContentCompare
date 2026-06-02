@@ -64,9 +64,17 @@ class LLMConfig:
     """임베딩 입력 앞에 붙일 접두어. e5 계열은 'query: ' 를 권장."""
     timeout: float = 120.0
     max_retries: int = 3
-    """일시 오류(연결/타임아웃/5xx/429) 재시도 횟수."""
+    """일시 오류(연결/타임아웃/5xx) 재시도 횟수."""
     backoff_base: float = 2.0
     """재시도 지수 백오프 기준(2 → 2s,4s,8s,…)."""
+    rate_limit_wait: float = 60.0
+    """요청 한도(HTTP 429) 시 대기 시간(초). 서버가 Retry-After 를 주면 그 값 우선.
+
+    사내 LLM 은 분당 요청 한도가 흔하므로, 429 면 짧게 백오프하지 않고
+    1분가량 기다렸다가 다시 시도한다.
+    """
+    rate_limit_max_retries: int = 5
+    """요청 한도(429) 전용 재시도 횟수(일반 일시오류와 별도 예산)."""
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     internal: InternalConfig = field(default_factory=InternalConfig)
 
@@ -145,6 +153,22 @@ class SimilarityConfig:
 @dataclass
 class ReportConfig:
     format: str = "markdown"
+    output_dir: str = "reports"
+    """생성한 리포트(.md)를 자동 저장할 디렉터리(Streamlit '리포트 보기'가 읽는 곳)."""
+
+
+@dataclass
+class KnowledgeConfig:
+    """사람이 작성한 도메인 지식(human-in-the-loop) 설정(요청 5번)."""
+
+    enabled: bool = True
+    """True 면 ``dir`` 의 모든 .md 를 비교 프롬프트에 참고 자료로 항상 주입한다."""
+
+    dir: str = "knowledge"
+    """도메인 지식 Markdown 파일들이 있는 디렉터리."""
+
+    max_chars: int = 12000
+    """프롬프트에 주입할 지식 텍스트의 최대 길이(초과분은 잘라낸다)."""
 
 
 @dataclass
@@ -153,6 +177,7 @@ class AppConfig:
     excel: ExcelConfig = field(default_factory=ExcelConfig)
     similarity: SimilarityConfig = field(default_factory=SimilarityConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
+    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
 
     # ----------------------------------------------------------------- #
     # 로딩
@@ -179,6 +204,7 @@ class AppConfig:
             excel=ExcelConfig(**data.get("excel", {}) or {}),
             similarity=SimilarityConfig(**data.get("similarity", {}) or {}),
             report=ReportConfig(**data.get("report", {}) or {}),
+            knowledge=KnowledgeConfig(**data.get("knowledge", {}) or {}),
         )
 
 

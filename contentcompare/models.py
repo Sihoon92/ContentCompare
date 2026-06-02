@@ -122,52 +122,43 @@ class ComparisonResult:
 
 
 @dataclass
-class FieldResult:
-    """필드(셀) 1건에 대한 판정 결과 (엑셀 hybrid 판정 단위)."""
+class FieldFinding:
+    """행 종합 판정에서 각 열(필드)이 대상 문서에서 어떻게 확인되었는지에 대한 내역.
+
+    개별 같음/다름 판정(verdict)이 아니라 '확인됨(found) + 근거(note)' 수준의 서술이다.
+    레코드(행)는 한 번에 종합 판정하므로(요청 1번), 필드는 그 판단의 세부 근거로만 쓰인다.
+    """
 
     field: "FieldClaim"
-    verdict: Verdict
-    reasoning: str
-    matched_item_ids: list[str] = field(default_factory=list)
+    found: bool
+    """이 항목(열)에 해당하는 내용을 대상 문서(후보)에서 찾았는가."""
+
+    note: str = ""
+    """어디서/어떻게 확인했는지(또는 못 찾았는지)에 대한 한 줄 근거."""
 
 
 @dataclass
 class RecordResult:
-    """기준 레코드(행) 1건에 대한 비교 결과 — 필드별 판정들의 묶음.
+    """기준 레코드(행) 1건에 대한 **행 단위 종합 판정** 결과(요청 1번).
 
-    리포트/요약에서는 :attr:`verdict`(필드 판정 집계)로 레코드 단위 상태를 보여준다.
+    한 행의 모든 열을 종합해, 그 내용이 대상 문서에 있는지(verdict)·어디에 있는지
+    (matched_item_ids → sources)·왜 그렇게 판단했는지(reasoning)를 한 번에 담는다.
+    :attr:`findings` 는 열별 확인 내역(세부 근거)이다.
     """
 
     record: DocItem
-    fields: list[FieldResult] = field(default_factory=list)
+    verdict: Verdict = Verdict.NOT_FOUND
+    """행 전체를 종합한 판정."""
+
+    reasoning: str = ""
+    """이 행의 내용이 대상의 어디에 왜 있다고(또는 없다고) 판단했는지 종합 서술."""
+
     candidates: list[Candidate] = field(default_factory=list)
+    matched_item_ids: list[str] = field(default_factory=list)
+    """행 내용의 근거가 된 후보 item_id 들."""
 
-    @property
-    def verdict(self) -> Verdict:
-        """필드 판정들을 레코드 단위로 집계."""
-        if not self.fields:
-            return Verdict.NOT_FOUND
-        counts = {v: 0 for v in Verdict}
-        for fr in self.fields:
-            counts[fr.verdict] += 1
-        total = len(self.fields)
-        if counts[Verdict.SAME] == total:
-            return Verdict.SAME
-        if counts[Verdict.NOT_FOUND] == total:
-            return Verdict.NOT_FOUND
-        if counts[Verdict.SAME] == 0 and counts[Verdict.PARTIAL] == 0 and counts[Verdict.DIFFERENT] > 0:
-            return Verdict.DIFFERENT
-        return Verdict.PARTIAL
-
-    @property
-    def matched_item_ids(self) -> list[str]:
-        """모든 필드에서 매칭된 후보 id 의 합집합(순서 보존)."""
-        seen: list[str] = []
-        for fr in self.fields:
-            for i in fr.matched_item_ids:
-                if i not in seen:
-                    seen.append(i)
-        return seen
+    findings: list[FieldFinding] = field(default_factory=list)
+    """열(필드)별 확인 내역(세부 근거)."""
 
     @property
     def reference(self) -> DocItem:

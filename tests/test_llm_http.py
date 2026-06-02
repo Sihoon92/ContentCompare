@@ -7,6 +7,7 @@ import pytest
 from contentcompare.config import LLMConfig
 from contentcompare.llm.http import (
     LLMRequestError,
+    RateLimitError,
     RetryPolicy,
     TransientError,
     extract,
@@ -17,10 +18,11 @@ from contentcompare.llm.ollama import OllamaBackend
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, json_data=None, text=""):
+    def __init__(self, status_code=200, json_data=None, text="", headers=None):
         self.status_code = status_code
         self._json = json_data if json_data is not None else {}
         self.text = text
+        self.headers = headers or {}
 
     def json(self):
         if isinstance(self._json, Exception):
@@ -88,6 +90,41 @@ def test_post_json_5xx_retried():
         post_json("http://x", {}, poster=poster, sleep=_NOSLEEP,
                   retry=RetryPolicy(max_retries=2))
     assert poster.calls["i"] == 3
+
+
+def test_post_json_429_waits_rate_limit_then_succeeds():
+    # 429 는 일반 백오프(2s) 가 아니라 rate_limit_wait(여기선 60s) 만큼 대기.
+    poster = scripted_poster([FakeResponse(429, text="rate limited"),
+                              FakeResponse(200, {"ok": 1})])
+    sleeps = []
+    out = post_json(
+        "http://x", {}, poster=poster, sleep=sleeps.append,
+        retry=RetryPolicy(rate_limit_wait=60.0, rate_limit_max_retries=3),
+    )
+    assert out == {"ok": 1}
+    assert sleeps == [60.0]  # 분당 한도 회복 대기
+
+
+def test_post_json_429_honors_retry_after_header():
+    poster = scripted_poster([FakeResponse(429, headers={"Retry-After": "12"}),
+                              FakeResponse(200, {"ok": 1})])
+    sleeps = []
+    post_json("http://x", {}, poster=poster, sleep=sleeps.append,
+              retry=RetryPolicy(rate_limit_wait=60.0))
+    assert sleeps == [12.0]  # 서버가 알려준 대기 우선
+
+
+def test_post_json_429_separate_budget_from_transient():
+    # 429 전용 예산(rate_limit_max_retries)을 소진하면 실패.
+    poster = scripted_poster([FakeResponse(429, text="rl")])
+    with pytest.raises(LLMRequestError, match="429"):
+        post_json("http://x", {}, poster=poster, sleep=_NOSLEEP,
+                  retry=RetryPolicy(rate_limit_max_retries=2))
+    assert poster.calls["i"] == 3  # 최초 1 + 재시도 2
+
+
+def test_rate_limit_error_is_transient_subclass():
+    assert issubclass(RateLimitError, TransientError)
 
 
 def test_post_json_bad_body_raises():

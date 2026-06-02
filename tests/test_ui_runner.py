@@ -10,7 +10,7 @@ from contentcompare.models import (
     DocItem,
     DocType,
     FieldClaim,
-    FieldResult,
+    FieldFinding,
     RecordItem,
     RecordResult,
     Verdict,
@@ -127,43 +127,50 @@ def test_save_upload_writes_file(tmp_path):
 # --------------------------------------------------------------------------- #
 # 결과 집계 / 표
 # --------------------------------------------------------------------------- #
-def _record_result(verdicts):
-    fields = [
-        FieldResult(
+def _record_result(found_flags, *, verdict=Verdict.SAME, matched=("t#1",)):
+    """행 종합 판정 결과를 만든다. found_flags: 열별 확인 여부 리스트."""
+    findings = [
+        FieldFinding(
             field=FieldClaim(f"id{i}", f"h{i}", i, str(i), f"A{i}"),
-            verdict=v,
-            reasoning="r",
-            matched_item_ids=["t#1"] if v != Verdict.NOT_FOUND else [],
+            found=found,
+            note="근거" if found else "못 찾음",
         )
-        for i, v in enumerate(verdicts)
+        for i, found in enumerate(found_flags)
     ]
     cand = Candidate(DocItem("t#1", "t.docx", DocType.WORD, "텍스트", "t.docx 1단락"), 0.8)
     rec = RecordItem("r#2", "기준.xlsx", DocType.EXCEL, "행텍스트", "기준 2행")
-    return RecordResult(record=rec, candidates=[cand], fields=fields)
+    return RecordResult(
+        record=rec,
+        verdict=verdict,
+        reasoning="행 종합 근거",
+        candidates=[cand],
+        matched_item_ids=list(matched),
+        findings=findings,
+    )
 
 
 def test_verdict_counts_mixed():
-    r1 = _record_result([Verdict.SAME, Verdict.SAME])            # → same
-    r2 = _record_result([Verdict.SAME, Verdict.DIFFERENT])       # → partial
+    r1 = _record_result([True, True], verdict=Verdict.SAME)
+    r2 = _record_result([True, False], verdict=Verdict.PARTIAL)
     counts = runner.verdict_counts([r1, r2])
     assert counts[Verdict.SAME] == 1
     assert counts[Verdict.PARTIAL] == 1
 
 
 def test_summary_rows_shape():
-    r = _record_result([Verdict.SAME, Verdict.SAME])
+    r = _record_result([True, True], verdict=Verdict.SAME)
     rows = runner.summary_rows([r])
     assert rows[0]["#"] == 1
     assert rows[0]["판정"] == runner.VERDICT_LABEL[Verdict.SAME]
     assert "t.docx 1단락" in rows[0]["출처"]
 
 
-def test_field_rows_maps_sources():
-    r = _record_result([Verdict.SAME, Verdict.NOT_FOUND])
+def test_field_rows_maps_findings():
+    r = _record_result([True, False])
     rows = runner.field_rows(r)
     assert len(rows) == 2
-    assert rows[0]["출처"] == "t.docx 1단락"   # 매칭 있음
-    assert rows[1]["출처"] == "-"               # not_found → 매칭 없음
+    assert rows[0]["확인"] == "✅ 있음"
+    assert rows[1]["확인"] == "⚪ 없음"
 
 
 def test_summary_rows_supports_comparison_result():

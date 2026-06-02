@@ -70,19 +70,24 @@ def _render_record(lines: list[str], i: int, r: RecordResult) -> None:
     lines.append(f"**기준 내용**: {r.record.text}")
     lines.append("")
 
-    # 필드별 판정 표
-    lines.append("| 필드 | 기준값 | 판정 | 출처 | 사유 |")
-    lines.append("|------|--------|------|------|------|")
-    by_id = {c.item.item_id: c.item.source_label for c in r.candidates}
-    for fr in r.fields:
-        srcs = [by_id[m] for m in fr.matched_item_ids if m in by_id]
-        src_txt = "<br>".join(srcs) if srcs else "-"
-        lines.append(
-            f"| {fr.field.header} | {_truncate(fr.field.value_norm, 24)} "
-            f"| {_VERDICT_LABEL[fr.verdict]} | {src_txt} "
-            f"| {_truncate(_oneline(fr.reasoning), 70)} |"
-        )
+    # 행 단위 종합 판단(어디에·왜 있다고 판단했는지).
+    src_line = "<br>".join(r.sources) if r.sources else "-"
+    lines.append(f"**출처(어디에)**: {src_line}")
     lines.append("")
+    lines.append(f"**종합 근거(왜)**: {r.reasoning}")
+    lines.append("")
+
+    # 열별 확인 내역(세부 근거)
+    if r.findings:
+        lines.append("| 항목(열) | 기준값 | 확인 | 근거 |")
+        lines.append("|----------|--------|------|------|")
+        for fd in r.findings:
+            mark = "✅ 있음" if fd.found else "⚪ 없음"
+            lines.append(
+                f"| {fd.field.header} | {_truncate(fd.field.value_norm, 24)} "
+                f"| {mark} | {_truncate(_oneline(fd.note), 70)} |"
+            )
+        lines.append("")
 
     if r.candidates:
         lines.append("**검색된 후보**:")
@@ -114,11 +119,13 @@ def _render_comparison(lines: list[str], i: int, r: ComparisonResult) -> None:
 
 
 def _oneline_summary(r: Result) -> str:
-    """요약 표의 한줄 요약. 레코드는 필드 일치 개수, 단일 항목은 사유."""
+    """요약 표의 한줄 요약. 레코드는 종합 근거(없으면 항목 확인 개수)."""
     if isinstance(r, RecordResult):
-        total = len(r.fields)
-        same = sum(1 for f in r.fields if f.verdict == Verdict.SAME)
-        return f"필드 {same}/{total} 일치"
+        if r.reasoning and r.reasoning != "(사유 없음)":
+            return r.reasoning
+        total = len(r.findings)
+        found = sum(1 for f in r.findings if f.found)
+        return f"항목 {found}/{total} 확인"
     return r.reasoning
 
 

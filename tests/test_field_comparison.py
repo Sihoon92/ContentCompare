@@ -1,4 +1,4 @@
-"""Phase 3: 필드별 LLM 비교(compare_record) + RecordResult 집계 + 리포트 렌더 테스트."""
+"""행 단위 종합 판정(compare_record) + RecordResult + 리포트 렌더 테스트(요청 1번)."""
 
 from __future__ import annotations
 
@@ -23,8 +23,10 @@ class ScriptedLLM:
     def __init__(self, *responses):
         self.responses = list(responses)
         self.calls = 0
+        self.last_user = ""
 
     def complete(self, system, user, *, temperature=0.0):
+        self.last_user = user
         r = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return r
@@ -49,69 +51,71 @@ def _record():
     return rec, [cand]
 
 
-def _resp(fields):
-    return json.dumps({"fields": fields})
+def _resp(verdict, findings, *, matched=("t.docx#1",), reasoning="행 종합"):
+    return json.dumps(
+        {
+            "verdict": verdict,
+            "matched_item_ids": list(matched),
+            "reasoning": reasoning,
+            "findings": findings,
+        }
+    )
 
 
 # --------------------------------------------------------------------------- #
-def test_compare_record_maps_field_verdicts():
+def test_compare_record_holistic_verdict_and_findings():
     rec, cands = _record()
-    llm = ScriptedLLM(_resp([
-        {"field_id": "d.xlsx#S!B2", "verdict": "same",
-         "matched_item_ids": ["t.docx#1"], "reasoning": "매출 1200 일치"},
-        {"field_id": "d.xlsx#S!C2", "verdict": "different",
-         "matched_item_ids": ["t.docx#1"], "reasoning": "직원수 50 vs 60"},
+    llm = ScriptedLLM(_resp("partial", [
+        {"field_id": "d.xlsx#S!B2", "found": True, "note": "매출 1200 확인"},
+        {"field_id": "d.xlsx#S!C2", "found": True, "note": "직원수 50 vs 60 차이"},
     ]))
     result = Comparator(llm).compare_record(rec, cands)
 
     assert isinstance(result, RecordResult)
-    bid = {fr.field.field_id: fr for fr in result.fields}
-    assert bid["d.xlsx#S!B2"].verdict == Verdict.SAME
-    assert bid["d.xlsx#S!C2"].verdict == Verdict.DIFFERENT
-    # 집계: 일부 different → 레코드는 부분일치(같음과 다름 혼재).
-    assert result.verdict == Verdict.PARTIAL
+    assert result.verdict == Verdict.PARTIAL          # 행 종합 판정(저장값)
+    assert result.reasoning == "행 종합"
+    assert result.matched_item_ids == ["t.docx#1"]
+    bid = {fd.field.field_id: fd for fd in result.findings}
+    assert bid["d.xlsx#S!B2"].found is True
+    assert "직원수" in bid["d.xlsx#S!C2"].note
 
 
 def test_compare_record_filters_invalid_matched_ids():
     rec, cands = _record()
-    llm = ScriptedLLM(_resp([
-        {"field_id": "d.xlsx#S!B2", "verdict": "same",
-         "matched_item_ids": ["t.docx#1", "없는id"], "reasoning": "x"},
-        {"field_id": "d.xlsx#S!C2", "verdict": "not_found",
-         "matched_item_ids": [], "reasoning": "y"},
-    ]))
+    llm = ScriptedLLM(_resp("same", [
+        {"field_id": "d.xlsx#S!B2", "found": True, "note": "x"},
+        {"field_id": "d.xlsx#S!C2", "found": True, "note": "y"},
+    ], matched=["t.docx#1", "없는id"]))
     result = Comparator(llm).compare_record(rec, cands)
-    b2 = next(fr for fr in result.fields if fr.field.cell_ref == "B2")
-    assert b2.matched_item_ids == ["t.docx#1"]  # 존재하지 않는 id 제거
+    assert result.matched_item_ids == ["t.docx#1"]    # 존재하지 않는 id 제거
 
 
-def test_compare_record_missing_field_marked_different():
+def test_compare_record_missing_finding_marked_not_found():
     rec, cands = _record()
-    # C2 필드 판정이 응답에서 누락됨.
-    llm = ScriptedLLM(_resp([
-        {"field_id": "d.xlsx#S!B2", "verdict": "same",
-         "matched_item_ids": ["t.docx#1"], "reasoning": "ok"},
+    # C2 항목 내역이 응답에서 누락됨.
+    llm = ScriptedLLM(_resp("partial", [
+        {"field_id": "d.xlsx#S!B2", "found": True, "note": "ok"},
     ]))
     result = Comparator(llm).compare_record(rec, cands)
-    c2 = next(fr for fr in result.fields if fr.field.cell_ref == "C2")
-    assert c2.verdict == Verdict.DIFFERENT
-    assert "누락" in c2.reasoning
+    c2 = next(fd for fd in result.findings if fd.field.cell_ref == "C2")
+    assert c2.found is False
+    assert "누락" in c2.note
 
 
-def test_compare_record_no_candidates_all_not_found():
+def test_compare_record_no_candidates_not_found():
     rec, _ = _record()
     llm = ScriptedLLM("should-not-be-called")
     result = Comparator(llm).compare_record(rec, [])
     assert llm.calls == 0  # LLM 호출 없음
-    assert all(fr.verdict == Verdict.NOT_FOUND for fr in result.fields)
     assert result.verdict == Verdict.NOT_FOUND
+    assert all(fd.found is False for fd in result.findings)
 
 
 def test_compare_record_retries_on_bad_json():
     rec, cands = _record()
-    good = _resp([
-        {"field_id": "d.xlsx#S!B2", "verdict": "same", "matched_item_ids": [], "reasoning": "a"},
-        {"field_id": "d.xlsx#S!C2", "verdict": "same", "matched_item_ids": [], "reasoning": "b"},
+    good = _resp("same", [
+        {"field_id": "d.xlsx#S!B2", "found": True, "note": "a"},
+        {"field_id": "d.xlsx#S!C2", "found": True, "note": "b"},
     ])
     llm = ScriptedLLM("죄송합니다 JSON 아님", good)
     result = Comparator(llm).compare_record(rec, cands)
@@ -119,27 +123,35 @@ def test_compare_record_retries_on_bad_json():
     assert result.verdict == Verdict.SAME
 
 
-def test_record_verdict_all_same():
+def test_record_verdict_same():
     rec, cands = _record()
-    llm = ScriptedLLM(_resp([
-        {"field_id": "d.xlsx#S!B2", "verdict": "same", "matched_item_ids": [], "reasoning": "a"},
-        {"field_id": "d.xlsx#S!C2", "verdict": "same", "matched_item_ids": [], "reasoning": "b"},
+    llm = ScriptedLLM(_resp("same", [
+        {"field_id": "d.xlsx#S!B2", "found": True, "note": "a"},
+        {"field_id": "d.xlsx#S!C2", "found": True, "note": "b"},
     ]))
     assert Comparator(llm).compare_record(rec, cands).verdict == Verdict.SAME
 
 
-# --------------------------------------------------------------------------- #
-def test_report_renders_record_field_table():
+def test_knowledge_injected_into_prompt():
     rec, cands = _record()
-    llm = ScriptedLLM(_resp([
-        {"field_id": "d.xlsx#S!B2", "verdict": "same",
-         "matched_item_ids": ["t.docx#1"], "reasoning": "매출 일치"},
-        {"field_id": "d.xlsx#S!C2", "verdict": "different",
-         "matched_item_ids": ["t.docx#1"], "reasoning": "직원수 다름"},
+    llm = ScriptedLLM(_resp("same", [
+        {"field_id": "d.xlsx#S!B2", "found": True, "note": "a"},
+        {"field_id": "d.xlsx#S!C2", "found": True, "note": "b"},
     ]))
+    Comparator(llm, knowledge="formation = 화성 공정").compare_record(rec, cands)
+    assert "formation = 화성 공정" in llm.last_user
+
+
+# --------------------------------------------------------------------------- #
+def test_report_renders_record_findings_table():
+    rec, cands = _record()
+    llm = ScriptedLLM(_resp("partial", [
+        {"field_id": "d.xlsx#S!B2", "found": True, "note": "매출 일치"},
+        {"field_id": "d.xlsx#S!C2", "found": False, "note": "직원수 다름"},
+    ], reasoning="A 제품은 t.docx 1단락에 있으며 매출은 같으나 직원수가 다름"))
     result = Comparator(llm).compare_record(rec, cands)
     md = render_markdown([result], reference_doc="d.xlsx", target_docs=["t.docx"])
     assert "# 문서 비교 리포트" in md
-    assert "| 필드 | 기준값 | 판정 | 출처 | 사유 |" in md  # 필드 표 헤더
+    assert "| 항목(열) | 기준값 | 확인 | 근거 |" in md  # 열별 확인 표 헤더
     assert "매출액" in md and "직원수" in md
-    assert "필드 1/2 일치" in md  # 요약 한줄
+    assert "종합 근거(왜)" in md

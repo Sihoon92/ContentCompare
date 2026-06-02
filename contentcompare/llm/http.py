@@ -26,11 +26,28 @@ class TransientError(Exception):
     """재시도 대상 일시 오류(내부용 + 테스트 주입용)."""
 
 
+class RateLimitError(TransientError):
+    """요청 한도 초과(HTTP 429). 다른 일시오류보다 더 오래 기다렸다 재시도한다.
+
+    ``retry_after`` 가 있으면(서버가 ``Retry-After`` 헤더로 알려준 대기 초) 그 값을,
+    없으면 :class:`RetryPolicy.rate_limit_wait` 를 대기 시간으로 쓴다.
+    """
+
+    def __init__(self, message: str, *, retry_after: Optional[float] = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 @dataclass
 class RetryPolicy:
     max_retries: int = 3
     backoff_base: float = 2.0   # 2s, 4s, 8s, ...
     backoff_cap: float = 16.0
+    # --- 요청 한도(429) 전용 정책 ---------------------------------------- #
+    rate_limit_wait: float = 60.0
+    """429(요청 한도) 응답 시 기본 대기 시간(초). 사내 LLM 분당 한도 회복용."""
+    rate_limit_max_retries: int = 5
+    """429 전용 재시도 횟수(일반 일시오류와 별도 예산)."""
 
 
 def _transient_types() -> tuple:
@@ -77,8 +94,10 @@ def post_json(
     poster = poster or _default_poster
     transient = _transient_types()
     make_ctx = proxy_ctx or nullcontext
-    attempt = 0
+    attempt = 0          # 일반 일시오류(연결/타임아웃/5xx) 재시도 카운트
+    rl_attempt = 0       # 429(요청 한도) 전용 재시도 카운트
 
+    logger.debug("POST %s payload=%s", url, _snippet_obj(payload, 1000))
     while True:
         try:
             with make_ctx():
@@ -86,18 +105,39 @@ def post_json(
                     url, json=payload, headers=headers, timeout=timeout, verify=verify
                 )
             status = getattr(resp, "status_code", 200)
-            if status >= 500 or status == 429:
-                raise TransientError(f"HTTP {status}")
+            if status == 429:
+                raise RateLimitError(
+                    f"HTTP 429 요청 한도 초과 — {_snippet(resp)}",
+                    retry_after=_retry_after_seconds(resp),
+                )
+            if status >= 500:
+                raise TransientError(f"HTTP {status} — {_snippet(resp)}")
             if status >= 400:
                 raise LLMRequestError(
                     f"{url} 호출 실패: HTTP {status} — {_snippet(resp)}"
                 )
             try:
-                return resp.json()
+                data = resp.json()
             except Exception as exc:  # noqa: BLE001 - 본문 파싱 실패
                 raise LLMRequestError(
                     f"{url} 응답 JSON 파싱 실패: {_snippet(resp)}"
                 ) from exc
+            logger.debug("← %s ok: %s", url, _snippet_obj(data, 1000))
+            return data
+        except RateLimitError as exc:
+            # 429 는 분당 한도일 가능성이 높아 1분가량 길게 기다렸다가 재시도한다.
+            rl_attempt += 1
+            if rl_attempt > retry.rate_limit_max_retries:
+                raise LLMRequestError(
+                    f"{url} 호출이 요청 한도(429)로 {retry.rate_limit_max_retries}회 "
+                    f"재시도 후에도 실패: {exc}"
+                ) from exc
+            delay = exc.retry_after if exc.retry_after else retry.rate_limit_wait
+            logger.warning(
+                "%s 요청 한도(429) — %.0fs 대기 후 재시도 %d/%d",
+                url, delay, rl_attempt, retry.rate_limit_max_retries,
+            )
+            sleep(delay)
         except transient as exc:
             attempt += 1
             if attempt > retry.max_retries:
@@ -123,6 +163,24 @@ def extract(data: dict, *path, url: str = "") -> Any:
         raise LLMRequestError(
             f"{url or '응답'} 형식이 예상과 다릅니다(경로 {list(path)}): {_snippet_obj(data)}"
         ) from exc
+
+
+def _retry_after_seconds(resp: Any) -> Optional[float]:
+    """``Retry-After`` 헤더(초 단위 정수)를 읽어 float 로 반환. 없거나 파싱 실패 시 None.
+
+    HTTP-date 형식은 사내 LLM 에서 드물어 다루지 않는다(그 경우 기본 대기로 폴백).
+    """
+    headers = getattr(resp, "headers", None) or {}
+    try:
+        value = headers.get("Retry-After") or headers.get("retry-after")
+    except AttributeError:
+        return None
+    if value is None:
+        return None
+    try:
+        return max(0.0, float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
 
 
 def _snippet(resp: Any, n: int = 200) -> str:

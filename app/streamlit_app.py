@@ -17,12 +17,13 @@ import os
 
 import streamlit as st
 
+from contentcompare import knowledge as kb
 from contentcompare.config import AppConfig
 from contentcompare.llm.health import all_ok, check_llm
 from contentcompare.logging_setup import read_log_text, setup_logging
 from contentcompare.pipeline import ComparePipeline
 from contentcompare.models import RecordResult, Verdict
-from contentcompare.report import render_markdown
+from contentcompare.report import list_reports, read_report, render_markdown, save_report
 from contentcompare.ui import runner
 
 logger = logging.getLogger("contentcompare.ui")
@@ -293,7 +294,11 @@ def show_results(results, reference_doc, target_docs):
         with st.expander(f"{i}. {r.reference.source_label} — {label}"):
             st.markdown(f"**기준 내용**: {r.reference.text}")
             if isinstance(r, RecordResult):
-                st.dataframe(runner.field_rows(r), use_container_width=True, hide_index=True)
+                # 행 단위 종합 판단: 어디에(출처) · 왜(근거) · 열별 확인 내역.
+                st.markdown(f"**출처(어디에)**: {'; '.join(r.sources) if r.sources else '-'}")
+                st.markdown(f"**종합 근거(왜)**: {r.reasoning}")
+                if r.findings:
+                    st.dataframe(runner.field_rows(r), use_container_width=True, hide_index=True)
             else:
                 st.markdown(f"**판단 근거**: {r.reasoning}")
             if r.candidates:
@@ -303,6 +308,16 @@ def show_results(results, reference_doc, target_docs):
                     st.markdown(f"- ({c.score:.3f}) {c.item.source_label}{mark}")
 
     md = render_markdown(results, reference_doc=reference_doc, target_docs=target_docs)
+    # 리포트를 reports/ 에 자동 저장해 '리포트 보기' 탭에서 다시 열 수 있게 한다(요청 2번).
+    try:
+        saved = save_report(md)
+        st.session_state["last_report_path"] = saved
+        st.caption(f"🗂️ 리포트 저장됨: {saved}")
+    except OSError as exc:  # noqa: BLE001
+        st.warning(f"리포트 저장 실패: {exc}")
+
+    with st.expander("📄 리포트(Markdown) 미리보기", expanded=False):
+        st.markdown(md)
     st.download_button(
         "📥 리포트(.md) 다운로드", data=md, file_name="report.md", mime="text/markdown"
     )
@@ -322,17 +337,80 @@ def _log_panel():
                                file_name=os.path.basename(log_path), mime="text/plain")
 
 
-def main():
-    st.title("📑 ContentCompare")
-    st.caption("엑셀 기준 문서를 여러 대상 문서와 대조 — 항목별 같음/다름·출처·사유")
+# --------------------------------------------------------------------------- #
+# 리포트 보기 (저장된 .md 자동 로드)
+# --------------------------------------------------------------------------- #
+def report_viewer_panel(config: AppConfig):
+    st.subheader("저장된 리포트")
+    report_dir = config.report.output_dir
+    paths = list_reports(report_dir)
+    if not paths:
+        st.info(f"아직 저장된 리포트가 없습니다. 비교를 실행하면 `{report_dir}/` 에 자동 저장됩니다.")
+        return
 
-    # 실행 로그를 파일로 저장(세션 1회).
-    if "log_path" not in st.session_state:
-        st.session_state["log_path"] = setup_logging()
+    # 방금 만든 리포트가 있으면 그것을, 없으면 최신 리포트를 기본 선택.
+    default = st.session_state.get("last_report_path")
+    options = paths
+    index = options.index(default) if default in options else 0
+    chosen = st.selectbox(
+        "리포트 선택(최신순)", options, index=index,
+        format_func=os.path.basename,
+    )
+    md = read_report(chosen)
+    st.download_button(
+        "📥 이 리포트 다운로드", data=md,
+        file_name=os.path.basename(chosen), mime="text/markdown",
+    )
+    st.divider()
+    st.markdown(md)
 
-    config = sidebar_config()
+
+# --------------------------------------------------------------------------- #
+# 도메인 지식 (human-in-the-loop)
+# --------------------------------------------------------------------------- #
+def knowledge_panel(config: AppConfig):
+    st.subheader("📚 도메인 지식")
+    st.caption(
+        "LLM 이 모르는 사내 용어·암묵지를 Markdown 으로 정리하면, 비교 분석 시 "
+        "**참고 자료로 항상 주입**됩니다(예: formation = 배터리 화성 공정)."
+    )
+    kdir = config.knowledge.dir
+    if not config.knowledge.enabled:
+        st.warning("현재 설정에서 도메인 지식 주입이 비활성화되어 있습니다(config: knowledge.enabled).")
+
+    files = kb.list_knowledge_files(kdir)
+    names = [os.path.basename(p) for p in files]
+    choices = ["+ 새 파일 만들기"] + names
+    pick = st.selectbox("지식 파일", choices, key="kb_pick")
+
+    if pick == "+ 새 파일 만들기":
+        fname = st.text_input("새 파일 이름(.md)", value="domain.md", key="kb_newname")
+        content = st.text_area("내용(Markdown)", value=kb.TEMPLATE, height=360, key="kb_new_content")
+        target_name = fname
+    else:
+        path = os.path.join(kdir, pick)
+        content = st.text_area(
+            "내용(Markdown)", value=kb.read_knowledge_file(path), height=360, key=f"kb_edit_{pick}"
+        )
+        target_name = pick
+
+    c1, c2 = st.columns(2)
+    if c1.button("💾 저장", type="primary", key="kb_save"):
+        try:
+            saved = kb.save_knowledge_file(target_name, content, base=kdir)
+            st.success(f"저장됨: {saved}")
+            st.rerun()
+        except OSError as exc:  # noqa: BLE001
+            st.error(f"저장 실패: {exc}")
+
+    # 실제 주입될 통합 지식 미리보기.
+    with c2.expander("🔎 비교 시 주입될 전체 지식 미리보기"):
+        merged = kb.load_knowledge(kdir, max_chars=config.knowledge.max_chars)
+        st.code(merged or "(지식 없음)", language="markdown")
+
+
+def _run_tab(config: AppConfig):
     ref_path, target_paths = collect_inputs()
-    _log_panel()
 
     if st.button("🚀 비교 실행", type="primary"):
         if not ref_path:
@@ -347,7 +425,9 @@ def main():
 
         def on_progress(i, total, result):
             progress.progress(i / total)
-            status.text(f"[{i}/{total}] {result.verdict.value} — {result.reference.source_label}")
+            msg = f"[{i}/{total}] {result.verdict.value} — {result.reference.source_label}"
+            status.text(msg)
+            logger.info(msg)  # 진행 상황도 로그에 기록(요청 4번)
 
         logger.info("비교 실행 시작: 기준=%s, 대상=%d개", ref_path, len(target_paths))
         try:
@@ -369,6 +449,26 @@ def main():
             reference_doc=os.path.basename(ref_path),
             target_docs=[os.path.basename(p) for p in target_paths],
         )
+
+
+def main():
+    st.title("📑 ContentCompare")
+    st.caption("엑셀 기준 문서를 여러 대상 문서와 대조 — 항목별 같음/다름·출처·사유")
+
+    # 실행 로그를 파일로 저장(세션 1회).
+    if "log_path" not in st.session_state:
+        st.session_state["log_path"] = setup_logging()
+
+    config = sidebar_config()
+    _log_panel()
+
+    tab_run, tab_report, tab_kb = st.tabs(["🚀 비교 실행", "📄 리포트 보기", "📚 도메인 지식"])
+    with tab_run:
+        _run_tab(config)
+    with tab_report:
+        report_viewer_panel(config)
+    with tab_kb:
+        knowledge_panel(config)
 
 
 if __name__ == "__main__":

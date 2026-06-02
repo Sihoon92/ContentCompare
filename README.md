@@ -26,13 +26,16 @@ LLM 으로 분석·서술해 주는 에이전트 서비스입니다.
 ```
 contentcompare/
 ├── config.py            # YAML/ENV 설정 로딩 + 프록시 제어
-├── models.py            # DocItem / Candidate / ComparisonResult 등 데이터 모델
+├── models.py            # DocItem / Candidate / RecordResult 등 데이터 모델
 ├── pipeline.py          # 전체 오케스트레이션 (기준→후보검색→LLM비교→리포트)
 ├── cli.py               # CLI 진입점
+├── knowledge.py         # 사람이 작성하는 도메인 지식(human-in-the-loop) 로딩/주입
+├── logging_setup.py     # 실행 로그 파일 저장 + log_print(화면+로그 동시)
 ├── llm/                 # LLM/임베딩 백엔드 (스위치 가능)
 │   ├── base.py          #   LLMClient / EmbeddingClient 추상 인터페이스
 │   ├── ollama.py        #   Ollama 백엔드
 │   ├── internal.py      #   사내 HTTP 백엔드 (프록시 우회)
+│   ├── http.py          #   공용 HTTP: 재시도 + 429(요청 한도) 대기 처리
 │   └── factory.py       #   설정 기반 백엔드 선택
 ├── readers/             # 문서 리더
 │   ├── base.py          #   DocumentReader 인터페이스
@@ -42,12 +45,26 @@ contentcompare/
 ├── similarity/          # 임베딩 기반 유사 내용 검색
 │   ├── chunker.py
 │   └── vector_index.py
-├── comparison/          # LLM 기반 내용 비교
+├── comparison/          # LLM 기반 내용 비교 (행 단위 종합 판정)
 │   ├── comparator.py
 │   └── prompts.py
 └── report/
-    └── markdown_report.py
+    ├── markdown_report.py  # 리포트 렌더
+    └── store.py            # 리포트 저장/조회 (Streamlit '리포트 보기')
 ```
+
+## 주요 동작 (요청 반영)
+
+- **행 단위 종합 판정**: 엑셀 한 행의 모든 열을 함께 종합해, 그 내용이 대상 문서에
+  있는지(verdict)·어디에 있는지(출처)·왜 그렇게 판단했는지(근거)를 한 번에 판정. 열별은
+  "확인됨/근거" 세부 내역으로 표시.
+- **요청 한도(429) 대응**: 사내 LLM 분당 한도에 맞춰 429 면 기본 60초(또는 서버 `Retry-After`)
+  대기 후 재시도(`llm.rate_limit_wait` / `rate_limit_max_retries`).
+- **도메인 지식 주입**: `knowledge/` 의 모든 `.md` 를 비교 프롬프트에 항상 참고자료로 주입.
+  Streamlit "📚 도메인 지식" 탭에서 작성/저장.
+- **리포트 보기**: 비교 결과 리포트(.md)를 `reports/` 에 자동 저장하고 Streamlit "📄 리포트
+  보기" 탭에서 렌더/다운로드. CLI 도 `--out` 외에 `reports/` 사본을 남김.
+- **로그**: 화면 출력(`log_print`)과 프롬프트/LLM 원문 응답/HTTP 요청까지 로그 파일에 기록.
 
 ## 빠른 시작
 

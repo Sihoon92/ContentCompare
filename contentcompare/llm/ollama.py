@@ -30,7 +30,10 @@ class OllamaBackend:
 
     def _retry(self) -> RetryPolicy:
         return RetryPolicy(
-            max_retries=self.config.max_retries, backoff_base=self.config.backoff_base
+            max_retries=self.config.max_retries,
+            backoff_base=self.config.backoff_base,
+            rate_limit_wait=self.config.rate_limit_wait,
+            rate_limit_max_retries=self.config.rate_limit_max_retries,
         )
 
     def _post(self, url: str, payload: dict) -> dict:
