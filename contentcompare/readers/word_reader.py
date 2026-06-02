@@ -14,6 +14,7 @@ import logging
 import os
 
 from ..models import DocItem, DocType
+from . import com_util
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class WordReader:
         try:
             # 독립 인스턴스(DispatchEx)로 다른 Word 세션과 충돌 회피.
             word = win32.DispatchEx("Word.Application")
+            com_util.track("word", word)
             word.Visible = False
             try:
                 word.DisplayAlerts = False  # 일부 환경에서 속성 없음 가능
@@ -80,11 +82,7 @@ class WordReader:
                     doc.Close(False)  # SaveChanges=False
                 except Exception as exc:  # noqa: BLE001 - 정리 실패는 경고만
                     logger.warning("[Word] doc.Close 실패(무시): %s", exc)
-            if word is not None:
-                try:
-                    word.Quit()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("[Word] word.Quit 실패(무시): %s", exc)
+            com_util.close_app("word", word)
             try:
                 pythoncom.CoUninitialize()
             except Exception:  # noqa: BLE001

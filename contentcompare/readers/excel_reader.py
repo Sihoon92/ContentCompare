@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 from ..config import ExcelConfig
 from ..models import DocItem, DocType, FieldClaim, RecordItem
+from . import com_util
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,7 @@ class ExcelReader:
 
         logger.info("[Excel] 열기 시작: %s", os.path.abspath(path))
         app = xw.App(visible=False, add_book=False)
+        com_util.track("excel", app)
         book = None
         try:
             book = app.books.open(path)
@@ -161,16 +163,13 @@ class ExcelReader:
             logger.exception("[Excel] 처리 실패: %s", path)
             raise
         finally:
-            # 예외가 나도 COM 리소스가 새지 않도록 close → quit 을 보장(정리 실패는 경고만).
+            # 예외가 나도 COM 리소스가 새지 않도록 문서 close → 앱 완전 종료(quit+kill)를 보장.
             try:
                 if book is not None:
                     book.close()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[Excel] book.close 실패(무시): %s", exc)
-            try:
-                app.quit()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[Excel] app.quit 실패(무시): %s", exc)
+            com_util.close_app("excel", app)
             if pythoncom is not None:
                 try:
                     pythoncom.CoUninitialize()

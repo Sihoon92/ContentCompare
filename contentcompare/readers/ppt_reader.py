@@ -13,6 +13,7 @@ import logging
 import os
 
 from ..models import DocItem, DocType
+from . import com_util
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class PptReader:
         pres = None
         try:
             ppt = win32.DispatchEx("PowerPoint.Application")
+            com_util.track("ppt", ppt)
             # Open(FileName, ReadOnly=msoTrue, Untitled=msoFalse, WithWindow=msoFalse)
             pres = ppt.Presentations.Open(abspath, _MSO_TRUE, _MSO_FALSE, _MSO_FALSE)
             total = pres.Slides.Count
@@ -75,11 +77,7 @@ class PptReader:
                     pres.Close()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[PPT] pres.Close 실패(무시): %s", exc)
-            if ppt is not None:
-                try:
-                    ppt.Quit()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("[PPT] ppt.Quit 실패(무시): %s", exc)
+            com_util.close_app("ppt", ppt)
             try:
                 pythoncom.CoUninitialize()
             except Exception:  # noqa: BLE001

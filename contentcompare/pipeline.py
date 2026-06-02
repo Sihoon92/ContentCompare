@@ -18,7 +18,7 @@ from .config import AppConfig
 from .knowledge import load_knowledge
 from .llm import build_clients
 from .models import ComparisonResult, DocItem, RecordItem, RecordResult
-from .readers import get_reader
+from .readers import close_all_office, get_reader
 from .similarity import CachedEmbedder, HybridIndex, chunk_items
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,20 @@ class ComparePipeline:
 
     # ------------------------------------------------------------------ #
     def run(
+        self,
+        reference_path: str,
+        target_paths: list[str],
+        *,
+        progress: Optional[ProgressFn] = None,
+    ) -> list[CompareResult]:
+        try:
+            return self._run(reference_path, target_paths, progress=progress)
+        finally:
+            # 오류/정상 종료 어느 경우든, 열린 채 남은 Office 문서를 완전히 종료한다.
+            # (각 리더가 자체 finally 로 닫지만, 예기치 못한 경로를 대비한 안전망.)
+            close_all_office()
+
+    def _run(
         self,
         reference_path: str,
         target_paths: list[str],
