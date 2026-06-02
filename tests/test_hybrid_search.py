@@ -116,6 +116,27 @@ def test_cached_embedder_passthrough_without_dir():
     assert len(base.calls) == 2  # 캐시 비활성 → 매번 호출
 
 
+def test_cached_embedder_survives_locked_target(tmp_path, monkeypatch):
+    """대상 파일이 잠겨 os.replace 가 계속 실패해도 크래시 없이 결과를 반환한다.
+
+    Windows WinError 32(다른 프로세스가 파일 사용 중) 재현.
+    """
+    from contentcompare.similarity import cache as cache_mod
+
+    monkeypatch.setattr(
+        cache_mod.os, "replace",
+        lambda *a, **k: (_ for _ in ()).throw(PermissionError("WinError 32")),
+    )
+    monkeypatch.setattr(cache_mod.time, "sleep", lambda _s: None)  # 재시도 대기 생략
+    base = FakeEmbedder()
+    e = CachedEmbedder(base, str(tmp_path / "emb"), model_name="bge-m3")
+    out = e.embed(["매출 2023", "직원 명"])  # 예외 없이 통과해야 함
+    assert len(out) == 2 and all(out)
+    # 임시파일(.tmp)을 남기지 않고 정리했는지 확인.
+    leftover = [p for p in (tmp_path / "emb").iterdir() if p.suffix == ".tmp"]
+    assert leftover == []
+
+
 # --------------------------------------------------------------------------- #
 # HybridIndex 통합
 # --------------------------------------------------------------------------- #

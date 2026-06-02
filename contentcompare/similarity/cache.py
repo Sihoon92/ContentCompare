@@ -14,6 +14,8 @@ import json
 import logging
 import os
 import re
+import tempfile
+import time
 from typing import Optional
 
 from ..llm.base import EmbeddingClient
@@ -73,11 +75,32 @@ class CachedEmbedder:
         if not path or not self._dirty:
             return
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(self._cache, f)
-        os.replace(tmp, path)  # 원자적 교체로 부분쓰기 방지
-        self._dirty = False
+
+        # 임시파일은 같은 디렉터리에 '프로세스마다 고유한' 이름으로 만든다.
+        # (고정된 path+'.tmp' 를 쓰면 동시 실행 인스턴스끼리 같은 임시파일을 놓고
+        #  충돌해 Windows 에서 WinError 32 가 난다.)
+        fd, tmp = tempfile.mkstemp(
+            prefix=os.path.basename(path) + ".", suffix=".tmp",
+            dir=os.path.dirname(path),
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self._cache, f)
+        except OSError as exc:  # 쓰기 실패: 임시파일 정리 후 경고만(캐시는 선택적 최적화)
+            _silent_remove(tmp)
+            logger.warning("임베딩 캐시 임시파일 쓰기 실패(무시): %s", exc)
+            return
+
+        if _replace_with_retry(tmp, path):
+            self._dirty = False
+        else:
+            # 대상 파일이 다른 프로세스(백신/인덱서/동시 실행)에 잠겨 교체 실패.
+            # 캐시 저장만 건너뛰고 비교 실행은 계속한다(다음 저장 때 재시도).
+            _silent_remove(tmp)
+            logger.warning(
+                "임베딩 캐시 저장 건너뜀 — 대상 파일이 사용 중입니다(%s). "
+                "동시 실행/백신/동기화(OneDrive 등)를 확인하세요.", path
+            )
 
     # ------------------------------------------------------------------ #
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -104,3 +127,35 @@ class CachedEmbedder:
             self._save()
 
         return [r if r is not None else [] for r in results]
+
+
+# --------------------------------------------------------------------------- #
+def _replace_with_retry(
+    src: str, dst: str, *, retries: int = 5, base_delay: float = 0.2
+) -> bool:
+    """``os.replace`` 를 재시도한다. 성공하면 True, 끝내 실패하면 False.
+
+    Windows 에서는 대상 파일이 백신/검색 인덱서/동기화 도구에 잠깐 잠기면
+    교체가 ``PermissionError(WinError 32)`` 로 실패할 수 있는데, 보통 짧은 대기
+    후 재시도하면 성공한다.
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            os.replace(src, dst)
+            return True
+        except PermissionError as exc:
+            if attempt == retries:
+                logger.debug("캐시 교체 재시도 소진: %s", exc)
+                return False
+            time.sleep(base_delay * attempt)  # 0.2s, 0.4s, 0.6s, ...
+        except OSError as exc:  # 그 외 OS 오류는 재시도 의미 없음
+            logger.debug("캐시 교체 실패(비재시도): %s", exc)
+            return False
+    return False
+
+
+def _silent_remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
