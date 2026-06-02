@@ -62,6 +62,21 @@ def _resp(verdict, findings, *, matched=("t.docx#1",), reasoning="행 종합"):
     )
 
 
+def test_compare_record_unknown_verdict_with_reason():
+    rec, cands = _record()
+    llm = ScriptedLLM(_resp("unknown", [
+        {"field_id": "d.xlsx#S!B2", "found": True,
+         "note": "단위가 달라 동일 여부 불명", "evidence": "A 제품 매출 1200"},
+        {"field_id": "d.xlsx#S!C2", "found": True, "note": "모호", "evidence": "직원 60명"},
+    ], reasoning="단위(억원 등)가 불명확해 같은 값인지 판단 어려움"))
+    result = Comparator(llm).compare_record(rec, cands)
+    assert result.verdict == Verdict.UNKNOWN
+    assert "판단" in result.reasoning or "불명" in result.reasoning
+    # 근거 인용이 finding 에 보존된다.
+    b2 = next(fd for fd in result.findings if fd.field.cell_ref == "B2")
+    assert b2.evidence == "A 제품 매출 1200"
+
+
 # --------------------------------------------------------------------------- #
 def test_compare_record_holistic_verdict_and_findings():
     rec, cands = _record()
@@ -152,6 +167,6 @@ def test_report_renders_record_findings_table():
     result = Comparator(llm).compare_record(rec, cands)
     md = render_markdown([result], reference_doc="d.xlsx", target_docs=["t.docx"])
     assert "# 문서 비교 리포트" in md
-    assert "| 항목(열) | 기준값 | 확인 | 근거 |" in md  # 열별 확인 표 헤더
+    assert "| 항목(열) | 기준값 | 확인 | 근거 | 인용(후보 원문) |" in md  # 열별 확인 표 헤더
     assert "매출액" in md and "직원수" in md
     assert "종합 근거(왜)" in md

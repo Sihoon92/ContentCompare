@@ -279,11 +279,12 @@ def collect_inputs():
 # --------------------------------------------------------------------------- #
 def show_results(results, reference_doc, target_docs):
     counts = runner.verdict_counts(results)
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("✅ 같음", counts[Verdict.SAME])
     c2.metric("🟡 부분일치", counts[Verdict.PARTIAL])
     c3.metric("❌ 다름", counts[Verdict.DIFFERENT])
-    c4.metric("⚪ 미발견", counts[Verdict.NOT_FOUND])
+    c4.metric("❓ 판단보류", counts[Verdict.UNKNOWN])
+    c5.metric("⚪ 미발견", counts[Verdict.NOT_FOUND])
 
     st.subheader("요약")
     st.dataframe(runner.summary_rows(results), use_container_width=True, hide_index=True)

@@ -105,6 +105,7 @@ class Comparator:
                     field=fc,
                     found=bool(entry.get("found")),
                     note=str(entry.get("note") or "").strip() or "(근거 없음)",
+                    evidence=str(entry.get("evidence") or "").strip(),
                 )
             )
 

@@ -96,6 +96,7 @@ class Verdict(str, enum.Enum):
     SAME = "same"            # 정량/정성 내용이 동일
     DIFFERENT = "different"  # 관련 내용은 있으나 다름
     PARTIAL = "partial"      # 일부만 일치
+    UNKNOWN = "unknown"      # 관련 내용은 있으나 같/다름을 판단하기 어려움(모호·지식부족)
     NOT_FOUND = "not_found"  # 관련 내용을 찾지 못함
 
 
@@ -135,6 +136,9 @@ class FieldFinding:
 
     note: str = ""
     """어디서/어떻게 확인했는지(또는 못 찾았는지)에 대한 한 줄 근거."""
+
+    evidence: str = ""
+    """판단의 근거가 된 후보 원문 인용(LLM 이 그대로 따온 문구). 사람이 검수·대조하기 위함."""
 
 
 @dataclass

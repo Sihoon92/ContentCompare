@@ -24,6 +24,7 @@ VERDICT_LABEL = {
     Verdict.SAME: "✅ 같음",
     Verdict.PARTIAL: "🟡 부분일치",
     Verdict.DIFFERENT: "❌ 다름",
+    Verdict.UNKNOWN: "❓ 판단보류",
     Verdict.NOT_FOUND: "⚪ 미발견",
 }
 
@@ -203,6 +204,7 @@ def field_rows(result: RecordResult) -> list[dict[str, Any]]:
                 "기준값": fd.field.value_norm,
                 "확인": "✅ 있음" if fd.found else "⚪ 없음",
                 "근거": fd.note,
+                "인용(후보 원문)": fd.evidence or "-",
             }
         )
     return rows

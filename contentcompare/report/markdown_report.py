@@ -17,6 +17,7 @@ _VERDICT_LABEL = {
     Verdict.SAME: "✅ 같음",
     Verdict.PARTIAL: "🟡 부분일치",
     Verdict.DIFFERENT: "❌ 다름",
+    Verdict.UNKNOWN: "❓ 판단보류",
     Verdict.NOT_FOUND: "⚪ 미발견",
 }
 
@@ -77,15 +78,16 @@ def _render_record(lines: list[str], i: int, r: RecordResult) -> None:
     lines.append(f"**종합 근거(왜)**: {r.reasoning}")
     lines.append("")
 
-    # 열별 확인 내역(세부 근거)
+    # 열별 확인 내역(세부 근거 + 후보 원문 인용)
     if r.findings:
-        lines.append("| 항목(열) | 기준값 | 확인 | 근거 |")
-        lines.append("|----------|--------|------|------|")
+        lines.append("| 항목(열) | 기준값 | 확인 | 근거 | 인용(후보 원문) |")
+        lines.append("|----------|--------|------|------|------------------|")
         for fd in r.findings:
             mark = "✅ 있음" if fd.found else "⚪ 없음"
+            quote = f"“{_truncate(_oneline(fd.evidence), 50)}”" if fd.evidence else "-"
             lines.append(
                 f"| {fd.field.header} | {_truncate(fd.field.value_norm, 24)} "
-                f"| {mark} | {_truncate(_oneline(fd.note), 70)} |"
+                f"| {mark} | {_truncate(_oneline(fd.note), 60)} | {quote} |"
             )
         lines.append("")
 
