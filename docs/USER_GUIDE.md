@@ -34,7 +34,7 @@ copy config\config.example.yaml config\config.yaml
 | `excel.auto_header` | true 면 LLM 이 상위 행을 보고 헤더 시작/행수 자동 추정(대외비·멀티헤더 대응) |
 | `excel.header_rows` | 다단 헤더 행 수(예: 2 → '정량규격>하한치' 결합). auto_header=false 일 때 |
 | `excel.key_columns` | 행 식별 키(헤더명/인덱스). 비우면 자동 추정 |
-| `excel.compare_columns` / `skip_columns` | 비교/제외 컬럼(헤더명/인덱스). 도메인 지식 md 에 자연어로 '○○ 컬럼 제외'라고 적어도 자동 반영 |
+| `excel.compare_columns` / `skip_columns` | 비교/제외 컬럼(헤더명/인덱스, 정확 일치). 지식 md 에 자연어로 '○○ 컬럼 제외'라고 적으면 LLM 이 실제 헤더에 매칭해 자동 제외(오타·멀티헤더 부분명칭·동의어 허용) |
 | `similarity.recall_k` / `top_k` | 1차 후보 / LLM 투입 후보 수 |
 | `similarity.fusion` | `rrf`(임베딩+BM25) / `cosine` |
 | `similarity.cache_dir` | 임베딩 디스크 캐시 경로(재실행 비용↓) |

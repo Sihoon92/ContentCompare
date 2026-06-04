@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from contentcompare.config import ExcelConfig
 from contentcompare.exclude_columns import (
     detect_excluded_columns,
     has_exclusion_hint,
-    merge_skip_columns,
+    resolve_exclusions,
 )
+from contentcompare.readers.excel_reader import ExcelReader, SheetGrid
 
 
 class FixedLLM:
@@ -107,15 +109,78 @@ def test_rule_based_inline_english():
 
 
 # --------------------------------------------------------------------------- #
-# merge_skip_columns
+# resolve_exclusions — 후보 이름 → 실제 헤더 인덱스 (유연 매칭)
 # --------------------------------------------------------------------------- #
-def test_merge_appends_without_duplicates():
-    assert merge_skip_columns(["순번"], ["순번", "중분류 CODE"]) == ["순번", "중분류 CODE"]
+def test_resolve_exact_normalized_no_llm():
+    # 공백/대소문자 차이는 LLM 없이 정규화 정확 일치.
+    headers = ["항목", "중분류 CODE", "상한치"]
+    assert resolve_exclusions(["중분류code"], headers, llm=None) == [1]
 
 
-def test_merge_keeps_existing_indices():
-    assert merge_skip_columns([1, "순번"], ["소분류 CODE"]) == [1, "순번", "소분류 CODE"]
+def test_resolve_multiheader_leaf_no_llm():
+    # 멀티헤더 '항목>중분류' 를 leaf '중분류' 로 매칭(LLM 불필요).
+    headers = ["항목>중분류", "항목>상한치", "단위"]
+    assert resolve_exclusions(["중분류"], headers, llm=None) == [0]
 
 
-def test_merge_case_insensitive_dedup():
-    assert merge_skip_columns(["CODE"], ["code"]) == ["CODE"]
+def test_resolve_typo_needs_llm():
+    headers = ["항목", "중분류 CODE", "상한치"]
+    # 오타 '중분류 CODD' 는 결정적으로 못 맞춤 → LLM 없으면 미해결(안전).
+    assert resolve_exclusions(["중분류 CODD"], headers, llm=None) == []
+    # LLM 이 있으면 가장 가까운 헤더로 매칭.
+    llm = FixedLLM('{"matches": [{"request": "중분류 CODD", "header_index": 1}]}')
+    assert resolve_exclusions(["중분류 CODD"], headers, llm=llm) == [1]
+
+
+def test_resolve_llm_no_match_is_safe():
+    headers = ["항목", "상한치"]
+    # LLM 이 -1(매칭 없음) 주면 아무것도 제외하지 않음.
+    llm = FixedLLM('{"matches": [{"request": "존재안함", "header_index": -1}]}')
+    assert resolve_exclusions(["존재안함"], headers, llm=llm) == []
+
+
+def test_resolve_llm_out_of_range_ignored():
+    headers = ["항목", "상한치"]
+    llm = FixedLLM('{"matches": [{"request": "x", "header_index": 99}]}')
+    assert resolve_exclusions(["x"], headers, llm=llm) == []
+
+
+def test_resolve_only_unresolved_sent_to_llm():
+    # leaf 로 즉시 풀리는 건 LLM 에 안 보냄(잔여만 호출).
+    headers = ["항목>중분류", "단위 CODE"]
+    llm = FixedLLM('{"matches": [{"request": "단위 코드", "header_index": 1}]}')
+    out = resolve_exclusions(["중분류", "단위 코드"], headers, llm=llm)
+    assert out == [0, 1]
+    # 요청 목록에는 잔여('단위 코드')만 올라간다('중분류'는 leaf 로 이미 해결).
+    assert "- 단위 코드" in llm.seen_user
+    assert "- 중분류" not in llm.seen_user
+
+
+# --------------------------------------------------------------------------- #
+# 리더 통합: exclude_hints → 실제 제외
+# --------------------------------------------------------------------------- #
+def test_reader_excludes_via_hints_leaf():
+    cfg = ExcelConfig(auto_header=False, key_columns=["제품"])
+    cfg.exclude_hints = ["중분류"]  # 실제 헤더는 '항목>중분류'
+    grid = SheetGrid(name="S", values=[
+        ["제품", "항목>중분류", "항목>상한치"],
+        ["A", "M01", "100"],
+    ])
+    items = ExcelReader(cfg)._parse_sheet(grid, "ref.xlsx")
+    headers = [f.header for f in items[0].fields]
+    assert "항목>중분류" not in headers   # leaf 매칭으로 제외됨
+    assert "항목>상한치" in headers
+
+
+def test_reader_excludes_via_hints_typo_with_llm():
+    cfg = ExcelConfig(auto_header=False, key_columns=["항목"])
+    cfg.exclude_hints = ["중분류 CODD"]  # 오타
+    grid = SheetGrid(name="S", values=[
+        ["항목", "중분류 CODE", "상한치"],
+        ["A", "M01", "100"],
+    ])
+    llm = FixedLLM('{"matches": [{"request": "중분류 CODD", "header_index": 1}]}')
+    items = ExcelReader(cfg, llm=llm)._parse_sheet(grid, "ref.xlsx")
+    headers = [f.header for f in items[0].fields]
+    assert "중분류 CODE" not in headers
+    assert "상한치" in headers

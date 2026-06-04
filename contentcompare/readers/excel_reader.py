@@ -377,6 +377,18 @@ class ExcelReader:
         """키/비교 컬럼 인덱스(0-based)를 확정."""
         cfg = self.config
         skip = set(self._to_indices(cfg.skip_columns, headers, ncols))
+        # 지식 메모에서 온 제외 후보는 실제 헤더에 유연 매칭(오타·leaf·동의어)해 추가.
+        hints = getattr(cfg, "exclude_hints", None)
+        if hints:
+            from ..exclude_columns import resolve_exclusions
+
+            matched = resolve_exclusions(list(hints), list(headers), llm=self.llm)
+            if matched:
+                logger.info(
+                    "[Excel] 지식 기반 제외 컬럼: %s",
+                    [headers[i] or f"col{i+1}" for i in matched],
+                )
+                skip |= set(matched)
 
         key_idx = self._to_indices(cfg.key_columns, headers, ncols)
         if not key_idx:

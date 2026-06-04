@@ -195,12 +195,101 @@ def _clean_names(tokens) -> list[str]:
     return out
 
 
-def merge_skip_columns(existing: list, extracted: list[str]) -> list:
-    """기존 skip_columns(이름/인덱스 혼재 가능)에 추출 이름을 중복 없이 덧붙인다."""
-    merged = list(existing or [])
-    present = {str(x).strip().lower() for x in merged if not isinstance(x, bool)}
-    for name in extracted:
-        if name.strip().lower() not in present:
-            merged.append(name)
-            present.add(name.strip().lower())
-    return merged
+# --------------------------------------------------------------------------- #
+# 제외 후보 이름 → 실제 헤더 인덱스 해석 (리더가 헤더를 알 때 호출)
+# --------------------------------------------------------------------------- #
+_RESOLVE_SYSTEM = """\
+당신은 사용자의 '비교 제외 요청 컬럼명'을 실제 엑셀 헤더에 매칭하는 전문가입니다.
+제외하려는 이름(오타·부분명칭·동의어가 있을 수 있음)과 실제 헤더 목록(번호 포함)이 주어집니다.
+
+[매칭 규칙]
+- 오타로 보이면 가장 가까운 헤더로 매칭합니다(예: '중분류 CODD' → '중분류 CODE').
+- 멀티헤더는 '>'로 결합돼 있습니다. 부분명칭이면 끝부분이 일치하는 헤더로 봅니다
+  (예: '중분류' → '항목>중분류').
+- 동의어/표기 차이도 같은 항목이면 매칭합니다(예: '코드' ↔ 'CODE').
+- **명확히 일치하는 헤더가 없으면 -1** 을 주세요(엉뚱한 컬럼을 제외하지 않도록 보수적으로).
+
+반드시 아래 JSON 만 출력하세요(설명·마크다운 금지):
+{"matches": [{"request": "<요청 그대로>", "header_index": <정수, 없으면 -1>}]}"""
+
+_RESOLVE_USER = """\
+[실제 엑셀 헤더]
+{headers_block}
+
+[제외 요청]
+{requests_block}
+
+각 제외 요청을 위 실제 헤더 번호에 매칭해 JSON 으로 답하세요."""
+
+
+def _norm(s) -> str:
+    """공백 제거 + 소문자화(정규화 비교용)."""
+    return re.sub(r"\s+", "", str(s)).lower()
+
+
+def _match_deterministic(hint: str, headers: list[str]) -> Optional[int]:
+    """LLM 없이 확실히 매칭되는 경우만 인덱스 반환(정규화 정확/멀티헤더 leaf)."""
+    h = _norm(hint)
+    if not h:
+        return None
+    for i, head in enumerate(headers):  # 공백/대소문자 무시 정확 일치
+        if _norm(head) == h:
+            return i
+    for i, head in enumerate(headers):  # 멀티헤더 leaf('>' 뒤 마지막 조각)
+        if _norm(str(head).split(">")[-1]) == h:
+            return i
+    return None
+
+
+def resolve_exclusions(hints: list[str], headers: list[str], *, llm=None) -> list[int]:
+    """제외 후보 이름들을 실제 헤더 인덱스로 해석한다(0-based, 정렬·중복 제거).
+
+    1) 정규화 정확/leaf 로 확실한 것은 LLM 없이 매칭.
+    2) 남은 애매한 이름(오타·동의어)은 llm 이 있으면 헤더 목록과 함께 LLM 으로 매칭.
+       llm 이 없으면 미해결로 남겨 제외하지 않는다(안전).
+    """
+    if not hints or not headers:
+        return []
+    resolved: set[int] = set()
+    unresolved: list[str] = []
+    for hint in hints:
+        idx = _match_deterministic(hint, headers)
+        if idx is not None:
+            resolved.add(idx)
+        else:
+            unresolved.append(hint)
+
+    if unresolved and llm is not None:
+        resolved |= _llm_match(unresolved, headers, llm)
+    elif unresolved:
+        logger.warning("제외 후보를 헤더에 매칭 못함(LLM 없음): %s", unresolved)
+    return sorted(resolved)
+
+
+def _llm_match(requests: list[str], headers: list[str], llm) -> set[int]:
+    """애매한 제외 요청들을 LLM 으로 실제 헤더 인덱스에 매칭. 실패 시 빈 set."""
+    headers_block = "\n".join(f"{i}: {h}" for i, h in enumerate(headers))
+    requests_block = "\n".join(f"- {r}" for r in requests)
+    user = _RESOLVE_USER.format(headers_block=headers_block, requests_block=requests_block)
+    try:
+        raw = llm.complete(_RESOLVE_SYSTEM, user)
+    except Exception as exc:  # noqa: BLE001 - 실패는 미해결로
+        logger.warning("제외 헤더 매칭 LLM 호출 실패: %s", exc)
+        return set()
+
+    parsed = _parse_json(raw)
+    if not isinstance(parsed, dict):
+        logger.warning("제외 헤더 매칭 응답 파싱 실패: %r", raw)
+        return set()
+    out: set[int] = set()
+    for entry in parsed.get("matches") or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            idx = int(entry.get("header_index"))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < len(headers):
+            logger.info("제외 매칭: '%s' → 헤더[%d]='%s'", entry.get("request"), idx, headers[idx])
+            out.add(idx)
+    return out

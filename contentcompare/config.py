@@ -137,7 +137,14 @@ class ExcelConfig:
     """비교 대상 컬럼들. None 이면 키/스킵 제외 전체. 헤더명 또는 1-based 인덱스."""
 
     skip_columns: list = field(default_factory=list)
-    """비교에서 완전히 제외할 컬럼들. 헤더명 또는 1-based 인덱스."""
+    """비교에서 완전히 제외할 컬럼들. 헤더명 또는 1-based 인덱스(정확 일치)."""
+
+    exclude_hints: list = field(default_factory=list)
+    """비교 제외 '후보 이름'(자유 표기). 보통 도메인 지식 md 에서 추출돼 런타임 주입된다.
+
+    skip_columns 와 달리 정확 일치를 요구하지 않는다. 리더가 실제 헤더를 보고
+    정규화/멀티헤더 leaf/LLM 으로 매칭해 제외한다(오타·부분명칭·동의어 허용).
+    """
 
     value_as_displayed: bool = True
     """True 면 화면 표시 문자열(서식 적용)을 비교에 사용, False 면 원시값."""
