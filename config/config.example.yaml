@@ -42,7 +42,8 @@ excel:
                             # LLM 없거나 추정 실패 시 위 header_row/header_rows 규칙으로 폴백
   key_columns: []           # 행 식별 키. 헤더명 또는 1-based 인덱스. 비면 자동 추정
   compare_columns: null     # 비교 대상 컬럼. null=키/스킵 제외 전체
-  skip_columns: []          # 비교 제외 컬럼(헤더명/인덱스)
+  skip_columns: []          # 비교 제외 컬럼(헤더명/인덱스).
+                            # knowledge/*.md 에 '순번, 중분류 CODE 는 제외'처럼 적어도 자동 합쳐짐
   value_as_displayed: true  # 화면 표시문자(서식 적용)로 비교. false=원시값
   max_rows: null            # 비교할 최대 row 수(null=전체)
 

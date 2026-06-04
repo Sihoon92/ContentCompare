@@ -15,6 +15,7 @@ from typing import Callable, Optional
 
 from .comparison import Comparator
 from .config import AppConfig
+from .exclude_columns import detect_excluded_columns, merge_skip_columns
 from .knowledge import load_knowledge
 from .llm import build_clients
 from .models import ComparisonResult, DocItem, RecordItem, RecordResult
@@ -38,6 +39,14 @@ class ComparePipeline:
             knowledge = load_knowledge(kcfg.dir, max_chars=kcfg.max_chars)
             if knowledge:
                 logger.info("도메인 지식 주입 활성화: %s (%d자)", kcfg.dir, len(knowledge))
+                # 지식 메모에 '특정 컬럼 비교 제외' 지시가 있으면 skip_columns 에 합쳐
+                # 리더 단계에서 결정적으로 제거한다(LLM 판정 전에 필드가 사라짐).
+                excluded = detect_excluded_columns(knowledge, self.llm)
+                if excluded:
+                    config.excel.skip_columns = merge_skip_columns(
+                        config.excel.skip_columns, excluded
+                    )
+                    logger.info("지식 기반 비교 제외 컬럼 적용: %s", excluded)
         self.comparator = Comparator(self.llm, knowledge=knowledge)
 
     # ------------------------------------------------------------------ #
