@@ -41,6 +41,18 @@ class DocItem:
     raw: dict[str, Any] = field(default_factory=dict)
     """원본 값/메타데이터 (셀 원본값, 숫자 포맷 등)."""
 
+    search_text: str = ""
+    """검색(임베딩+BM25)에만 쓰는 보강 텍스트. 비면 :attr:`text` 를 사용.
+
+    교차언어 검색을 위해 번역본을 덧붙이는 등 '찾기' 전용 보강에 사용한다.
+    판정(LLM 비교)은 항상 원문 :attr:`text` 를 쓰므로 오역이 근거가 되지 않는다.
+    """
+
+    @property
+    def index_text(self) -> str:
+        """검색/색인에 쓸 텍스트(보강본이 있으면 그것, 없으면 원문)."""
+        return self.search_text or self.text
+
     def is_empty(self) -> bool:
         return not self.text or not self.text.strip()
 

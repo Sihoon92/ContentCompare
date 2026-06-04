@@ -21,6 +21,7 @@ from .llm import build_clients
 from .models import ComparisonResult, DocItem, RecordItem, RecordResult
 from .readers import close_all_office, get_reader
 from .similarity import CachedEmbedder, HybridIndex, chunk_items
+from .translate import BilingualAugmenter
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,12 @@ class ComparePipeline:
                     config.excel.exclude_hints = list(excluded)
                     logger.info("지식 기반 비교 제외 후보: %s (헤더 매칭은 리더에서)", excluded)
         self.comparator = Comparator(self.llm, knowledge=knowledge)
+
+        # 교차언어 검색 보강기(옵션). 색인/검색 전에 번역본을 search_text 에 덧붙인다.
+        self.augmenter: Optional[BilingualAugmenter] = None
+        if config.similarity.cross_lingual:
+            self.augmenter = BilingualAugmenter(self.llm, config.similarity.pivot_language)
+            logger.info("교차언어 검색 보강 활성화(pivot=%s)", config.similarity.pivot_language)
 
     # ------------------------------------------------------------------ #
     def run(
@@ -83,6 +90,10 @@ class ComparePipeline:
         # 2) 하이브리드 인덱스 구축 (청킹 후, 임베딩 캐시 적용)
         sim = self.config.similarity
         chunks = chunk_items(target_items, sim.chunk_chars)
+        # 교차언어 보강: 청킹 후(조각별로) + 기준 항목에 번역본을 덧붙인다.
+        if self.augmenter is not None:
+            self.augmenter.augment(reference_items)
+            self.augmenter.augment(chunks)
         embedder = CachedEmbedder(
             self.embedder, sim.cache_dir, model_name=self.config.llm.embed_model
         )
@@ -104,7 +115,7 @@ class ComparePipeline:
             if ref.is_empty():
                 continue
             candidates = index.search(
-                ref.text,
+                ref.index_text,  # 보강본(번역 포함)이 있으면 그것으로 검색
                 recall_k=sim.recall_k,
                 top_k=sim.top_k,
             )

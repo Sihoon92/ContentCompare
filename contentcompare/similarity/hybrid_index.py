@@ -53,11 +53,12 @@ class HybridIndex:
         for start in range(0, len(items), batch_size):
             batch = items[start : start + batch_size]
             # 본문 청크 → passage 로 임베딩(e5 계열 접두어 분리).
-            vectors = self.embedder.embed([it.text for it in batch], kind="passage")
+            # 검색 보강본(index_text)을 쓰면 교차언어 번역본까지 임베딩/색인된다.
+            vectors = self.embedder.embed([it.index_text for it in batch], kind="passage")
             for it, vec in zip(batch, vectors):
                 self._items.append(it)
                 self._vectors.append(_normalize(list(vec)))
-                self._tokens.append(tokenize(it.text))
+                self._tokens.append(tokenize(it.index_text))
         if items:
             self._dirty = True
 

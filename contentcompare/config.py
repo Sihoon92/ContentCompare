@@ -185,6 +185,15 @@ class SimilarityConfig:
     min_score: float = 0.0
     """``fusion=cosine`` 일 때 코사인 임계값(rrf 에서는 사실상 미사용)."""
 
+    cross_lingual: bool = False
+    """True 면 교차언어(예: 한↔영) 검색을 위해 색인/검색 전에 번역본을 덧붙인다.
+
+    임베딩과 BM25 두 채널 모두에 공통 언어 신호를 주어, 다른 언어로 적힌 같은 내용을
+    찾을 수 있게 한다. 번역은 검색에만 쓰이고 판정은 원문 기준이다(translate 모듈)."""
+
+    pivot_language: str = "en"
+    """cross_lingual 보강 시 맞출 공통 언어(``en`` | ``ko``). 이미 그 언어인 항목은 건너뜀."""
+
 
 @dataclass
 class ReportConfig:

@@ -37,6 +37,7 @@ copy config\config.example.yaml config\config.yaml
 | `excel.compare_columns` / `skip_columns` | 비교/제외 컬럼(헤더명/인덱스, 정확 일치). 지식 md 에 자연어로 '○○ 컬럼 제외'라고 적으면 LLM 이 실제 헤더에 매칭해 자동 제외(오타·멀티헤더 부분명칭·동의어 허용) |
 | `similarity.recall_k` / `top_k` | 1차 후보 / LLM 투입 후보 수 |
 | `similarity.fusion` | `rrf`(임베딩+BM25) / `cosine` |
+| `similarity.cross_lingual` / `pivot_language` | 교차언어(한↔영) 검색 보강: 색인/검색 전 번역본을 덧붙여 다른 언어로 적힌 같은 내용을 찾음(판정은 원문 기준). pivot 은 맞출 공통 언어(en\|ko) |
 | `similarity.cache_dir` | 임베딩 디스크 캐시 경로(재실행 비용↓) |
 
 ## 4. 실행
