@@ -47,7 +47,7 @@ _DEFAULTS = {
     "base_url": "https://llm.intra.corp/v1",
     "api_key": "",
     "granularity": "hybrid",
-    "auto_header": False,
+    "auto_header": True,
     "recall_k": 30,
     "top_k": 10,
     "fusion": "rrf",

@@ -124,8 +124,11 @@ class ExcelConfig:
     skip_banner_rows: bool = True
     """'대외비'처럼 전체 열이 같은 값으로 통합된 배너행을 헤더에서 자동 제외."""
 
-    auto_header: bool = False
-    """True 면 LLM 이 상위 행을 보고 header_row/header_rows 를 자동 추정(시트별)."""
+    auto_header: bool = True
+    """True 면 LLM 이 상위 행을 보고 header_row/header_rows 를 자동 추정(시트별).
+
+    기본값. LLM 이 없거나 추정에 실패하면 규칙 기반(header_row + 배너 스킵)으로 폴백한다.
+    """
 
     key_columns: list = field(default_factory=list)
     """행을 식별하는 키 컬럼들. 헤더명(str) 또는 1-based 인덱스(int). 비면 자동 추정."""
