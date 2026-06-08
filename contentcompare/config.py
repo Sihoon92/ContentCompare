@@ -201,6 +201,11 @@ class ReportConfig:
     output_dir: str = "reports"
     """생성한 리포트(.md)를 자동 저장할 디렉터리(Streamlit '리포트 보기'가 읽는 곳)."""
 
+    dump_search_text: bool = False
+    """True 면 각 항목이 임베딩/BM25 에 넣은 search_text 를 verdict 와 함께 CSV 로 덤프.
+
+    교차언어 번역 보강 디버깅용. ``output_dir`` 에 ``search_text_<기준파일>.csv`` 로 저장."""
+
 
 @dataclass
 class KnowledgeConfig:

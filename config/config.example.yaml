@@ -65,6 +65,9 @@ similarity:
 report:
   format: markdown
   output_dir: reports      # 생성한 리포트(.md)를 자동 저장하는 곳(Streamlit '리포트 보기'가 읽음)
+  dump_search_text: false  # true 면 각 항목의 search_text(임베딩/BM25 입력=원문+번역)를
+                           # verdict 와 함께 output_dir/search_text_<기준>.csv 로 덤프(번역 디버깅)
+                           # CLI 는 --dump-search-text 로도 켤 수 있음
 
 knowledge:                 # 사람이 작성하는 도메인 지식(human-in-the-loop, 요청 5번)
   enabled: true            # true 면 dir 의 모든 .md 를 비교 프롬프트에 참고자료로 항상 주입

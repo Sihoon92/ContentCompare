@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable, Optional
 
 from .comparison import Comparator
@@ -127,6 +128,19 @@ class ComparePipeline:
             results.append(result)
             if progress:
                 progress(i, total, result)
+
+        # 디버그: 각 항목이 임베딩/BM25 에 넣은 search_text 를 verdict 와 함께 덤프.
+        if self.config.report.dump_search_text:
+            try:
+                from .debug_dump import write_search_text_dump
+
+                base = os.path.splitext(os.path.basename(reference_path))[0]
+                out = os.path.join(
+                    self.config.report.output_dir, f"search_text_{base}.csv"
+                )
+                write_search_text_dump(out, reference_items, chunks, results)
+            except Exception:  # noqa: BLE001 - 디버그 덤프 실패가 비교를 막지 않도록
+                logger.exception("검색 텍스트 덤프 실패(무시)")
         return results
 
     # ------------------------------------------------------------------ #

@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--targets", nargs="+", help="비교 대상 문서 경로(여러 개)"
     )
     p.add_argument("--out", default="report.md", help="리포트 출력 경로(.md)")
+    p.add_argument(
+        "--dump-search-text",
+        action="store_true",
+        help="각 항목이 임베딩/BM25 에 넣은 search_text 를 verdict 와 함께 CSV 로 덤프(번역 디버깅)",
+    )
     p.add_argument("-v", "--verbose", action="store_true", help="상세 로그")
     return p
 
@@ -53,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
     log_print(f"로그 파일: {log_path}")
 
     config = AppConfig.load(args.config)
+    if args.dump_search_text:
+        config.report.dump_search_text = True
 
     # 연결 점검 모드: chat/embedding 핑 후 종료.
     if args.check:
