@@ -4,6 +4,8 @@
 
 청킹 단위(의미 단위):
   - **표(table)** : 한 row = 한 항목(셀들을 ``a | b | c`` 로 결합). 단일 의미 단위.
+    세로 병합 셀이 있어 ``Table.Rows`` 접근이 막히면 ``Range.Cells`` 의 행/열 인덱스로
+    격자를 복원하고, 병합으로 빠진 칸은 위 값으로 전파한다.
   - **산문(prose)** : ¶(Enter) 단위가 아니라 **제목(Heading/개요수준) 섹션** 단위로 묶는다.
     한 제목 아래 본문 전체가 하나의 항목이 된다(제목 없으면 문서 전체가 한 섹션 → 길면
     chunker 가 문장 경계로 분할). 이렇게 해야 유사 내용이 한 청크로 모여 top-k 가 의미 있다.
@@ -50,6 +52,43 @@ class _Table:
 
 def _is_heading(level: int) -> bool:
     return 1 <= level <= 9
+
+
+def _clean_cell_text(raw: str) -> str:
+    """Word 셀 텍스트의 끝 표식(\\r, \\x07=cell mark)을 정리한다."""
+    return (raw or "").replace("\r", " ").replace("\x07", " ").strip()
+
+
+def _rows_from_indexed_cells(indexed: list[tuple[int, int, str]]) -> list[list[str]]:
+    """(행번호, 열번호, 텍스트) 셀 목록을 격자(행렬)로 복원한다.
+
+    병합으로 어떤 칸의 셀이 빠져 있으면(=그 좌표가 목록에 없으면) 세로 병합으로 보고
+    **같은 열의 바로 위 값**을 전파한다(엑셀 병합 채우기와 동일). 가로 병합은 시작 열에만
+    값이 있고 나머지 열은 빈칸으로 둔다(과도한 복제 방지).
+    """
+    if not indexed:
+        return []
+    by_rc: dict[tuple[int, int], str] = {}
+    rows: set[int] = set()
+    cols: set[int] = set()
+    for r, c, t in indexed:
+        by_rc[(r, c)] = t
+        rows.add(r)
+        cols.add(c)
+
+    grid: list[list[str]] = []
+    last_by_col: dict[int, str] = {}
+    for r in sorted(rows):
+        row_cells: list[str] = []
+        for c in sorted(cols):
+            if (r, c) in by_rc:
+                val = by_rc[(r, c)]
+                last_by_col[c] = val          # 이후 행의 세로 병합 전파용
+            else:
+                val = last_by_col.get(c, "")  # 세로 병합으로 빠진 칸 → 위 값 전파
+            row_cells.append(val)
+        grid.append(row_cells)
+    return grid
 
 
 class WordReader:
@@ -134,29 +173,51 @@ class WordReader:
 
     @staticmethod
     def _extract_tables(doc) -> list["_Table"]:  # pragma: no cover - COM 의존
-        """표를 행별 셀 텍스트로 추출(병합셀 등은 best-effort)."""
+        """표를 행별 셀 텍스트로 추출. 세로 병합 표는 셀 인덱스로 격자를 복원."""
         out: list[_Table] = []
         for table in doc.Tables:
-            rows: list[list[str]] = []
-            try:
-                for row in table.Rows:
-                    cells: list[str] = []
-                    for cell in row.Cells:
-                        try:
-                            raw = cell.Range.Text or ""
-                        except Exception:  # noqa: BLE001 - 병합셀 접근 오류 등
-                            raw = ""
-                        # 셀 끝 표식(\r\a, \x07) 제거.
-                        cells.append(raw.replace("\r", " ").replace("\x07", " ").strip())
-                    rows.append(cells)
-            except Exception as exc:  # noqa: BLE001 - 표 구조 변동성
-                logger.warning("[Word] 표 추출 일부 실패(무시): %s", exc)
+            rows = WordReader._extract_table_rows(table)
             try:
                 page = table.Range.Information(3)
             except Exception:  # noqa: BLE001
                 page = None
             out.append(_Table(rows=rows, page=page))
         return out
+
+    @staticmethod
+    def _extract_table_rows(table) -> list[list[str]]:  # pragma: no cover - COM 의존
+        """한 표의 행렬 텍스트를 얻는다. Rows 접근이 막히면 Range.Cells 로 복원."""
+        # 1) 일반 경로: 행→셀. 세로 병합이 없으면 구조 그대로 가장 정확.
+        try:
+            rows: list[list[str]] = []
+            for row in table.Rows:
+                rows.append([WordReader._cell_text(cell) for cell in row.Cells])
+            return rows
+        except Exception as exc:  # noqa: BLE001 - 세로 병합 시 Rows 접근 불가
+            logger.info("[Word] 표 행 접근 불가(병합셀 추정) → 셀 인덱스로 재구성: %s", exc)
+
+        # 2) 폴백: 병합이 있어도 Range.Cells 는 순회 가능. RowIndex/ColumnIndex 로 복원.
+        indexed: list[tuple[int, int, str]] = []
+        try:
+            for cell in table.Range.Cells:
+                try:
+                    r = int(cell.RowIndex)
+                    c = int(cell.ColumnIndex)
+                except Exception:  # noqa: BLE001 - 인덱스 접근 실패 셀은 건너뜀
+                    continue
+                indexed.append((r, c, WordReader._cell_text(cell)))
+        except Exception as exc:  # noqa: BLE001 - 그래도 실패하면 이 표만 포기
+            logger.warning("[Word] 표 셀 재구성 실패(이 표 건너뜀): %s", exc)
+            return []
+        return _rows_from_indexed_cells(indexed)
+
+    @staticmethod
+    def _cell_text(cell) -> str:  # pragma: no cover - COM 의존
+        try:
+            raw = cell.Range.Text or ""
+        except Exception:  # noqa: BLE001 - 병합셀 접근 오류 등
+            return ""
+        return _clean_cell_text(raw)
 
     # ------------------------------ 파싱(순수) ---------------------------- #
     @staticmethod
