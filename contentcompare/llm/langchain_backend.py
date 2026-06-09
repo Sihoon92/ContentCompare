@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import contextlib
 import os
-from typing import Any, Optional
+import time
+from typing import Any, Callable, Optional
 
 from ..config import LLMConfig, no_proxy
+from .http import RetryPolicy, retry_on_rate_limit
 
 
 class LangChainBackend:
@@ -29,16 +31,26 @@ class LangChainBackend:
         *,
         chat: Optional[Any] = None,
         embeddings: Optional[Any] = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.config = config
         self._chat = chat
         self._emb = embeddings
+        self._sleep = sleep
 
     # --- 공통 ------------------------------------------------------------- #
     def _proxy_ctx(self):
         if self.config.internal.unset_proxy:
             return no_proxy()
         return contextlib.nullcontext()
+
+    def _retry(self) -> RetryPolicy:
+        return RetryPolicy(
+            max_retries=self.config.max_retries,
+            backoff_base=self.config.backoff_base,
+            rate_limit_wait=self.config.rate_limit_wait,
+            rate_limit_max_retries=self.config.rate_limit_max_retries,
+        )
 
     def _api_key(self) -> str:
         return self.config.internal.api_key or os.environ.get(
@@ -106,10 +118,15 @@ class LangChainBackend:
         chat = self._ensure_chat()
         # langchain chat 모델은 (role, content) 튜플 리스트를 받는다(메시지 클래스 import 불필요).
         messages = [("system", system), ("human", user)]
-        with self._proxy_ctx():
-            resp = chat.bind(temperature=temperature).invoke(messages)
-        content = getattr(resp, "content", resp)
-        return content if isinstance(content, str) else str(content)
+
+        def call() -> str:
+            with self._proxy_ctx():
+                resp = chat.bind(temperature=temperature).invoke(messages)
+            content = getattr(resp, "content", resp)
+            return content if isinstance(content, str) else str(content)
+
+        # 사내 LLM 한도(rate limit)면 1분가량 대기 후 재시도(internal 백엔드와 동일 정책).
+        return retry_on_rate_limit(call, retry=self._retry(), sleep=self._sleep)
 
     # --- EmbeddingClient -------------------------------------------------- #
     def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
@@ -117,5 +134,9 @@ class LangChainBackend:
         prefix = self.config.embed_prefix_for(kind)
         if prefix:
             texts = [prefix + t for t in texts]
-        with self._proxy_ctx():
-            return emb.embed_documents(list(texts))
+
+        def call() -> list[list[float]]:
+            with self._proxy_ctx():
+                return emb.embed_documents(list(texts))
+
+        return retry_on_rate_limit(call, retry=self._retry(), sleep=self._sleep)

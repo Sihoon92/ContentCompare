@@ -57,6 +57,53 @@ def test_embed_returns_vectors():
     assert vecs == [[2.0, 1.0], [3.0, 1.0]]
 
 
+class RateLimitedChat:
+    """invoke 가 처음엔 한도 예외, 그 다음엔 정상 응답을 준다."""
+
+    def __init__(self, fail_times=1):
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def bind(self, **kwargs):
+        return self
+
+    def invoke(self, messages):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("Rate limit exceeded: too many requests")
+        return FakeMsg("OK")
+
+
+def test_complete_retries_on_rate_limit():
+    cfg = _cfg()
+    cfg.rate_limit_wait = 60.0
+    chat = RateLimitedChat(fail_times=1)
+    sleeps = []
+    be = LangChainBackend(cfg, chat=chat, embeddings=FakeEmb(), sleep=sleeps.append)
+    assert be.complete("s", "u") == "OK"
+    assert chat.calls == 2          # 1회 실패 + 1회 성공
+    assert sleeps == [60.0]          # 한도 → 1분 대기
+
+
+def test_embed_retries_on_rate_limit():
+    cfg = _cfg()
+    cfg.rate_limit_wait = 60.0
+
+    class RLEmb:
+        def __init__(self):
+            self.calls = 0
+        def embed_documents(self, texts):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("429 Too Many Requests")
+            return [[1.0]] * len(texts)
+
+    sleeps = []
+    be = LangChainBackend(cfg, chat=FakeChat(), embeddings=RLEmb(), sleep=sleeps.append)
+    assert be.embed(["a"]) == [[1.0]]
+    assert sleeps == [60.0]
+
+
 def test_api_key_falls_back_to_env(monkeypatch):
     cfg = _cfg()
     cfg.internal.api_key = ""               # 직접 키 없음

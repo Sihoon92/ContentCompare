@@ -17,8 +17,9 @@ llm:
   timeout: 120
   max_retries: 3           # 일시 오류(연결/타임아웃/5xx) 재시도 횟수
   backoff_base: 2          # 지수 백오프 기준(2 → 2s,4s,8s,…)
-  rate_limit_wait: 60      # 요청 한도(HTTP 429) 시 대기 초. 서버 Retry-After 가 있으면 그 값 우선
-  rate_limit_max_retries: 5  # 429 전용 재시도 횟수(분당 한도 회복용, 일반 재시도와 별도)
+  rate_limit_wait: 60      # 요청 한도 시 대기 초(기본 1분). 서버 Retry-After 가 있으면 그 값 우선
+                           # 한도 감지: HTTP 429 + 다른 상태코드/200 응답이라도 본문에 '한도/rate limit' 표기 포함
+  rate_limit_max_retries: 5  # 한도 전용 재시도 횟수(분당 한도 회복용, 일반 재시도와 별도)
 
   ollama:
     host: http://localhost:11434

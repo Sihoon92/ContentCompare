@@ -11,7 +11,9 @@ from contentcompare.llm.http import (
     RetryPolicy,
     TransientError,
     extract,
+    looks_like_rate_limit,
     post_json,
+    retry_on_rate_limit,
 )
 from contentcompare.llm.internal import InternalBackend
 from contentcompare.llm.ollama import OllamaBackend
@@ -125,6 +127,80 @@ def test_post_json_429_separate_budget_from_transient():
 
 def test_rate_limit_error_is_transient_subclass():
     assert issubclass(RateLimitError, TransientError)
+
+
+# --- 429 가 아닌 한도 신호도 1분 대기 경로로 ------------------------------- #
+def test_non_429_status_with_rate_limit_body_waits():
+    # 503 이지만 본문이 한도 → 일반 백오프(2s)가 아니라 rate_limit_wait(60s) 대기.
+    poster = scripted_poster([FakeResponse(503, text="Rate limit exceeded, try later"),
+                              FakeResponse(200, {"ok": 1})])
+    sleeps = []
+    out = post_json("http://x", {}, poster=poster, sleep=sleeps.append,
+                    retry=RetryPolicy(rate_limit_wait=60.0))
+    assert out == {"ok": 1}
+    assert sleeps == [60.0]
+
+
+def test_4xx_with_rate_limit_body_is_retried_not_fatal():
+    # 400/403 등으로 한도를 알리는 게이트웨이 → 치명 오류가 아니라 한도 재시도.
+    poster = scripted_poster([FakeResponse(400, text="요청 한도를 초과했습니다"),
+                              FakeResponse(200, {"ok": 1})])
+    sleeps = []
+    out = post_json("http://x", {}, poster=poster, sleep=sleeps.append,
+                    retry=RetryPolicy(rate_limit_wait=60.0))
+    assert out == {"ok": 1}
+    assert sleeps == [60.0]
+
+
+def test_200_with_rate_limit_error_body_waits():
+    # HTTP 200 인데 본문에 한도 오류를 담은 게이트웨이.
+    poster = scripted_poster([
+        FakeResponse(200, {"error": {"message": "Too Many Requests"}}),
+        FakeResponse(200, {"ok": 1}),
+    ])
+    sleeps = []
+    out = post_json("http://x", {}, poster=poster, sleep=sleeps.append,
+                    retry=RetryPolicy(rate_limit_wait=60.0))
+    assert out == {"ok": 1}
+    assert sleeps == [60.0]
+
+
+def test_looks_like_rate_limit():
+    assert looks_like_rate_limit("Rate limit reached")
+    assert looks_like_rate_limit("요청 한도 초과")
+    assert looks_like_rate_limit("HTTP 429 too many requests")
+    assert not looks_like_rate_limit("invalid api key")
+
+
+# --- retry_on_rate_limit 래퍼(비-HTTP 클라이언트용) ----------------------- #
+def test_retry_on_rate_limit_waits_then_succeeds():
+    calls = {"n": 0}
+    sleeps = []
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("Rate limit exceeded")  # 메시지로 한도 판별
+        return "ok"
+
+    out = retry_on_rate_limit(fn, retry=RetryPolicy(rate_limit_wait=60.0), sleep=sleeps.append)
+    assert out == "ok" and sleeps == [60.0]
+
+
+def test_retry_on_rate_limit_passes_through_other_errors():
+    def fn():
+        raise ValueError("boom")  # 한도 아님 → 그대로 전파
+
+    with pytest.raises(ValueError, match="boom"):
+        retry_on_rate_limit(fn, sleep=_NOSLEEP)
+
+
+def test_retry_on_rate_limit_gives_up_after_budget():
+    def fn():
+        raise RuntimeError("429 too many requests")
+
+    with pytest.raises(LLMRequestError, match="요청 한도"):
+        retry_on_rate_limit(fn, retry=RetryPolicy(rate_limit_max_retries=2), sleep=_NOSLEEP)
 
 
 def test_post_json_bad_body_raises():
