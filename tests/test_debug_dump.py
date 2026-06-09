@@ -54,7 +54,7 @@ def test_write_creates_csv_with_bom(tmp_path):
 
     with open(path, encoding="utf-8-sig", newline="") as f:
         rows = list(csv.reader(f))
-    assert rows[0] == ["side", "item_id", "verdict", "translated", "source_label", "text", "search_text"]
+    assert rows[0] == ["side", "item_id", "verdict", "search_aug", "source_label", "text", "search_text"]
     assert rows[1][1] == "r1" and rows[1][3] == "Y"
 
 

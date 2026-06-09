@@ -93,7 +93,9 @@ class BilingualAugmenter:
                 if tr and tr not in extras:
                     extras.append(tr)
             if extras:
-                it.search_text = f"{it.text} | {' '.join(extras)}"
+                # 검색 기반(이미 값-전용 search_text 가 있으면 그것, 없으면 text)에 덧붙인다.
+                base = it.search_text or it.text
+                it.search_text = f"{base} | {' '.join(extras)}"
 
     # ------------------------------------------------------------------ #
     def _translate_batched(self, sources: list[str]) -> None:

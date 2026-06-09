@@ -15,7 +15,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-_HEADER = ["side", "item_id", "verdict", "translated", "source_label", "text", "search_text"]
+_HEADER = ["side", "item_id", "verdict", "search_aug", "source_label", "text", "search_text"]
 
 
 def build_rows(reference_items, target_items, results) -> list[list[str]]:
@@ -36,13 +36,13 @@ def build_rows(reference_items, target_items, results) -> list[list[str]]:
 
 
 def _row(side, item, verdict) -> list[str]:
-    # search_text 가 채워졌고 원문과 다르면 번역 보강이 적용된 것.
-    translated = bool(item.search_text) and item.search_text != item.text
+    # search_text 가 채워졌고 원문과 다르면 검색용 보강(값-전용/번역 등)이 적용된 것.
+    search_aug = bool(item.search_text) and item.search_text != item.text
     return [
         side,
         item.item_id,
         verdict,
-        "Y" if translated else "N",
+        "Y" if search_aug else "N",
         item.source_label,
         item.text,
         item.index_text,  # 임베딩/BM25 에 실제로 들어간 문자열(원문 | 번역)

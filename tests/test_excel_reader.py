@@ -150,6 +150,46 @@ def test_multi_row_header_combines_labels():
 
 
 # --------------------------------------------------------------------------- #
+# 검색 텍스트(search_text): 헤더 제외, 값만, 제외 컬럼 빠짐
+# --------------------------------------------------------------------------- #
+def test_search_text_is_values_only_no_headers():
+    grid = _grid([
+        ["제품명", "매출액", "직원수"],
+        ["A", "1200", "50"],
+    ])
+    items = _reader(key_columns=["제품명"])._parse_sheet(grid, "기준.xlsx")
+    rec = items[0]
+    # 검색용: 헤더 없이 값만(임베딩/BM25 입력).
+    assert rec.search_text == "A | 1200 | 50"
+    assert "제품명" not in rec.search_text
+    # 판정/표시용 text 는 헤더=값 유지.
+    assert rec.text == "제품명=A | 매출액=1200 | 직원수=50"
+    assert rec.index_text == "A | 1200 | 50"  # 검색은 search_text 사용
+
+
+def test_search_text_excludes_empty_cells():
+    grid = _grid([
+        ["제품명", "매출액", "비고"],
+        ["A", "1200", ""],   # 비고 빈 셀
+    ])
+    items = _reader(key_columns=["제품명"])._parse_sheet(grid, "기준.xlsx")
+    assert items[0].search_text == "A | 1200"   # 빈 셀 제외
+
+
+def test_skip_columns_excluded_from_search_text():
+    grid = _grid([
+        ["순번", "제품명", "매출액"],
+        ["1", "A", "1200"],
+    ])
+    items = _reader(key_columns=["제품명"], skip_columns=["순번"])._parse_sheet(grid, "기준.xlsx")
+    rec = items[0]
+    # 제외 컬럼 '순번'(값 '1')은 검색·판정 양쪽에서 빠진다.
+    assert "1" not in rec.search_text.split(" | ")
+    assert rec.search_text == "A | 1200"
+    assert "순번" not in rec.text
+
+
+# --------------------------------------------------------------------------- #
 # granularity 분기
 # --------------------------------------------------------------------------- #
 def test_field_granularity_splits_each_cell():

@@ -7,6 +7,11 @@
 - ``granularity=field``  : 셀마다 독립 :class:`RecordItem` (키 문맥 포함)
 - ``granularity=row``    : 행 전체를 단일 :class:`DocItem` 으로(필드 분해 없음)
 
+검색(임베딩/BM25)에는 헤더명을 빼고 **값만** 쓴다(:attr:`DocItem.search_text`).
+반복되는 헤더명이 행마다 섞이면 임베딩이 헤더에 쏠려 top-k 변별이 떨어지기 때문이다.
+판정·표시용 ``text`` 는 사람이 읽을 근거로 "헤더=값" 을 유지한다. 제외(skip_columns/
+exclude_hints)·빈 셀은 검색·판정 양쪽에서 빠진다.
+
 설계상 xlwings 호출(COM I/O)과 순수 파싱 로직을 분리한다. COM 으로 시트를
 :class:`SheetGrid`(2D 값 + 표시문자 + 시작좌표)로 뽑은 뒤, 파싱은
 :meth:`ExcelReader._parse_sheet` 가 담당한다 → Excel 없이 단위테스트 가능.
@@ -476,15 +481,18 @@ class ExcelReader:
                 )
             )
 
-        # 검색용 텍스트: 모든 비어있지 않은 셀을 "헤더=값" 으로 결합.
-        text_parts: list[str] = []
-        for c in range(len(headers)):
-            t = disp(c)
-            if t:
-                text_parts.append(f"{header_of(c)}={t}")
-        text = " | ".join(text_parts)
+        # 비교 대상 컬럼(키+비교)만 본다. 제외(skip/exclude_hints) 컬럼은 빠지고,
+        # 빈 셀도 제외한다.
+        include_idx = sorted(set(key_idx) | set(compare_idx))
+        cells = [(header_of(c), disp(c)) for c in include_idx]
+        cells = [(h, v) for h, v in cells if v]
+        # 판정/표시용 텍스트: "헤더=값"(헤더는 사람이 읽는 근거로 유지).
+        text = " | ".join(f"{h}={v}" for h, v in cells)
         if not text.strip():
             return None
+        # 검색(임베딩/BM25)용: 헤더 제외, 빈 셀 제외, **값만** 결합 →
+        # 행 고유의 내용만으로 top-k 를 찾는다(반복되는 헤더명 노이즈 제거).
+        search_text = " | ".join(v for _, v in cells)
 
         sheet = grid.name
         label = f"{doc_id} > [{sheet}] {abs_row}행"
@@ -495,6 +503,7 @@ class ExcelReader:
             doc_id=doc_id,
             doc_type=DocType.EXCEL,
             text=text,
+            search_text=search_text,
             source_label=label,
             locator={"sheet": sheet, "row": abs_row},
             raw={"headers": headers, "values": list(row)},
@@ -510,6 +519,7 @@ class ExcelReader:
             doc_id=rec.doc_id,
             doc_type=rec.doc_type,
             text=rec.text,
+            search_text=rec.search_text,  # 검색은 값-전용 보강본으로
             source_label=rec.source_label,
             locator=rec.locator,
             raw=rec.raw,
@@ -527,6 +537,7 @@ class ExcelReader:
                     doc_id=rec.doc_id,
                     doc_type=rec.doc_type,
                     text=f"{ctx}{fc.header}={_cell_text(fc.value_raw)}".strip(),
+                    search_text=_cell_text(fc.value_raw),  # 검색은 헤더 없이 값만
                     source_label=f"{rec.source_label} · {fc.header}",
                     locator={**rec.locator, "cell": fc.cell_ref},
                     raw={"header": fc.header, "value": fc.value_raw},
