@@ -180,7 +180,10 @@ class SimilarityConfig:
     """임베딩 디스크 캐시 경로(빈 문자열이면 캐시 비활성)."""
 
     chunk_chars: int = 800
-    """긴 항목 청킹 길이."""
+    """긴 항목 청킹 길이(문장 경계로 이만큼씩 묶음)."""
+
+    chunk_overlap: int = 120
+    """인접 청크가 겹쳐 가질 글자 수(검색 경계 손실 완화). chunk_chars//2 로 상한."""
 
     min_score: float = 0.0
     """``fusion=cosine`` 일 때 코사인 임계값(rrf 에서는 사실상 미사용)."""

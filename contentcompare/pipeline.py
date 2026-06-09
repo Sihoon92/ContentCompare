@@ -90,7 +90,7 @@ class ComparePipeline:
 
         # 2) 하이브리드 인덱스 구축 (청킹 후, 임베딩 캐시 적용)
         sim = self.config.similarity
-        chunks = chunk_items(target_items, sim.chunk_chars)
+        chunks = chunk_items(target_items, sim.chunk_chars, overlap=sim.chunk_overlap)
         # 교차언어 보강: 청킹 후(조각별로) + 기준 항목에 번역본을 덧붙인다.
         if self.augmenter is not None:
             self.augmenter.augment(reference_items)

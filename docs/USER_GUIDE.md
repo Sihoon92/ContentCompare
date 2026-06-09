@@ -40,6 +40,7 @@ copy config\config.example.yaml config\config.yaml
 | `similarity.cross_lingual` / `pivot_language` | 교차언어(한↔영) 검색 보강: 색인/검색 전 번역본을 덧붙여 다른 언어로 적힌 같은 내용을 찾음(판정은 원문 기준). pivot 은 맞출 공통 언어(en\|ko) |
 | `report.dump_search_text` | true(또는 CLI `--dump-search-text`)면 각 항목의 search_text(임베딩 입력=원문+번역)를 verdict 와 함께 `reports/search_text_*.csv` 로 덤프(번역 디버깅) |
 | `similarity.cache_dir` | 임베딩 디스크 캐시 경로(재실행 비용↓) |
+| `similarity.chunk_chars` / `chunk_overlap` | 청크 크기(문장 경계 패킹) / 인접 청크 겹침 글자 수. Word 는 제목 섹션·표 row 단위로 묶은 뒤 길면 이 값으로 분할 |
 
 ## 4. 실행
 

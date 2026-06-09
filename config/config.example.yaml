@@ -56,7 +56,8 @@ similarity:
   per_doc_cap: 4           # 한 대상 문서의 최종 후보 상한
   rerank: false            # 교차 인코더 재랭킹(Phase 2.5, 기본 off)
   cache_dir: .cache/embeddings  # 임베딩 디스크 캐시(빈 값이면 비활성)
-  chunk_chars: 800         # 긴 항목 청킹 길이
+  chunk_chars: 800         # 긴 항목 청킹 길이(문장 경계로 이만큼씩 묶음)
+  chunk_overlap: 120       # 인접 청크가 겹쳐 가질 글자 수(경계 손실 완화, chunk_chars//2 상한)
   min_score: 0.0           # fusion=cosine 일 때만 쓰는 코사인 임계값
   cross_lingual: false     # 교차언어(한↔영) 검색 보강: 색인/검색 전에 번역본을 덧붙여
                            # 임베딩+BM25 두 채널이 같은 내용을 다른 언어로도 찾게 함(판정은 원문)
