@@ -7,6 +7,8 @@
 
 LLM 구조 분석 이전 단계인 "코드가 만드는 raw json" 이 어떻게 생겼는지 빠르게
 검증하기 위한 스크립트다(기획: 파일을 LLM 에 바로 주지 않고 raw json 부터 만든다).
+
+주의: 추출은 COM(xlwings/win32com)을 쓰므로 **Windows + MS Office** 가 필요하다.
 """
 
 from __future__ import annotations

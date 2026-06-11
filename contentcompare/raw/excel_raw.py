@@ -1,29 +1,78 @@
-"""Excel Raw Extractor — openpyxl 로 .xlsx 를 physical_raw 로 변환.
+"""Excel Raw Extractor — xlwings(COM) 로 .xlsx 를 physical_raw 로 변환.
 
-해석은 하지 않는다. 보이는 것만 담는다:
-값 / 위치 / 병합영역 / 숫자서식 / 굵게·글자크기 / 채움색 / 코멘트 / 숨김.
+회사 환경 제약으로 openpyxl 대신 **xlwings(설치된 Excel)** 를 사용한다. 기존
+``readers/excel_reader.py`` 와 동일하게 **COM I/O 와 순수 파싱을 분리** 한다:
 
-왜 openpyxl 인가
-----------------
-기존 ``readers/excel_reader.py`` 는 사내 제약(COM)으로 xlwings 를 쓰지만, raw
-추출 단계는 **Office 없이도** 돌아가야 개발·테스트·CI 가 쉽다. openpyxl 은
-크로스플랫폼이고 병합/서식/코멘트 메타데이터를 그대로 읽을 수 있다. 추후 COM
-백엔드가 필요하면 같은 :class:`RawExcelDocument` 를 채우는 다른 함수만 추가하면
-된다(모델은 백엔드 무관).
+- COM 계층(:func:`_probe_sheet`): xlwings ``.api`` 로 셀 값/서식/병합/코멘트를 읽어
+  순수 데이터(:class:`SheetProbe`)로 만든다. Excel 설치가 필요 → 단위테스트 불가.
+- 순수 계층(:func:`build_raw_sheet`): :class:`SheetProbe` → :class:`RawSheet`.
+  Excel 없이 probe 를 직접 주입해 테스트할 수 있다.
 
-openpyxl 은 선택적 의존성이므로 import 를 함수 안으로 지연한다.
+해석은 하지 않는다. 보이는 것만 담는다(값/위치/병합/서식/코멘트). 어느 행이
+헤더인지 등은 후속 LLM 단계의 몫.
+
+xlwings 는 Windows + Excel 설치가 필요하므로 import 를 :func:`extract_excel_raw`
+시점으로 지연한다.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import Any, Optional
 
+from ..readers import com_util
 from .models import RawCell, RawExcelDocument, RawMergedRegion, RawSheet
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# COM I/O 와 순수 파싱의 경계 (테스트 시 직접 주입)
+# --------------------------------------------------------------------------- #
+@dataclass
+class CellProbe:
+    """COM 으로 읽은 셀 1개의 원시 정보(서식 포함). 빈 셀은 만들지 않는다."""
+
+    row: int
+    col: int
+    value: Any
+    number_format: Optional[str] = None
+    font_bold: Optional[bool] = None
+    font_size: Optional[float] = None
+    fill_color: Optional[str] = None
+    comment: Optional[str] = None
+    merged_range: Optional[str] = None
+    """이 셀이 속한 병합영역 (예: ``F2:H2``). 병합 아니면 None."""
+
+    is_merged_anchor: bool = False
+
+
+@dataclass
+class SheetProbe:
+    """시트 1장의 COM 추출 결과. :func:`build_raw_sheet` 의 입력."""
+
+    name: str
+    cells: list[CellProbe] = field(default_factory=list)
+    min_row: int = 1
+    max_row: int = 1
+    min_col: int = 1
+    max_col: int = 1
+    hidden: bool = False
+
+
+# --------------------------------------------------------------------------- #
+# 순수 헬퍼
+# --------------------------------------------------------------------------- #
+def _col_letter(col: int) -> str:
+    """1-based 컬럼 번호 → 엑셀 열 문자(A, B, ..., AA)."""
+    letters = ""
+    while col > 0:
+        col, rem = divmod(col - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
 
 
 def _value_type(value: Any) -> str:
@@ -46,123 +95,234 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def _argb(color: Any) -> Optional[str]:
-    """openpyxl Color → ARGB 문자열. 자동/테마색 등은 None."""
-    if color is None:
-        return None
-    rgb = getattr(color, "rgb", None)
-    # rgb 가 'FFFFFF00' 같은 8자리 hex 문자열일 때만 의미가 있다.
-    if isinstance(rgb, str) and len(rgb) in (6, 8) and rgb not in ("00000000",):
-        return rgb
-    return None
+def _a1(range_str: str) -> str:
+    """COM MergeArea 주소(``$F$2:$H$2``) → A1 표기(``F2:H2``)."""
+    return range_str.replace("$", "")
 
 
-def extract_excel_raw(path: str) -> RawExcelDocument:
-    """xlsx 파일 경로 → :class:`RawExcelDocument`.
+# --------------------------------------------------------------------------- #
+# 순수 빌더 (Excel 불필요 — 테스트 진입점)
+# --------------------------------------------------------------------------- #
+def build_raw_sheet(probe: SheetProbe) -> RawSheet:
+    """:class:`SheetProbe` → :class:`RawSheet`.
 
-    각 시트의 비어있지 않은 셀만 :class:`RawCell` 로 만든다(빈 셀 제외).
-    병합 영역은 좌상단 앵커 셀에 ``is_merged_anchor=True`` 로 표시하고, 영역 내
-    모든 셀에는 ``merged_range`` 를 기록한다(앵커가 아닌 셀의 값은 openpyxl 에서
-    보통 None 이므로 자동으로 cells 에 빠진다 — 정보 손실 없음).
+    병합영역 목록은 앵커 셀(좌상단)들에서 모은다(dedup). 빈 셀은 probe 에 없으므로
+    자동으로 제외된다.
     """
-    try:
-        from openpyxl import load_workbook
-        from openpyxl.utils import get_column_letter
-    except ImportError as exc:  # pragma: no cover - 환경 의존
-        raise RuntimeError(
-            "openpyxl 이 필요합니다. pip install openpyxl"
-        ) from exc
-
-    file_name = os.path.basename(path)
-    logger.info("[RawExcel] 열기: %s", os.path.abspath(path))
-    # data_only=False: 수식 문자열을 보존(원문). 캐시된 계산값이 필요하면 별도 옵션.
-    wb = load_workbook(path, data_only=False)
-
-    doc = RawExcelDocument(file_name=file_name)
-    for ws in wb.worksheets:
-        doc.sheets.append(_extract_sheet(ws, get_column_letter))
-    logger.info("[RawExcel] 완료: 시트 %d개", len(doc.sheets))
-    return doc
-
-
-def _extract_sheet(ws, get_column_letter) -> RawSheet:
-    """openpyxl Worksheet → RawSheet."""
-    # 셀 주소 → 병합영역 문자열 매핑(빠른 조회용).
-    merged_lookup: dict[str, str] = {}
-    merged_regions: list[RawMergedRegion] = []
-    for mr in sorted(ws.merged_cells.ranges, key=lambda r: (r.min_row, r.min_col)):
-        rng = str(mr)
-        anchor = ws.cell(row=mr.min_row, column=mr.min_col)
-        merged_regions.append(
-            RawMergedRegion(range=rng, value=_json_safe(anchor.value))
-        )
-        for row in range(mr.min_row, mr.max_row + 1):
-            for col in range(mr.min_col, mr.max_col + 1):
-                merged_lookup[f"{get_column_letter(col)}{row}"] = rng
-
-    hidden_cols = {
-        letter
-        for letter, dim in ws.column_dimensions.items()
-        if getattr(dim, "hidden", False)
-    }
-    hidden_rows = {
-        idx for idx, dim in ws.row_dimensions.items() if getattr(dim, "hidden", False)
-    }
-
     cells: list[RawCell] = []
-    for row in ws.iter_rows():
-        for cell in row:
-            if cell.value is None:
-                continue
-            addr = cell.coordinate
-            merged_range = merged_lookup.get(addr)
-            is_anchor = bool(
-                merged_range and merged_range.split(":")[0] == addr
-            )
-            fmt = cell.number_format
-            font = cell.font
-            cells.append(
-                RawCell(
-                    address=addr,
-                    row=cell.row,
-                    column=get_column_letter(cell.column),
-                    col_index=cell.column,
-                    value=_json_safe(cell.value),
-                    value_type=_value_type(cell.value),
-                    number_format=fmt if fmt and fmt != "General" else None,
-                    merged_range=merged_range,
-                    is_merged_anchor=is_anchor,
-                    font_bold=bool(font.bold) if font is not None else None,
-                    font_size=float(font.size)
-                    if font is not None and font.size is not None
-                    else None,
-                    fill_color=_fill_color(cell),
-                    comment=cell.comment.text if cell.comment is not None else None,
-                )
-            )
+    merged: list[RawMergedRegion] = []
+    seen_ranges: set[str] = set()
 
-    dims = ws.dimensions  # 예: 'B2:P17' 또는 'A1'
-    min_row = ws.min_row or 1
-    max_row = ws.max_row or 1
-    min_col = ws.min_column or 1
-    max_col = ws.max_column or 1
+    for cp in probe.cells:
+        fmt = cp.number_format
+        cells.append(
+            RawCell(
+                address=f"{_col_letter(cp.col)}{cp.row}",
+                row=cp.row,
+                column=_col_letter(cp.col),
+                col_index=cp.col,
+                value=_json_safe(cp.value),
+                value_type=_value_type(cp.value),
+                number_format=fmt if fmt and fmt != "General" else None,
+                merged_range=cp.merged_range,
+                is_merged_anchor=cp.is_merged_anchor,
+                font_bold=cp.font_bold,
+                font_size=cp.font_size,
+                fill_color=cp.fill_color,
+                comment=cp.comment,
+            )
+        )
+        if cp.is_merged_anchor and cp.merged_range and cp.merged_range not in seen_ranges:
+            seen_ranges.add(cp.merged_range)
+            merged.append(RawMergedRegion(range=cp.merged_range, value=_json_safe(cp.value)))
+
+    # probe.cells 는 행→열 순이므로 앵커도 등장 순서대로 모인다(별도 정렬 불필요).
+    used_range = None
+    if cells:
+        used_range = (
+            f"{_col_letter(probe.min_col)}{probe.min_row}:"
+            f"{_col_letter(probe.max_col)}{probe.max_row}"
+        )
 
     return RawSheet(
-        sheet_name=ws.title,
-        used_range=dims if cells else None,
-        min_row=min_row,
-        max_row=max_row,
-        min_col=min_col,
-        max_col=max_col,
-        merged_cells=merged_regions,
+        sheet_name=probe.name,
+        used_range=used_range,
+        min_row=probe.min_row,
+        max_row=probe.max_row,
+        min_col=probe.min_col,
+        max_col=probe.max_col,
+        merged_cells=merged,
         cells=cells,
-        hidden=(ws.sheet_state != "visible"),
+        hidden=probe.hidden,
     )
 
 
-def _fill_color(cell) -> Optional[str]:
-    """셀 배경 채움색(solid 패턴만). 채움 없음/패턴없음이면 None."""
-    fill = getattr(cell, "fill", None)
-    if fill is None or getattr(fill, "patternType", None) != "solid":
+# --------------------------------------------------------------------------- #
+# COM 진입점
+# --------------------------------------------------------------------------- #
+def extract_excel_raw(path: str) -> RawExcelDocument:
+    """xlsx 파일 경로 → :class:`RawExcelDocument` (xlwings/COM)."""
+    try:
+        import xlwings as xw
+    except ImportError as exc:  # pragma: no cover - 환경 의존
+        raise RuntimeError(
+            "xlwings 가 필요합니다(Windows + Excel). pip install xlwings"
+        ) from exc
+
+    file_name = os.path.basename(path)
+    doc = RawExcelDocument(file_name=file_name)
+
+    # 워커 스레드(예: Streamlit)에서 COM 을 쓰려면 스레드별 초기화가 필요하다.
+    try:
+        import pythoncom
+
+        pythoncom.CoInitialize()
+    except Exception:  # noqa: BLE001 - 비윈도우/이미 초기화 등
+        pythoncom = None
+
+    logger.info("[RawExcel] 열기: %s", os.path.abspath(path))
+    app = xw.App(visible=False, add_book=False)
+    com_util.track("excel", app)
+    book = None
+    try:
+        book = app.books.open(path)
+        for sheet in book.sheets:
+            probe = _probe_sheet(sheet)
+            if probe is not None:
+                doc.sheets.append(build_raw_sheet(probe))
+        logger.info("[RawExcel] 완료: 시트 %d개", len(doc.sheets))
+    except Exception:
+        logger.exception("[RawExcel] 처리 실패: %s", path)
+        raise
+    finally:
+        try:
+            if book is not None:
+                book.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[RawExcel] book.close 실패(무시): %s", exc)
+        com_util.close_app("excel", app)
+        if pythoncom is not None:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:  # noqa: BLE001
+                pass
+    return doc
+
+
+def _probe_sheet(sheet) -> Optional[SheetProbe]:  # pragma: no cover - COM 의존
+    """xlwings 시트 → :class:`SheetProbe`. 비어있지 않은 셀만 서식까지 읽는다."""
+    used = sheet.used_range
+    values = used.value
+    if values is None:
         return None
-    return _argb(getattr(fill, "fgColor", None))
+
+    first_row = int(used.row)
+    first_col = int(used.column)
+    # used.value 를 항상 2D 로 정규화.
+    if not isinstance(values, list):
+        grid = [[values]]
+    elif values and not isinstance(values[0], list):
+        grid = [values]
+    else:
+        grid = values
+
+    cells: list[CellProbe] = []
+    max_cols = 0
+    for r, row_vals in enumerate(grid):
+        max_cols = max(max_cols, len(row_vals))
+        for c, val in enumerate(row_vals):
+            if val is None or (isinstance(val, str) and val == ""):
+                continue
+            abs_row = first_row + r
+            abs_col = first_col + c
+            cell = sheet.range((abs_row, abs_col))
+            cells.append(_probe_cell(cell, abs_row, abs_col, val))
+
+    if not cells:
+        return None
+
+    hidden = False
+    try:
+        hidden = bool(sheet.api.Visible != -1)  # xlSheetVisible == -1
+    except Exception:  # noqa: BLE001
+        pass
+
+    nrows = len(grid)
+    return SheetProbe(
+        name=sheet.name,
+        cells=cells,
+        min_row=first_row,
+        max_row=first_row + nrows - 1,
+        min_col=first_col,
+        max_col=first_col + max_cols - 1,
+        hidden=hidden,
+    )
+
+
+def _probe_cell(cell, abs_row: int, abs_col: int, value: Any) -> CellProbe:  # pragma: no cover - COM 의존
+    """단일 셀의 서식/병합/코멘트를 COM 으로 읽어 :class:`CellProbe` 생성."""
+    api = cell.api
+
+    number_format = _safe(lambda: api.NumberFormat)
+    font_bold = _coerce_bool(_safe(lambda: api.Font.Bold))
+    font_size = _safe(lambda: float(api.Font.Size))
+    fill_color = _probe_fill(api)
+    comment = _safe(lambda: api.Comment.Text() if api.Comment is not None else None)
+
+    merged_range = None
+    is_anchor = False
+    if _safe(lambda: bool(api.MergeCells)):
+        area = _safe(lambda: api.MergeArea)
+        if area is not None:
+            merged_range = _a1(_safe(lambda: area.Address) or "")
+            anchor_row = _safe(lambda: int(area.Row))
+            anchor_col = _safe(lambda: int(area.Column))
+            is_anchor = (anchor_row == abs_row and anchor_col == abs_col)
+
+    return CellProbe(
+        row=abs_row,
+        col=abs_col,
+        value=value,
+        number_format=number_format,
+        font_bold=font_bold,
+        font_size=font_size,
+        fill_color=fill_color,
+        comment=comment,
+        merged_range=merged_range or None,
+        is_merged_anchor=is_anchor,
+    )
+
+
+def _probe_fill(api) -> Optional[str]:  # pragma: no cover - COM 의존
+    """Interior(채움)색 → ARGB hex. solid 패턴이 아니면 None."""
+    # xlNone == -4142. 패턴이 없으면 색을 무시한다.
+    pattern = _safe(lambda: int(api.Interior.Pattern))
+    if pattern is None or pattern == -4142:
+        return None
+    bgr = _safe(lambda: int(api.Interior.Color))
+    if bgr is None or bgr < 0:
+        return None
+    # Excel Interior.Color 는 BGR 정수. RGB 로 재배열 후 ARGB(불투명) 문자열로.
+    blue, green, red = (bgr >> 16) & 0xFF, (bgr >> 8) & 0xFF, bgr & 0xFF
+    return f"FF{red:02X}{green:02X}{blue:02X}"
+
+
+def _coerce_bool(v: Any) -> Optional[bool]:
+    """COM 의 Bold 등(-1/0/혼합) → True/False/None."""
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    if v in (-1, 1, True):
+        return True
+    if v in (0, False):
+        return False
+    return None  # 혼합(wdUndefined 등)
+
+
+def _safe(fn):  # pragma: no cover - COM 의존
+    """COM 속성 접근 중 예외/None 을 흡수해 None 으로 폴백."""
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001
+        return None

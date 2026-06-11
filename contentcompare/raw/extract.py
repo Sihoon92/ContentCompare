@@ -14,15 +14,17 @@ from typing import Any
 _EXT_MAP = {
     ".xlsx": "excel",
     ".xlsm": "excel",
+    ".xls": "excel",
     ".docx": "word",
+    ".doc": "word",
 }
 
 
 def extract_raw(path: str):
-    """파일 확장자에 맞는 raw 추출기를 호출한다.
+    """파일 확장자에 맞는 raw 추출기를 호출한다(COM: xlwings/win32com).
 
-    PPT(.pptx)는 추후 추가 예정. 현재는 Excel/Word 만 지원한다(.xls/.doc 레거시
-    바이너리는 openpyxl/python-docx 가 읽지 못하므로 미지원).
+    PPT(.pptx)는 추후 추가 예정. 현재는 Excel/Word 만 지원한다. COM(설치된 Office)을
+    쓰므로 레거시 바이너리(.xls/.doc)도 Office 가 열 수 있다.
     """
     ext = os.path.splitext(path)[1].lower()
     kind = _EXT_MAP.get(ext)
