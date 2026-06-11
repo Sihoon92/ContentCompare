@@ -16,6 +16,7 @@ from contentcompare.raw.word_raw import (
     ParaProbe,
     TableProbe,
     _coerce_size,
+    _grid_from_cells,
     build_word_doc,
 )
 
@@ -44,6 +45,36 @@ def test_coerce_size():
     assert _coerce_size(None) is None
     assert _coerce_size(9999999) is None  # 혼합(wdUndefined)
     assert _coerce_size(0) is None
+
+
+def test_grid_from_cells_basic():
+    placed = [
+        (1, 1, "항목"), (1, 2, "규격"), (1, 3, "단위"),
+        (2, 1, "충전환경온도"), (2, 2, "-5~55"), (2, 3, "℃"),
+    ]
+    assert _grid_from_cells(placed) == [
+        ["항목", "규격", "단위"],
+        ["충전환경온도", "-5~55", "℃"],
+    ]
+
+
+def test_grid_from_cells_vertical_merge():
+    # 세로 병합: '기본사양' 이 1열 2~3행을 병합 → 좌상단(2,1)에만 값, (3,1)은 빈칸.
+    # table.Range.Cells 는 병합 셀을 한 번만(RowIndex=2) 돌려준다.
+    placed = [
+        (1, 1, "구분"), (1, 2, "항목"), (1, 3, "값"),
+        (2, 1, "기본사양"), (2, 2, "충전환경온도"), (2, 3, "-5"),
+        (3, 2, "충전상한온도"), (3, 3, "55"),  # (3,1) 은 병합에 가려져 없음
+    ]
+    assert _grid_from_cells(placed) == [
+        ["구분", "항목", "값"],
+        ["기본사양", "충전환경온도", "-5"],
+        ["", "충전상한온도", "55"],
+    ]
+
+
+def test_grid_from_cells_empty():
+    assert _grid_from_cells([]) == []
 
 
 # --------------------------------------------------------------------------- #

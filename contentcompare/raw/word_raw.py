@@ -196,15 +196,41 @@ def _probe_blocks(com_doc) -> list[BlockProbe]:  # pragma: no cover - COM 의존
 
 
 def _read_table(table) -> list[list[str]]:  # pragma: no cover - COM 의존
-    """Word 표 → 셀 텍스트 2D. 셀 끝의 제어문자(\\r\\x07)를 제거한다."""
-    rows: list[list[str]] = []
-    for row in table.Rows:
-        cells: list[str] = []
-        for cell in row.Cells:
-            text = _safe(lambda: cell.Range.Text) or ""
-            cells.append(text.replace("\r", " ").replace("\x07", "").strip())
-        rows.append(cells)
-    return rows
+    """Word 표 → 셀 텍스트 2D.
+
+    ``table.Rows`` 로 순회하면 **세로 병합 셀이 있는 표에서** Word 가
+    ``wdCannotAccessIndividualRows`` (\"셀이 세로로 병합되어 있기 때문에 컬렉션에서
+    개별 행을 액세스할 수 없습니다\") 에러를 던진다. 그래서 행 컬렉션을 건드리지
+    않는 ``table.Range.Cells`` 로 전체 셀을 훑고, 각 셀의 ``RowIndex``/``ColumnIndex``
+    로 격자에 배치한다. 병합 셀은 좌상단 위치에 한 번만 놓이고 나머지 칸은 빈
+    문자열로 남는다(셀 끝 제어문자 ``\\r\\x07`` 제거).
+    """
+    placed: list[tuple[int, int, str]] = []
+    for cell in table.Range.Cells:
+        r = _safe(lambda: int(cell.RowIndex))
+        c = _safe(lambda: int(cell.ColumnIndex))
+        if r is None or c is None:
+            continue
+        text = _safe(lambda: cell.Range.Text) or ""
+        placed.append((r, c, text.replace("\r", " ").replace("\x07", "").strip()))
+    return _grid_from_cells(placed)
+
+
+def _grid_from_cells(placed: list[tuple[int, int, str]]) -> list[list[str]]:
+    """(row_index, col_index, text) 목록 → 2D 격자(1-based 인덱스).
+
+    세로/가로 병합 셀은 좌상단 한 칸에만 값이 들어가고 나머지는 ``""`` 로 채운다.
+    Word 없이 단위테스트 가능한 순수 로직.
+    """
+    if not placed:
+        return []
+    max_r = max(r for r, _, _ in placed)
+    max_c = max(c for _, c, _ in placed)
+    grid = [["" for _ in range(max_c)] for _ in range(max_r)]
+    for r, c, text in placed:
+        if 1 <= r <= max_r and 1 <= c <= max_c:
+            grid[r - 1][c - 1] = text
+    return grid
 
 
 def _coerce_bool(v: Any) -> Optional[bool]:
