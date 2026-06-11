@@ -19,6 +19,11 @@ office = [
     "xlwings>=0.30",
     "pywin32>=306",
 ]
+# Raw Extractor(physical_raw.json) — Office 불필요·크로스플랫폼. 개발/CI/테스트용.
+raw = [
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+]
 ui = [
     "streamlit>=1.30",
 ]
