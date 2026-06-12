@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from .compact import compact_raw, compact_to_json
 from .extract import extract_raw, raw_to_dict, raw_to_json
 from .models import (
     RawCell,
@@ -31,6 +32,8 @@ __all__ = [
     "extract_raw",
     "raw_to_dict",
     "raw_to_json",
+    "compact_raw",
+    "compact_to_json",
     "RawCell",
     "RawDocument",
     "RawExcelDocument",
