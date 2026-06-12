@@ -195,42 +195,130 @@ def _probe_blocks(com_doc) -> list[BlockProbe]:  # pragma: no cover - COM 의존
     return probes
 
 
+# wdHorizontalPositionRelativeToPage — 셀 가로 위치(pt)를 얻는 Information 상수.
+_WD_HPOS_REL_PAGE = 5
+
+
 def _read_table(table) -> list[list[str]]:  # pragma: no cover - COM 의존
-    """Word 표 → 셀 텍스트 2D.
+    """Word 표 → 셀 텍스트 2D(병합 셀은 병합된 모든 칸에 동일 값을 채움).
 
     ``table.Rows`` 로 순회하면 **세로 병합 셀이 있는 표에서** Word 가
     ``wdCannotAccessIndividualRows`` (\"셀이 세로로 병합되어 있기 때문에 컬렉션에서
     개별 행을 액세스할 수 없습니다\") 에러를 던진다. 그래서 행 컬렉션을 건드리지
-    않는 ``table.Range.Cells`` 로 전체 셀을 훑고, 각 셀의 ``RowIndex``/``ColumnIndex``
-    로 격자에 배치한다. 병합 셀은 좌상단 위치에 한 번만 놓이고 나머지 칸은 빈
-    문자열로 남는다(셀 끝 제어문자 ``\\r\\x07`` 제거).
+    않는 ``table.Range.Cells`` 로 전체 셀을 훑는다.
+
+    각 셀에서 다음을 읽는다(셀 끝 제어문자 ``\\r\\x07`` 제거):
+
+    - ``RowIndex`` : 행 위치(가로 병합에 영향받지 않아 신뢰 가능)
+    - 가로 위치(``Information(5)``) + ``Width`` : 컬럼 위치/너비. 병합 셀의 Width 는
+      합쳐진 값이라 **가로 span** 을 정확히 알 수 있다.
+
+    기하 정보로 컬럼 경계를 재구성하면(:func:`_grid_from_geometry`) 가로 병합은
+    span 만큼 같은 값을 채우고, 세로 병합은 빈 칸(구멍)을 위 값으로 채운다. 기하
+    정보를 못 읽으면 인덱스 기반(:func:`_grid_from_cells`, 세로만)으로 폴백한다.
     """
-    placed: list[tuple[int, int, str]] = []
+    geom: list[tuple[int, float, float, str]] = []  # (row, left, width, text)
+    placed: list[tuple[int, int, str]] = []  # (row, col, text) — 폴백용
+    geom_ok = True
     for cell in table.Range.Cells:
         r = _safe(lambda: int(cell.RowIndex))
         c = _safe(lambda: int(cell.ColumnIndex))
-        if r is None or c is None:
-            continue
         text = _safe(lambda: cell.Range.Text) or ""
-        placed.append((r, c, text.replace("\r", " ").replace("\x07", "").strip()))
+        text = text.replace("\r", " ").replace("\x07", "").strip()
+        left = _safe(lambda: float(cell.Range.Information(_WD_HPOS_REL_PAGE)))
+        width = _safe(lambda: float(cell.Width))
+        if r is not None and c is not None:
+            placed.append((r, c, text))
+        if r is None or left is None or width is None or width <= 0:
+            geom_ok = False
+        else:
+            geom.append((r, left, width, text))
+
+    if geom_ok and geom:
+        return _grid_from_geometry(geom)
     return _grid_from_cells(placed)
+
+
+# --------------------------------------------------------------------------- #
+# 순수 격자 빌더 (Word 불필요 — 테스트 진입점)
+# --------------------------------------------------------------------------- #
+def _fill_vertical_holes(grid: list[list[str]], present: list[list[bool]]) -> None:
+    """세로 병합 처리: '구멍'(셀이 없던 칸)을 바로 위 칸의 값으로 채운다(in-place).
+
+    위→아래로 처리해 3행 이상 병합도 연쇄 전파된다. 실제 빈 셀(present=True, 값
+    ``""``)은 구멍이 아니므로 건드리지 않는다.
+    """
+    for r in range(1, len(grid)):
+        for c in range(len(grid[r])):
+            if not present[r][c] and grid[r - 1][c]:
+                grid[r][c] = grid[r - 1][c]
+
+
+def _column_edges(lefts: list[float], tol: float) -> list[float]:
+    """셀들의 가로 위치 목록 → 오름차순 컬럼 시작 경계(tol 이내는 같은 컬럼)."""
+    edges: list[float] = []
+    for x in sorted(lefts):
+        if not edges or x - edges[-1] > tol:
+            edges.append(x)
+    return edges
+
+
+def _grid_from_geometry(
+    geom: list[tuple[int, float, float, str]], *, tol: float = 3.0
+) -> list[list[str]]:
+    """(row, left, width, text) 목록 → 2D 격자. 가로/세로 병합을 모두 채운다.
+
+    1. 셀들의 ``left`` 로 컬럼 경계를 만든다(:func:`_column_edges`).
+    2. 각 셀의 컬럼 시작 = left 에 가장 가까운 경계, **가로 span** = ``left+width``
+       범위에 들어오는 경계 수 → span 만큼 같은 값을 가로로 채운다(가로 병합).
+    3. 남은 '구멍' 을 위 값으로 채운다(:func:`_fill_vertical_holes`, 세로 병합).
+
+    Word 없이 단위테스트 가능한 순수 로직.
+    """
+    if not geom:
+        return []
+    edges = _column_edges([g[1] for g in geom], tol)
+    n_cols = len(edges)
+    n_rows = max(g[0] for g in geom)
+    grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
+    present = [[False] * n_cols for _ in range(n_rows)]
+
+    for row, left, width, text in geom:
+        r = row - 1
+        if not (0 <= r < n_rows):
+            continue
+        # 컬럼 시작: left 에 가장 가까운 경계 인덱스.
+        cstart = min(range(n_cols), key=lambda i: abs(edges[i] - left))
+        # 가로 span: left+width 안에 들어오는 경계 수(최소 1).
+        right = left + width
+        span = 0
+        for i in range(cstart, n_cols):
+            if edges[i] < right - tol:
+                span += 1
+            else:
+                break
+        span = max(1, span)
+        for j in range(cstart, min(cstart + span, n_cols)):
+            grid[r][j] = text
+            present[r][j] = True
+
+    _fill_vertical_holes(grid, present)
+    return grid
 
 
 def _grid_from_cells(
     placed: list[tuple[int, int, str]], *, fill_merged: bool = True
 ) -> list[list[str]]:
-    """(row_index, col_index, text) 목록 → 2D 격자(1-based 인덱스).
+    """(row_index, col_index, text) 목록 → 2D 격자(1-based 인덱스). 세로 병합만 채움.
 
-    ``table.Range.Cells`` 는 세로/가로 병합으로 가려진 위치에는 **셀 객체를 주지
-    않는다**(= 격자의 '구멍'). 반면 원래 빈 셀은 텍스트 ``""`` 인 실제 셀로 들어온다.
-    이 차이를 이용해, ``fill_merged`` 가 참이면 **구멍만** 바로 위 칸의 값으로 채운다
-    (세로 병합 셀 값을 병합된 모든 행에 전파). 위에서 아래로 처리하므로 3행 이상
-    병합도 연쇄적으로 채워진다. 실제 빈 셀(``""``)은 구멍이 아니므로 건드리지 않는다.
+    기하 정보를 못 읽었을 때의 폴백. ``table.Range.Cells`` 는 병합으로 가려진
+    위치에 셀을 주지 않으므로(= '구멍'), ``fill_merged`` 가 참이면 구멍을 위 값으로
+    채운다(세로 병합 전파). 실제 빈 셀(``""``)은 구멍이 아니라 건드리지 않는다.
 
     Word 없이 단위테스트 가능한 순수 로직.
 
-    한계: 가로 병합으로 생긴 구멍도 위 값이 있으면 세로로 채워질 수 있다(span 정보가
-    없어 방향 구분 불가). 라벨이 세로 병합된 일반적인 규격표에서는 문제되지 않는다.
+    한계: 이 폴백 경로는 span 정보가 없어 **가로 병합은 채우지 못한다**(가로로
+    가려진 구멍이 위 값으로 잘못 채워질 수도 있음). 정상 경로는 기하 기반이다.
     """
     if not placed:
         return []
@@ -244,11 +332,7 @@ def _grid_from_cells(
             present[r - 1][c - 1] = True
 
     if fill_merged:
-        for r in range(1, max_r):
-            for c in range(max_c):
-                # 셀이 없는 '구멍' 이고 바로 위에 값이 있으면 세로 병합으로 보고 전파.
-                if not present[r][c] and grid[r - 1][c]:
-                    grid[r][c] = grid[r - 1][c]
+        _fill_vertical_holes(grid, present)
     return grid
 
 

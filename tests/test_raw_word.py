@@ -16,7 +16,9 @@ from contentcompare.raw.word_raw import (
     ParaProbe,
     TableProbe,
     _coerce_size,
+    _column_edges,
     _grid_from_cells,
+    _grid_from_geometry,
     build_word_doc,
 )
 
@@ -105,6 +107,68 @@ def test_grid_from_cells_fill_disabled():
 
 def test_grid_from_cells_empty():
     assert _grid_from_cells([]) == []
+
+
+# --------------------------------------------------------------------------- #
+# 기하 기반 격자(가로 + 세로 병합 모두 채움) — 정상 경로
+# --------------------------------------------------------------------------- #
+def test_column_edges_clusters_within_tol():
+    # 0/100/200 근처 위치들(±2pt 오차) → 3개 컬럼 경계.
+    assert _column_edges([0.0, 100.5, 200.0, 99.0, 0.8], tol=3.0) == [0.0, 99.0, 200.0]
+
+
+def test_geometry_plain_table():
+    # 3컬럼(0/100/200, 너비 100) 일반 2행 표.
+    geom = [
+        (1, 0.0, 100.0, "항목"), (1, 100.0, 100.0, "규격"), (1, 200.0, 100.0, "단위"),
+        (2, 0.0, 100.0, "충전환경온도"), (2, 100.0, 100.0, "-5~55"), (2, 200.0, 100.0, "℃"),
+    ]
+    assert _grid_from_geometry(geom) == [
+        ["항목", "규격", "단위"],
+        ["충전환경온도", "-5~55", "℃"],
+    ]
+
+
+def test_geometry_horizontal_merge_filled():
+    # 1행: 'A' 가 1~2열 가로 병합(너비 200), 'B' 는 3열. 2행은 일반 3칸.
+    geom = [
+        (1, 0.0, 200.0, "A"), (1, 200.0, 100.0, "B"),
+        (2, 0.0, 100.0, "a"), (2, 100.0, 100.0, "b"), (2, 200.0, 100.0, "c"),
+    ]
+    assert _grid_from_geometry(geom) == [
+        ["A", "A", "B"],  # 가로 병합 값이 두 컬럼에 동일 저장
+        ["a", "b", "c"],
+    ]
+
+
+def test_geometry_vertical_merge_user_example():
+    # 'version' 이 1열 2행 세로 병합(2행 1열엔 셀 없음 → 구멍).
+    geom = [
+        (1, 0.0, 100.0, "version"), (1, 100.0, 100.0, "reliability test"),
+        (2, 100.0, 100.0, "Teardown"),
+    ]
+    assert _grid_from_geometry(geom) == [
+        ["version", "reliability test"],
+        ["version", "Teardown"],  # 세로 병합 값이 아래 행에 채워짐
+    ]
+
+
+def test_geometry_both_horizontal_and_vertical_merge():
+    # 'T' 가 1~2열 가로 병합 + 1~2행 세로 병합. 3행(a/b/c)이 100pt 컬럼 경계를 만든다.
+    geom = [
+        (1, 0.0, 200.0, "T"), (1, 200.0, 100.0, "X"),
+        (2, 200.0, 100.0, "Y"),  # (2,1)(2,2) 는 T 에 가려진 구멍
+        (3, 0.0, 100.0, "a"), (3, 100.0, 100.0, "b"), (3, 200.0, 100.0, "c"),
+    ]
+    assert _grid_from_geometry(geom) == [
+        ["T", "T", "X"],  # 가로 병합
+        ["T", "T", "Y"],  # 세로 병합으로 위 'T' 가 두 컬럼 모두에 전파
+        ["a", "b", "c"],
+    ]
+
+
+def test_geometry_empty():
+    assert _grid_from_geometry([]) == []
 
 
 # --------------------------------------------------------------------------- #
