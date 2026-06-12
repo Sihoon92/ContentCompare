@@ -1,24 +1,29 @@
-"""Word Raw Extractor — win32com(COM) 로 .docx 를 physical_raw 로 변환.
+"""Word Raw Extractor — WordOpenXML(WordprocessingML)을 직접 파싱.
 
-회사 환경 제약으로 python-docx 대신 **win32com(설치된 Word)** 를 사용한다. 기존
-``readers/word_reader.py`` 와 동일한 COM 패턴을 따르되, raw 추출은 문단/표를
-**문서 등장 순서대로** 담는다(해석은 LLM 단계의 몫).
+회사 환경 제약으로 python-docx 를 못 쓰지만, win32com 으로 **Word 가 만들어 주는
+OpenXML 문자열**(``Document.Content.WordOpenXML``)을 받아 우리가 직접 파싱하면
+병합 정보를 추정 없이 정확히 읽을 수 있다. 이것이 Office 가 실제로 표/병합을
+저장하는 형식이기 때문이다.
 
-기존 readers 와 마찬가지로 **COM I/O 와 순수 빌더를 분리** 한다:
+설계: COM 은 **XML 문자열을 받아오는 일만** 한다(단 1회 호출). 나머지 파싱은 전부
+순수 함수(:func:`parse_word_xml`)라 Word 없이 단위테스트가 가능하다.
 
-- COM 계층(:func:`_probe_blocks`): Word 문서를 훑어 문단/표를 순서대로
-  :class:`ParaProbe`/:class:`TableProbe` 로 만든다. Word 설치 필요 → 테스트 불가.
-- 순수 계층(:func:`build_word_doc`): probe 리스트 → :class:`RawWordDocument`.
-  block_id/order 부여, 빈 문단 제외. Word 없이 probe 주입해 테스트 가능.
+병합 인코딩(WordprocessingML)
+------------------------------
+- 가로 병합: 셀 ``<w:tc>`` 의 ``<w:tcPr><w:gridSpan w:val="N"/>`` → N개 그리드 컬럼.
+- 세로 병합: ``<w:vMerge w:val="restart"/>`` 가 시작 셀(값 보유),
+  ``<w:vMerge/>``(또는 val="continue")가 연속 셀 → 시작 셀의 값을 상속.
+- 컬럼 수: ``<w:tblGrid>`` 의 ``<w:gridCol>`` 개수.
 
-win32com 은 Windows + Word 설치가 필요하므로 import 를 :func:`extract_word_raw`
-시점으로 지연한다.
+raw 단계 정책: 병합된 셀은 병합된 **모든 칸에 동일한 값**을 채운다(가로=gridSpan,
+세로=vMerge). 의미 해석은 후속 LLM 단계의 몫.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
@@ -27,13 +32,25 @@ from .models import RawWordBlock, RawWordDocument
 
 logger = logging.getLogger(__name__)
 
+# WordprocessingML / 패키지 네임스페이스.
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage"
+
+
+def _w(tag: str) -> str:
+    return f"{{{_W_NS}}}{tag}"
+
+
+def _pkg(tag: str) -> str:
+    return f"{{{_PKG_NS}}}{tag}"
+
 
 # --------------------------------------------------------------------------- #
-# COM I/O 와 순수 빌더의 경계 (테스트 시 직접 주입)
+# 블록 probe (파싱 결과 → 빌더 입력)
 # --------------------------------------------------------------------------- #
 @dataclass
 class ParaProbe:
-    """COM 으로 읽은 문단 1개."""
+    """문단 1개."""
 
     text: str
     style_name: Optional[str] = None
@@ -43,7 +60,7 @@ class ParaProbe:
 
 @dataclass
 class TableProbe:
-    """COM 으로 읽은 표 1개(셀 텍스트 2D)."""
+    """표 1개(셀 텍스트 2D, 병합은 이미 채워진 상태)."""
 
     rows: list[list[str]] = field(default_factory=list)
 
@@ -102,10 +119,208 @@ def _style_dict(p: ParaProbe) -> Optional[dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------- #
-# COM 진입점
+# 순수 XML 파서 (Word 불필요 — 테스트 진입점)
+# --------------------------------------------------------------------------- #
+def parse_word_xml(xml_str: str) -> list[BlockProbe]:
+    """WordOpenXML 문자열 → 블록 probe 리스트(문서 등장 순서 보존).
+
+    ``<w:body>`` 의 자식을 순서대로 훑어 ``<w:p>``→문단, ``<w:tbl>``→표 로 만든다.
+    """
+    body = _find_body(xml_str)
+    if body is None:
+        return []
+
+    probes: list[BlockProbe] = []
+    for el in list(body):
+        if el.tag == _w("p"):
+            probes.append(_parse_paragraph(el))
+        elif el.tag == _w("tbl"):
+            probes.append(TableProbe(rows=_parse_table(el)))
+    return probes
+
+
+def _find_body(xml_str: str) -> Optional[ET.Element]:
+    """패키지/문서 XML 문자열에서 ``<w:body>`` 엘리먼트를 찾는다."""
+    s = xml_str.lstrip("﻿").lstrip()
+    if s.startswith("<?xml"):
+        end = s.find("?>")
+        if end != -1:
+            s = s[end + 2 :]
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError:
+        return None
+
+    # 1) pkg:package → /word/document.xml 파트의 w:document/w:body
+    if root.tag == _pkg("package"):
+        for part in root.findall(_pkg("part")):
+            if part.get(_pkg("name")) == "/word/document.xml":
+                data = part.find(_pkg("xmlData"))
+                document = data.find(_w("document")) if data is not None else None
+                return document.find(_w("body")) if document is not None else None
+        return None
+    # 2) 이미 w:document 인 경우
+    if root.tag == _w("document"):
+        return root.find(_w("body"))
+    # 3) 이미 w:body 인 경우
+    if root.tag == _w("body"):
+        return root
+    # 4) 어디든 body 가 있으면 사용.
+    return root.find(f".//{_w('body')}")
+
+
+def _parse_paragraph(p: ET.Element) -> ParaProbe:
+    """``<w:p>`` → :class:`ParaProbe` (텍스트 + 스타일/굵게/크기)."""
+    text = _runs_text(p)
+
+    style_name = None
+    pPr = p.find(_w("pPr"))
+    if pPr is not None:
+        pStyle = pPr.find(_w("pStyle"))
+        if pStyle is not None:
+            style_name = pStyle.get(_w("val"))
+
+    bold, size = _first_run_format(p)
+    return ParaProbe(text=text, style_name=style_name, bold=bold, font_size=size)
+
+
+def _runs_text(container: ET.Element) -> str:
+    """엘리먼트 하위 모든 ``<w:t>`` 텍스트를 이어 붙인다(탭/줄바꿈은 공백)."""
+    parts: list[str] = []
+    for node in container.iter():
+        if node.tag == _w("t"):
+            parts.append(node.text or "")
+        elif node.tag in (_w("tab"), _w("br"), _w("cr")):
+            parts.append(" ")
+    return "".join(parts)
+
+
+def _first_run_format(p: ET.Element):
+    """문단의 첫 비어있지 않은 run 의 (bold, size_pt) 추정. 없으면 (None, None)."""
+    for r in p.findall(_w("r")):
+        run_text = "".join(t.text or "" for t in r.findall(_w("t")))
+        if not run_text.strip():
+            continue
+        rPr = r.find(_w("rPr"))
+        if rPr is None:
+            return None, None
+        return _bold_of(rPr), _size_of(rPr)
+    return None, None
+
+
+def _bold_of(rPr: ET.Element) -> Optional[bool]:
+    """``<w:b/>`` → True, ``<w:b w:val="false"/>`` → False, 없으면 None."""
+    b = rPr.find(_w("b"))
+    if b is None:
+        return None
+    val = b.get(_w("val"))
+    if val in ("0", "false", "off", "none"):
+        return False
+    return True
+
+
+def _size_of(rPr: ET.Element) -> Optional[float]:
+    """``<w:sz w:val="HH"/>`` (half-point) → 포인트(float). 없으면 None."""
+    sz = rPr.find(_w("sz"))
+    if sz is None:
+        return None
+    val = sz.get(_w("val"))
+    try:
+        return float(val) / 2.0
+    except (TypeError, ValueError):
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# 표 파싱 (병합 처리의 핵심)
+# --------------------------------------------------------------------------- #
+def _parse_table(tbl: ET.Element) -> list[list[str]]:
+    """``<w:tbl>`` → 셀 텍스트 2D. 가로(gridSpan)/세로(vMerge) 병합을 모두 채운다.
+
+    각 행의 ``<w:tc>`` 를 왼쪽부터 순회하며 현재 그리드 컬럼을 ``gridSpan`` 만큼
+    전진시킨다. ``vMerge`` 연속 셀은 같은 컬럼의 시작 셀 값을 상속한다. 모든 그리드
+    위치가 tc 로 표현되므로(연속 셀도 빈 tc 로 존재) 컬럼 추적이 정확하다.
+    """
+    rows_el = tbl.findall(_w("tr"))
+    if not rows_el:
+        return []
+
+    # 컬럼 수: tblGrid 우선, 없으면 행별 gridSpan 합의 최댓값.
+    grid = tbl.find(_w("tblGrid"))
+    n_cols = len(grid.findall(_w("gridCol"))) if grid is not None else 0
+    if n_cols == 0:
+        n_cols = max(
+            (sum(_grid_span(tc) for tc in tr.findall(_w("tc"))) for tr in rows_el),
+            default=0,
+        )
+    if n_cols == 0:
+        return []
+
+    vmerge_text: list[Optional[str]] = [None] * n_cols  # 컬럼별 세로 병합 시작 값
+    out: list[list[str]] = []
+    for tr in rows_el:
+        row_vals = [""] * n_cols
+        col = 0
+        for tc in tr.findall(_w("tc")):
+            span = _grid_span(tc)
+            vmerge = _vmerge_state(tc)
+
+            if vmerge == "continue":
+                text = vmerge_text[col] if col < n_cols else ""
+                text = text or ""
+            else:
+                text = _cell_text(tc)
+                for k in range(col, min(col + span, n_cols)):
+                    vmerge_text[k] = text if vmerge == "restart" else None
+
+            for k in range(col, min(col + span, n_cols)):
+                row_vals[k] = text
+            col += span
+        out.append(row_vals)
+    return out
+
+
+def _grid_span(tc: ET.Element) -> int:
+    """셀의 가로 병합 칸 수(``<w:gridSpan>``). 기본 1."""
+    tcPr = tc.find(_w("tcPr"))
+    if tcPr is None:
+        return 1
+    gs = tcPr.find(_w("gridSpan"))
+    if gs is None:
+        return 1
+    try:
+        return max(1, int(gs.get(_w("val"))))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _vmerge_state(tc: ET.Element) -> Optional[str]:
+    """세로 병합 상태: ``"restart"`` | ``"continue"`` | ``None``(병합 아님)."""
+    tcPr = tc.find(_w("tcPr"))
+    if tcPr is None:
+        return None
+    vm = tcPr.find(_w("vMerge"))
+    if vm is None:
+        return None
+    val = vm.get(_w("val"))
+    return "restart" if val == "restart" else "continue"
+
+
+def _cell_text(tc: ET.Element) -> str:
+    """셀 안 문단들의 텍스트(여러 문단은 공백으로 결합, 공백 정돈)."""
+    parts: list[str] = []
+    for p in tc.findall(_w("p")):
+        s = _runs_text(p).strip()
+        if s:
+            parts.append(s)
+    return " ".join(" ".join(parts).split())
+
+
+# --------------------------------------------------------------------------- #
+# COM 진입점 (WordOpenXML 문자열만 받아온다)
 # --------------------------------------------------------------------------- #
 def extract_word_raw(path: str) -> RawWordDocument:
-    """docx 파일 경로 → :class:`RawWordDocument` (win32com/COM, 문서 순서 보존)."""
+    """docx 파일 경로 → :class:`RawWordDocument` (win32com 으로 OpenXML 취득 후 파싱)."""
     try:
         import pythoncom  # noqa: F401
         import win32com.client as win32
@@ -131,8 +346,8 @@ def extract_word_raw(path: str) -> RawWordDocument:
             pass
 
         com_doc = word.Documents.Open(abspath, False, True)  # ReadOnly
-        probes = _probe_blocks(com_doc)
-        doc = build_word_doc(file_name, probes)
+        xml_str = com_doc.Content.WordOpenXML  # 문서 전체를 OpenXML 문자열로
+        doc = build_word_doc(file_name, parse_word_xml(xml_str))
         logger.info("[RawWord] 완료: 블록 %d개", len(doc.blocks))
         return doc
     except Exception:
@@ -149,222 +364,3 @@ def extract_word_raw(path: str) -> RawWordDocument:
             pythoncom.CoUninitialize()
         except Exception:  # noqa: BLE001
             pass
-
-
-def _probe_blocks(com_doc) -> list[BlockProbe]:  # pragma: no cover - COM 의존
-    """Word 문서를 훑어 문단/표를 등장 순서대로 probe 로 만든다.
-
-    문단을 순회하되, 표 안의 문단을 만나면 그 표를 (처음 만난 위치에서) 한 번만
-    :class:`TableProbe` 로 내보내고 같은 표의 이후 문단은 건너뛴다 → 본문 흐름 보존.
-    """
-    probes: list[BlockProbe] = []
-    seen_tables: set[int] = set()
-
-    _WD_WITHIN_TABLE = 12  # wdWithInTable
-
-    for para in com_doc.Paragraphs:
-        rng = para.Range
-        in_table = False
-        try:
-            in_table = bool(rng.Information(_WD_WITHIN_TABLE))
-        except Exception:  # noqa: BLE001
-            in_table = False
-
-        if in_table:
-            table = _safe(lambda: rng.Tables(1))
-            if table is None:
-                continue
-            key = _safe(lambda: int(table.Range.Start))
-            if key in seen_tables:
-                continue
-            seen_tables.add(key)
-            probes.append(TableProbe(rows=_read_table(table)))
-            continue
-
-        text = (rng.Text or "").strip()
-        if not text:
-            continue
-        probes.append(
-            ParaProbe(
-                text=text,
-                style_name=_safe(lambda: para.Style.NameLocal),
-                bold=_coerce_bool(_safe(lambda: rng.Bold)),
-                font_size=_coerce_size(_safe(lambda: rng.Font.Size)),
-            )
-        )
-    return probes
-
-
-# wdHorizontalPositionRelativeToPage — 셀 가로 위치(pt)를 얻는 Information 상수.
-_WD_HPOS_REL_PAGE = 5
-
-
-def _read_table(table) -> list[list[str]]:  # pragma: no cover - COM 의존
-    """Word 표 → 셀 텍스트 2D(병합 셀은 병합된 모든 칸에 동일 값을 채움).
-
-    ``table.Rows`` 로 순회하면 **세로 병합 셀이 있는 표에서** Word 가
-    ``wdCannotAccessIndividualRows`` (\"셀이 세로로 병합되어 있기 때문에 컬렉션에서
-    개별 행을 액세스할 수 없습니다\") 에러를 던진다. 그래서 행 컬렉션을 건드리지
-    않는 ``table.Range.Cells`` 로 전체 셀을 훑는다.
-
-    각 셀에서 다음을 읽는다(셀 끝 제어문자 ``\\r\\x07`` 제거):
-
-    - ``RowIndex`` : 행 위치(가로 병합에 영향받지 않아 신뢰 가능)
-    - 가로 위치(``Information(5)``) + ``Width`` : 컬럼 위치/너비. 병합 셀의 Width 는
-      합쳐진 값이라 **가로 span** 을 정확히 알 수 있다.
-
-    기하 정보로 컬럼 경계를 재구성하면(:func:`_grid_from_geometry`) 가로 병합은
-    span 만큼 같은 값을 채우고, 세로 병합은 빈 칸(구멍)을 위 값으로 채운다. 기하
-    정보를 못 읽으면 인덱스 기반(:func:`_grid_from_cells`, 세로만)으로 폴백한다.
-    """
-    geom: list[tuple[int, float, float, str]] = []  # (row, left, width, text)
-    placed: list[tuple[int, int, str]] = []  # (row, col, text) — 폴백용
-    geom_ok = True
-    for cell in table.Range.Cells:
-        r = _safe(lambda: int(cell.RowIndex))
-        c = _safe(lambda: int(cell.ColumnIndex))
-        text = _safe(lambda: cell.Range.Text) or ""
-        text = text.replace("\r", " ").replace("\x07", "").strip()
-        left = _safe(lambda: float(cell.Range.Information(_WD_HPOS_REL_PAGE)))
-        width = _safe(lambda: float(cell.Width))
-        if r is not None and c is not None:
-            placed.append((r, c, text))
-        if r is None or left is None or width is None or width <= 0:
-            geom_ok = False
-        else:
-            geom.append((r, left, width, text))
-
-    if geom_ok and geom:
-        return _grid_from_geometry(geom)
-    return _grid_from_cells(placed)
-
-
-# --------------------------------------------------------------------------- #
-# 순수 격자 빌더 (Word 불필요 — 테스트 진입점)
-# --------------------------------------------------------------------------- #
-def _fill_vertical_holes(grid: list[list[str]], present: list[list[bool]]) -> None:
-    """세로 병합 처리: '구멍'(셀이 없던 칸)을 바로 위 칸의 값으로 채운다(in-place).
-
-    위→아래로 처리해 3행 이상 병합도 연쇄 전파된다. 실제 빈 셀(present=True, 값
-    ``""``)은 구멍이 아니므로 건드리지 않는다.
-    """
-    for r in range(1, len(grid)):
-        for c in range(len(grid[r])):
-            if not present[r][c] and grid[r - 1][c]:
-                grid[r][c] = grid[r - 1][c]
-
-
-def _column_edges(lefts: list[float], tol: float) -> list[float]:
-    """셀들의 가로 위치 목록 → 오름차순 컬럼 시작 경계(tol 이내는 같은 컬럼)."""
-    edges: list[float] = []
-    for x in sorted(lefts):
-        if not edges or x - edges[-1] > tol:
-            edges.append(x)
-    return edges
-
-
-def _grid_from_geometry(
-    geom: list[tuple[int, float, float, str]], *, tol: float = 3.0
-) -> list[list[str]]:
-    """(row, left, width, text) 목록 → 2D 격자. 가로/세로 병합을 모두 채운다.
-
-    1. 셀들의 ``left`` 로 컬럼 경계를 만든다(:func:`_column_edges`).
-    2. 각 셀의 컬럼 시작 = left 에 가장 가까운 경계, **가로 span** = ``left+width``
-       범위에 들어오는 경계 수 → span 만큼 같은 값을 가로로 채운다(가로 병합).
-    3. 남은 '구멍' 을 위 값으로 채운다(:func:`_fill_vertical_holes`, 세로 병합).
-
-    Word 없이 단위테스트 가능한 순수 로직.
-    """
-    if not geom:
-        return []
-    edges = _column_edges([g[1] for g in geom], tol)
-    n_cols = len(edges)
-    n_rows = max(g[0] for g in geom)
-    grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
-    present = [[False] * n_cols for _ in range(n_rows)]
-
-    for row, left, width, text in geom:
-        r = row - 1
-        if not (0 <= r < n_rows):
-            continue
-        # 컬럼 시작: left 에 가장 가까운 경계 인덱스.
-        cstart = min(range(n_cols), key=lambda i: abs(edges[i] - left))
-        # 가로 span: left+width 안에 들어오는 경계 수(최소 1).
-        right = left + width
-        span = 0
-        for i in range(cstart, n_cols):
-            if edges[i] < right - tol:
-                span += 1
-            else:
-                break
-        span = max(1, span)
-        for j in range(cstart, min(cstart + span, n_cols)):
-            grid[r][j] = text
-            present[r][j] = True
-
-    _fill_vertical_holes(grid, present)
-    return grid
-
-
-def _grid_from_cells(
-    placed: list[tuple[int, int, str]], *, fill_merged: bool = True
-) -> list[list[str]]:
-    """(row_index, col_index, text) 목록 → 2D 격자(1-based 인덱스). 세로 병합만 채움.
-
-    기하 정보를 못 읽었을 때의 폴백. ``table.Range.Cells`` 는 병합으로 가려진
-    위치에 셀을 주지 않으므로(= '구멍'), ``fill_merged`` 가 참이면 구멍을 위 값으로
-    채운다(세로 병합 전파). 실제 빈 셀(``""``)은 구멍이 아니라 건드리지 않는다.
-
-    Word 없이 단위테스트 가능한 순수 로직.
-
-    한계: 이 폴백 경로는 span 정보가 없어 **가로 병합은 채우지 못한다**(가로로
-    가려진 구멍이 위 값으로 잘못 채워질 수도 있음). 정상 경로는 기하 기반이다.
-    """
-    if not placed:
-        return []
-    max_r = max(r for r, _, _ in placed)
-    max_c = max(c for _, c, _ in placed)
-    grid = [["" for _ in range(max_c)] for _ in range(max_r)]
-    present = [[False] * max_c for _ in range(max_r)]
-    for r, c, text in placed:
-        if 1 <= r <= max_r and 1 <= c <= max_c:
-            grid[r - 1][c - 1] = text
-            present[r - 1][c - 1] = True
-
-    if fill_merged:
-        _fill_vertical_holes(grid, present)
-    return grid
-
-
-def _coerce_bool(v: Any) -> Optional[bool]:
-    """COM Bold(-1/0/혼합) → True/False/None."""
-    if v is None:
-        return None
-    if isinstance(v, bool):
-        return v
-    if v in (-1, 1, True):
-        return True
-    if v in (0, False):
-        return False
-    return None  # 혼합(wdUndefined)
-
-
-def _coerce_size(v: Any) -> Optional[float]:
-    """COM Font.Size → float. 혼합값(9999999/wdUndefined)은 None."""
-    if v is None:
-        return None
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return None
-    if f <= 0 or f > 1638:  # Word 글꼴 최대 1638pt; 그 이상은 wdUndefined 표식
-        return None
-    return f
-
-
-def _safe(fn):  # pragma: no cover - COM 의존
-    """COM 속성 접근 중 예외를 흡수해 None 으로 폴백."""
-    try:
-        return fn()
-    except Exception:  # noqa: BLE001
-        return None

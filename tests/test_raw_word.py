@@ -1,10 +1,11 @@
-"""Word Raw Extractor(win32com) 의 순수 빌더 테스트.
+"""Word Raw Extractor 테스트 — WordOpenXML 파싱 + 빌더.
 
-Word(win32com) 없이 :class:`ParaProbe`/:class:`TableProbe` 를 직접 주입해
-:func:`build_word_doc` 가 문단/표를 문서 순서대로 physical_raw 로 만드는지
-검증한다(COM 계층은 Word 설치가 필요하므로 단위테스트 대상이 아니다).
+Word(win32com) 없이, Word 가 내보내는 OpenXML(WordprocessingML)과 같은 형태의 XML
+문자열을 직접 만들어 :func:`parse_word_xml` 가 문단/표(특히 병합)를 어떻게
+physical_raw 로 만드는지 검증한다. COM 계층은 이 XML 문자열을 받아오는 일만 하므로
+테스트 대상이 아니다.
 
-기획의 '충전환경온도' 설명 문단 + 규격표 흐름을 probe 로 재현한다.
+기획의 '충전환경온도' 흐름 + 사용자가 보고한 가로/세로 병합 케이스를 재현한다.
 """
 
 from __future__ import annotations
@@ -15,218 +16,217 @@ from contentcompare.raw import raw_to_json
 from contentcompare.raw.word_raw import (
     ParaProbe,
     TableProbe,
-    _coerce_size,
-    _column_edges,
-    _grid_from_cells,
-    _grid_from_geometry,
     build_word_doc,
+    parse_word_xml,
 )
 
-
-def _probes():
-    return [
-        ParaProbe(text="기본사양", style_name="제목 1", bold=True, font_size=16.0),
-        ParaProbe(
-            text="충전환경온도는 -5℃에서 55℃ 범위로 관리하며, 중심치는 25℃로 한다.",
-            style_name="표준",
-        ),
-        TableProbe(rows=[["항목", "규격", "단위"], ["충전환경온도", "-5~55", "℃"]]),
-        ParaProbe(text="   "),  # 빈 문단 — 제외되어야 한다
-    ]
-
-
-def _doc():
-    return build_word_doc("standard_description.docx", _probes())
+W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+PKG = "http://schemas.microsoft.com/office/2006/xmlPackage"
 
 
 # --------------------------------------------------------------------------- #
-# 순수 헬퍼
+# XML 픽스처 헬퍼
 # --------------------------------------------------------------------------- #
-def test_coerce_size():
-    assert _coerce_size(16.0) == 16.0
-    assert _coerce_size(None) is None
-    assert _coerce_size(9999999) is None  # 혼합(wdUndefined)
-    assert _coerce_size(0) is None
+def _pkg(body: str) -> str:
+    """body(<w:p>/<w:tbl> ...) 를 WordOpenXML 패키지 문자열로 감싼다."""
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<pkg:package xmlns:pkg="{PKG}">'
+        '<pkg:part pkg:name="/word/document.xml">'
+        "<pkg:xmlData>"
+        f'<w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>'
+        "</pkg:xmlData></pkg:part></pkg:package>"
+    )
 
 
-def test_grid_from_cells_basic():
-    placed = [
-        (1, 1, "항목"), (1, 2, "규격"), (1, 3, "단위"),
-        (2, 1, "충전환경온도"), (2, 2, "-5~55"), (2, 3, "℃"),
-    ]
-    assert _grid_from_cells(placed) == [
-        ["항목", "규격", "단위"],
-        ["충전환경온도", "-5~55", "℃"],
-    ]
+def _para(text: str, *, style: str | None = None, bold: bool | None = None,
+          sz: int | None = None) -> str:
+    pPr = f'<w:pPr><w:pStyle w:val="{style}"/></w:pPr>' if style else ""
+    rpr_bits = ""
+    if bold is not None:
+        rpr_bits += "<w:b/>" if bold else '<w:b w:val="false"/>'
+    if sz is not None:
+        rpr_bits += f'<w:sz w:val="{sz}"/>'  # half-points
+    rPr = f"<w:rPr>{rpr_bits}</w:rPr>" if rpr_bits else ""
+    return f"<w:p>{pPr}<w:r>{rPr}<w:t>{text}</w:t></w:r></w:p>"
 
 
-def test_grid_from_cells_vertical_merge():
-    # 세로 병합: '기본사양' 이 1열 2~3행을 병합 → table.Range.Cells 는 (2,1) 에만
-    # 셀을 주고 (3,1) 은 구멍. fill_merged 로 (3,1) 에 '기본사양' 이 채워져야 한다.
-    placed = [
-        (1, 1, "구분"), (1, 2, "항목"), (1, 3, "값"),
-        (2, 1, "기본사양"), (2, 2, "충전환경온도"), (2, 3, "-5"),
-        (3, 2, "충전상한온도"), (3, 3, "55"),  # (3,1) 은 병합에 가려진 구멍
-    ]
-    assert _grid_from_cells(placed) == [
-        ["구분", "항목", "값"],
-        ["기본사양", "충전환경온도", "-5"],
-        ["기본사양", "충전상한온도", "55"],  # 세로 병합 값이 아래 행으로 전파
-    ]
+def _tc(text: str, *, span: int | None = None, vmerge: str | None = None) -> str:
+    props = ""
+    if span:
+        props += f'<w:gridSpan w:val="{span}"/>'
+    if vmerge == "restart":
+        props += '<w:vMerge w:val="restart"/>'
+    elif vmerge == "continue":
+        props += "<w:vMerge/>"
+    tcPr = f"<w:tcPr>{props}</w:tcPr>" if props else ""
+    body = f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p>" if text else "<w:p/>"
+    return f"<w:tc>{tcPr}{body}</w:tc>"
 
 
-def test_grid_from_cells_vertical_merge_user_example():
-    # 사용자 예시: 'version' 이 1열 2개행 병합, 2열은 reliability test / Teardown.
-    # 기대: ('version','reliability test'), ('version','Teardown').
-    placed = [
-        (1, 1, "version"), (1, 2, "reliability test"),
-        (2, 2, "Teardown"),  # (2,1) 은 'version' 세로 병합에 가려진 구멍
-    ]
-    assert _grid_from_cells(placed) == [
+def _tbl(rows: list[str], n_cols: int) -> str:
+    grid = "<w:tblGrid>" + '<w:gridCol w:w="100"/>' * n_cols + "</w:tblGrid>"
+    trs = "".join(f"<w:tr>{r}</w:tr>" for r in rows)
+    return f"<w:tbl>{grid}{trs}</w:tbl>"
+
+
+def _blocks(body: str):
+    return build_word_doc("doc.docx", parse_word_xml(_pkg(body))).to_dict()["blocks"]
+
+
+def _rows(body: str):
+    """단일 표 body → rows 2D."""
+    blocks = _blocks(body)
+    assert len(blocks) == 1 and blocks[0]["type"] == "table"
+    return blocks[0]["rows"]
+
+
+# --------------------------------------------------------------------------- #
+# 문단
+# --------------------------------------------------------------------------- #
+def test_paragraph_order_and_text():
+    body = _para("기본사양", style="Heading1") + _para(
+        "충전환경온도는 -5℃에서 55℃ 범위로 관리하며, 중심치는 25℃로 한다."
+    )
+    blocks = _blocks(body)
+    assert [b["type"] for b in blocks] == ["paragraph", "paragraph"]
+    assert blocks[0]["text"] == "기본사양"
+    assert "충전환경온도" in blocks[1]["text"]
+
+
+def test_paragraph_style_bold_size():
+    blocks = _blocks(_para("제목", style="Heading1", bold=True, sz=32))
+    style = blocks[0]["style"]
+    assert style["style_name"] == "Heading1"
+    assert style["bold"] is True
+    assert style["font_size"] == 16.0  # 32 half-points → 16pt
+
+
+def test_empty_paragraph_skipped():
+    blocks = _blocks(_para("내용") + "<w:p/>")
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "내용"
+
+
+# --------------------------------------------------------------------------- #
+# 표 — 일반/가로 병합/세로 병합/혼합
+# --------------------------------------------------------------------------- #
+def test_plain_table():
+    body = _tbl(
+        [
+            _tc("항목") + _tc("규격") + _tc("단위"),
+            _tc("충전환경온도") + _tc("-5~55") + _tc("℃"),
+        ],
+        n_cols=3,
+    )
+    assert _rows(body) == [["항목", "규격", "단위"], ["충전환경온도", "-5~55", "℃"]]
+
+
+def test_horizontal_merge_gridspan_filled():
+    # 1행: 'A' 가 1~2열 가로 병합(gridSpan=2), 'B' 는 3열.
+    body = _tbl(
+        [
+            _tc("A", span=2) + _tc("B"),
+            _tc("a") + _tc("b") + _tc("c"),
+        ],
+        n_cols=3,
+    )
+    assert _rows(body) == [["A", "A", "B"], ["a", "b", "c"]]
+
+
+def test_vertical_merge_vmerge_filled():
+    # 사용자 예시: 'version' 이 1열 2행 세로 병합(restart/continue).
+    body = _tbl(
+        [
+            _tc("version", vmerge="restart") + _tc("reliability test"),
+            _tc("", vmerge="continue") + _tc("Teardown"),
+        ],
+        n_cols=2,
+    )
+    assert _rows(body) == [
         ["version", "reliability test"],
         ["version", "Teardown"],
     ]
 
 
-def test_grid_from_cells_real_empty_cell_not_filled():
-    # (2,1) 이 '구멍' 이 아니라 텍스트가 빈 '실제 셀' 이면 전파하지 않는다.
-    placed = [
-        (1, 1, "a"), (1, 2, "b"),
-        (2, 1, ""), (2, 2, "c"),  # (2,1) 은 실제 빈 셀(병합 아님)
-    ]
-    assert _grid_from_cells(placed) == [["a", "b"], ["", "c"]]
+def test_vertical_merge_three_rows():
+    # 3행 세로 병합 연쇄 전파.
+    body = _tbl(
+        [
+            _tc("ver", vmerge="restart") + _tc("r1"),
+            _tc("", vmerge="continue") + _tc("r2"),
+            _tc("", vmerge="continue") + _tc("r3"),
+        ],
+        n_cols=2,
+    )
+    assert _rows(body) == [["ver", "r1"], ["ver", "r2"], ["ver", "r3"]]
 
 
-def test_grid_from_cells_fill_disabled():
-    placed = [(1, 1, "version"), (1, 2, "reliability test"), (2, 2, "Teardown")]
-    assert _grid_from_cells(placed, fill_merged=False) == [
-        ["version", "reliability test"],
-        ["", "Teardown"],
-    ]
+def test_combined_horizontal_and_vertical_merge():
+    # 'T' 가 1~2열 가로 병합 + 1~2행 세로 병합. 3열은 X / Y.
+    body = _tbl(
+        [
+            _tc("T", span=2, vmerge="restart") + _tc("X"),
+            _tc("", span=2, vmerge="continue") + _tc("Y"),
+        ],
+        n_cols=3,
+    )
+    assert _rows(body) == [["T", "T", "X"], ["T", "T", "Y"]]
 
 
-def test_grid_from_cells_empty():
-    assert _grid_from_cells([]) == []
-
-
-# --------------------------------------------------------------------------- #
-# 기하 기반 격자(가로 + 세로 병합 모두 채움) — 정상 경로
-# --------------------------------------------------------------------------- #
-def test_column_edges_clusters_within_tol():
-    # 0/100/200 근처 위치들(±2pt 오차) → 3개 컬럼 경계.
-    assert _column_edges([0.0, 100.5, 200.0, 99.0, 0.8], tol=3.0) == [0.0, 99.0, 200.0]
-
-
-def test_geometry_plain_table():
-    # 3컬럼(0/100/200, 너비 100) 일반 2행 표.
-    geom = [
-        (1, 0.0, 100.0, "항목"), (1, 100.0, 100.0, "규격"), (1, 200.0, 100.0, "단위"),
-        (2, 0.0, 100.0, "충전환경온도"), (2, 100.0, 100.0, "-5~55"), (2, 200.0, 100.0, "℃"),
-    ]
-    assert _grid_from_geometry(geom) == [
-        ["항목", "규격", "단위"],
-        ["충전환경온도", "-5~55", "℃"],
-    ]
-
-
-def test_geometry_horizontal_merge_filled():
-    # 1행: 'A' 가 1~2열 가로 병합(너비 200), 'B' 는 3열. 2행은 일반 3칸.
-    geom = [
-        (1, 0.0, 200.0, "A"), (1, 200.0, 100.0, "B"),
-        (2, 0.0, 100.0, "a"), (2, 100.0, 100.0, "b"), (2, 200.0, 100.0, "c"),
-    ]
-    assert _grid_from_geometry(geom) == [
-        ["A", "A", "B"],  # 가로 병합 값이 두 컬럼에 동일 저장
-        ["a", "b", "c"],
-    ]
-
-
-def test_geometry_vertical_merge_user_example():
-    # 'version' 이 1열 2행 세로 병합(2행 1열엔 셀 없음 → 구멍).
-    geom = [
-        (1, 0.0, 100.0, "version"), (1, 100.0, 100.0, "reliability test"),
-        (2, 100.0, 100.0, "Teardown"),
-    ]
-    assert _grid_from_geometry(geom) == [
-        ["version", "reliability test"],
-        ["version", "Teardown"],  # 세로 병합 값이 아래 행에 채워짐
-    ]
-
-
-def test_geometry_both_horizontal_and_vertical_merge():
-    # 'T' 가 1~2열 가로 병합 + 1~2행 세로 병합. 3행(a/b/c)이 100pt 컬럼 경계를 만든다.
-    geom = [
-        (1, 0.0, 200.0, "T"), (1, 200.0, 100.0, "X"),
-        (2, 200.0, 100.0, "Y"),  # (2,1)(2,2) 는 T 에 가려진 구멍
-        (3, 0.0, 100.0, "a"), (3, 100.0, 100.0, "b"), (3, 200.0, 100.0, "c"),
-    ]
-    assert _grid_from_geometry(geom) == [
-        ["T", "T", "X"],  # 가로 병합
-        ["T", "T", "Y"],  # 세로 병합으로 위 'T' 가 두 컬럼 모두에 전파
-        ["a", "b", "c"],
-    ]
-
-
-def test_geometry_empty():
-    assert _grid_from_geometry([]) == []
+def test_real_empty_cell_not_filled():
+    # 병합이 아닌 진짜 빈 셀은 ''로 남는다(세로 전파 없음).
+    body = _tbl(
+        [
+            _tc("a") + _tc("b"),
+            _tc("") + _tc("c"),
+        ],
+        n_cols=2,
+    )
+    assert _rows(body) == [["a", "b"], ["", "c"]]
 
 
 # --------------------------------------------------------------------------- #
-# raw 문서 구조
+# 문서 순서 + 직렬화
 # --------------------------------------------------------------------------- #
-def test_doc_root_shape():
-    doc = _doc().to_dict()
-    assert doc["doc_type"] == "word"
-    assert doc["file_name"] == "standard_description.docx"
-    assert isinstance(doc["blocks"], list)
-
-
-def test_blocks_in_document_order():
-    blocks = _doc().to_dict()["blocks"]
-    # heading(문단) → 설명(문단) → 표. 빈 문단은 제외 → 정확히 3개.
-    assert len(blocks) == 3
+def test_document_order_paragraph_then_table():
+    body = (
+        _para("기본사양", style="Heading1")
+        + _para("설명 문단")
+        + _tbl([_tc("항목") + _tc("값")], n_cols=2)
+    )
+    blocks = _blocks(body)
     assert [b["type"] for b in blocks] == ["paragraph", "paragraph", "table"]
-    assert [b["order"] for b in blocks] == [1, 2, 3]
     assert [b["block_id"] for b in blocks] == ["w_b001", "w_b002", "w_b003"]
-
-
-def test_heading_paragraph_style():
-    head = _doc().to_dict()["blocks"][0]
-    assert head["type"] == "paragraph"
-    assert head["text"] == "기본사양"
-    assert head["style"]["style_name"] == "제목 1"
-    assert head["style"]["bold"] is True
-    assert head["style"]["font_size"] == 16.0
-
-
-def test_description_paragraph_text():
-    desc = _doc().to_dict()["blocks"][1]
-    assert desc["type"] == "paragraph"
-    assert "충전환경온도" in desc["text"]
-    assert "-5℃에서 55℃" in desc["text"]
-
-
-def test_table_rows_extracted():
-    table = _doc().to_dict()["blocks"][2]
-    assert table["type"] == "table"
-    assert table["rows"][0] == ["항목", "규격", "단위"]
-    assert table["rows"][1] == ["충전환경온도", "-5~55", "℃"]
-
-
-def test_empty_paragraph_skipped():
-    blocks = _doc().to_dict()["blocks"]
-    assert all((b.get("text") or "").strip() for b in blocks if b["type"] == "paragraph")
+    assert [b["order"] for b in blocks] == [1, 2, 3]
 
 
 def test_no_interpretation_only_physical():
-    text = raw_to_json(_doc())
-    assert "entity" not in text
-    assert "lower_limit" not in text
+    body = _para("기본사양", style="Heading1")
+    doc = build_word_doc("doc.docx", parse_word_xml(_pkg(body)))
+    text = raw_to_json(doc)
+    assert "entity" not in text and "lower_limit" not in text
     assert "block_id" in text
 
 
 def test_json_serializable_and_korean_preserved():
-    text = raw_to_json(_doc())
+    body = _para("충전환경온도")
+    doc = build_word_doc("desc.docx", parse_word_xml(_pkg(body)))
+    text = raw_to_json(doc)
     parsed = json.loads(text)
     assert "충전환경온도" in text
-    assert parsed["blocks"][0]["text"] == "기본사양"
+    assert parsed["doc_type"] == "word"
+
+
+def test_parse_empty_or_invalid_xml():
+    assert parse_word_xml("") == []
+    assert parse_word_xml("not xml") == []
+
+
+# --------------------------------------------------------------------------- #
+# 빌더 단독(파서 무관)
+# --------------------------------------------------------------------------- #
+def test_build_word_doc_filters_empty_table():
+    probes = [TableProbe(rows=[["", ""], ["", ""]]), ParaProbe(text="x")]
+    blocks = build_word_doc("d.docx", probes).to_dict()["blocks"]
+    assert len(blocks) == 1 and blocks[0]["text"] == "x"
