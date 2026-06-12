@@ -216,20 +216,39 @@ def _read_table(table) -> list[list[str]]:  # pragma: no cover - COM 의존
     return _grid_from_cells(placed)
 
 
-def _grid_from_cells(placed: list[tuple[int, int, str]]) -> list[list[str]]:
+def _grid_from_cells(
+    placed: list[tuple[int, int, str]], *, fill_merged: bool = True
+) -> list[list[str]]:
     """(row_index, col_index, text) 목록 → 2D 격자(1-based 인덱스).
 
-    세로/가로 병합 셀은 좌상단 한 칸에만 값이 들어가고 나머지는 ``""`` 로 채운다.
+    ``table.Range.Cells`` 는 세로/가로 병합으로 가려진 위치에는 **셀 객체를 주지
+    않는다**(= 격자의 '구멍'). 반면 원래 빈 셀은 텍스트 ``""`` 인 실제 셀로 들어온다.
+    이 차이를 이용해, ``fill_merged`` 가 참이면 **구멍만** 바로 위 칸의 값으로 채운다
+    (세로 병합 셀 값을 병합된 모든 행에 전파). 위에서 아래로 처리하므로 3행 이상
+    병합도 연쇄적으로 채워진다. 실제 빈 셀(``""``)은 구멍이 아니므로 건드리지 않는다.
+
     Word 없이 단위테스트 가능한 순수 로직.
+
+    한계: 가로 병합으로 생긴 구멍도 위 값이 있으면 세로로 채워질 수 있다(span 정보가
+    없어 방향 구분 불가). 라벨이 세로 병합된 일반적인 규격표에서는 문제되지 않는다.
     """
     if not placed:
         return []
     max_r = max(r for r, _, _ in placed)
     max_c = max(c for _, c, _ in placed)
     grid = [["" for _ in range(max_c)] for _ in range(max_r)]
+    present = [[False] * max_c for _ in range(max_r)]
     for r, c, text in placed:
         if 1 <= r <= max_r and 1 <= c <= max_c:
             grid[r - 1][c - 1] = text
+            present[r - 1][c - 1] = True
+
+    if fill_merged:
+        for r in range(1, max_r):
+            for c in range(max_c):
+                # 셀이 없는 '구멍' 이고 바로 위에 값이 있으면 세로 병합으로 보고 전파.
+                if not present[r][c] and grid[r - 1][c]:
+                    grid[r][c] = grid[r - 1][c]
     return grid
 
 

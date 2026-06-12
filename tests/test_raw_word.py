@@ -59,17 +59,47 @@ def test_grid_from_cells_basic():
 
 
 def test_grid_from_cells_vertical_merge():
-    # 세로 병합: '기본사양' 이 1열 2~3행을 병합 → 좌상단(2,1)에만 값, (3,1)은 빈칸.
-    # table.Range.Cells 는 병합 셀을 한 번만(RowIndex=2) 돌려준다.
+    # 세로 병합: '기본사양' 이 1열 2~3행을 병합 → table.Range.Cells 는 (2,1) 에만
+    # 셀을 주고 (3,1) 은 구멍. fill_merged 로 (3,1) 에 '기본사양' 이 채워져야 한다.
     placed = [
         (1, 1, "구분"), (1, 2, "항목"), (1, 3, "값"),
         (2, 1, "기본사양"), (2, 2, "충전환경온도"), (2, 3, "-5"),
-        (3, 2, "충전상한온도"), (3, 3, "55"),  # (3,1) 은 병합에 가려져 없음
+        (3, 2, "충전상한온도"), (3, 3, "55"),  # (3,1) 은 병합에 가려진 구멍
     ]
     assert _grid_from_cells(placed) == [
         ["구분", "항목", "값"],
         ["기본사양", "충전환경온도", "-5"],
-        ["", "충전상한온도", "55"],
+        ["기본사양", "충전상한온도", "55"],  # 세로 병합 값이 아래 행으로 전파
+    ]
+
+
+def test_grid_from_cells_vertical_merge_user_example():
+    # 사용자 예시: 'version' 이 1열 2개행 병합, 2열은 reliability test / Teardown.
+    # 기대: ('version','reliability test'), ('version','Teardown').
+    placed = [
+        (1, 1, "version"), (1, 2, "reliability test"),
+        (2, 2, "Teardown"),  # (2,1) 은 'version' 세로 병합에 가려진 구멍
+    ]
+    assert _grid_from_cells(placed) == [
+        ["version", "reliability test"],
+        ["version", "Teardown"],
+    ]
+
+
+def test_grid_from_cells_real_empty_cell_not_filled():
+    # (2,1) 이 '구멍' 이 아니라 텍스트가 빈 '실제 셀' 이면 전파하지 않는다.
+    placed = [
+        (1, 1, "a"), (1, 2, "b"),
+        (2, 1, ""), (2, 2, "c"),  # (2,1) 은 실제 빈 셀(병합 아님)
+    ]
+    assert _grid_from_cells(placed) == [["a", "b"], ["", "c"]]
+
+
+def test_grid_from_cells_fill_disabled():
+    placed = [(1, 1, "version"), (1, 2, "reliability test"), (2, 2, "Teardown")]
+    assert _grid_from_cells(placed, fill_merged=False) == [
+        ["version", "reliability test"],
+        ["", "Teardown"],
     ]
 
 
