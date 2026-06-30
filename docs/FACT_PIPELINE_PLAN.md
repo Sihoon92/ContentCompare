@@ -253,7 +253,9 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
   - Document Profiler, Table Profile, Column Schema(semantic_role 사전 포함). `header_detect.py` 로직 흡수·확장.
   - `LlmRunner`(호출 예산·JSON 재시도) + ArtifactStore 캐싱(재실행 0비용). Excel 표 중심(Word/PPT 는 profiler 만).
   - 라이브(gemma4:12b) 검증 완료. 검증: 헤더/스키마 sanity check.
-- **Phase F2 — Record Normalizer** → `records.json`.
+- **Phase F2 — Record Normalizer** ✅ **완료(2026-06-30)** ([상세 설계: `FACT_F2_DESIGN.md`](FACT_F2_DESIGN.md))
+  - Excel primary 시트의 데이터 행을 LLM 이 의미 정규화 → `records.json`. 행 배치(`record_batch_rows`=30)+carry-over, source 좌표는 코드가 채움.
+  - 미구현 경계가 F3 로 이동. Word/PPT 는 F3 에서 블록→fact 직행.
 - **Phase F3 — Fact Extractor** → `facts.json` (Excel/Word/PPT 공통 schema). **핵심 마일스톤.**
 - **Phase F4 — Validator + Repair Loop** (정량/단위/source 검사, 재교정).
 - **Phase F5 — Fact Store + Fact Comparator** → `comparison_result.json` (match/mismatch/missing).
