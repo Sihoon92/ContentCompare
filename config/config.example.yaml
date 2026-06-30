@@ -65,3 +65,6 @@ knowledge:                 # 사람이 작성하는 도메인 지식(human-in-th
   enabled: true            # true 면 dir 의 모든 .md 를 비교 프롬프트에 참고자료로 항상 주입
   dir: knowledge           # 지식 Markdown 파일들이 있는 디렉터리
   max_chars: 12000         # 프롬프트에 주입할 지식 최대 길이(초과분은 잘림)
+
+fact:                      # 신규 fact 파이프라인(--engine fact 일 때만 사용)
+  record_batch_rows: 30        # F2: 한 LLM 호출당 정규화할 데이터 행 수

@@ -14,6 +14,8 @@ from .engine import make_pipeline
 from .llm_stage import LlmBudgetExceeded, LlmRunner
 from .pipeline import FactPipeline
 from .profiler import profile_document
+from .record_models import Entity, QuantSpec, Record, RecordSet, RecordSource
+from .record_normalizer import normalize_records
 from .schema_inducer import induce_schema
 from .schema_models import ColumnSchema, DocumentProfile, TableProfile
 
@@ -24,8 +26,14 @@ __all__ = [
     "LlmRunner",
     "LlmBudgetExceeded",
     "profile_document",
+    "normalize_records",
     "induce_schema",
     "DocumentProfile",
     "TableProfile",
     "ColumnSchema",
+    "Record",
+    "RecordSet",
+    "Entity",
+    "QuantSpec",
+    "RecordSource",
 ]

@@ -1,12 +1,13 @@
 """Fact 비교 파이프라인 — 신규 엔진(현행 ComparePipeline 과 별개).
 
-설계는 ``docs/FACT_PIPELINE_PLAN.md`` 참고. 현재 구현 범위(F0~F1):
+설계는 ``docs/FACT_PIPELINE_PLAN.md`` 참고. 현재 구현 범위(F0~F2):
 
     Raw Extractor → Raw Compactor → artifacts 저장        (F0)
     Document Profiler → Schema Inducer(Excel)             (F1, LLM)
-    Record Normalizer → ... → Comparator                 (F2~F6, 미구현)
+    Record Normalizer(Excel)                              (F2, LLM)
+    Fact Extractor → ... → Comparator                    (F3~F6, 미구현)
 
-F2 이후 LLM 단계는 :meth:`FactPipeline.run` 에서 :class:`NotImplementedError` 로
+F3 이후 LLM 단계는 :meth:`FactPipeline.run` 에서 :class:`NotImplementedError` 로
 명시적으로 막는다(상위 호출부가 잡아 안내).
 
 테스트 용이성을 위해 추출기/압축기/chat 을 주입할 수 있다(기본은 COM 기반
@@ -25,13 +26,14 @@ from ..readers import close_all_office
 from .artifacts import ArtifactStore
 from .llm_stage import LlmRunner
 from .profiler import profile_document
+from .record_normalizer import normalize_records
 from .schema_inducer import induce_schema
 
 logger = logging.getLogger(__name__)
 
 
 class FactPipeline:
-    """fact 기반 비교 엔진. 현재 F0(raw/compact)+F1(profile/schema)까지 동작한다."""
+    """fact 기반 비교 엔진. 현재 F0(raw/compact)+F1(profile/schema)+F2(records)까지 동작한다."""
 
     def __init__(
         self,
@@ -61,9 +63,9 @@ class FactPipeline:
         targets: list[str],
         progress: Optional[Callable[[int, int, str], None]] = None,
     ) -> list[dict]:
-        """모든 문서를 raw→compact→profile→schema(Excel) 로 처리해 artifacts 에 저장.
+        """모든 문서를 raw→compact→profile→schema→records(Excel) 로 처리해 artifacts 에 저장.
 
-        F2 이후 단계가 없어 :class:`NotImplementedError` 를 던진다. ``finally`` 에서
+        F3 이후 단계가 없어 :class:`NotImplementedError` 를 던진다. ``finally`` 에서
         열린 COM 문서를 정리한다.
         """
         docs = [reference, *targets]
@@ -100,8 +102,13 @@ class FactPipeline:
         profile = profile_document(compact, runner, store)
         stages = ["physical_raw", "compact_raw", "document_profile"]
         if compact.get("doc_type") == "excel":
-            induce_schema(compact, profile, runner, store)
+            tp, cs = induce_schema(compact, profile, runner, store)
             stages += ["table_profile", "column_schema"]
+            normalize_records(
+                compact, tp, cs, runner,
+                batch_rows=self.fact.record_batch_rows, store=store,
+            )
+            stages += ["records"]
 
         logger.info("[Fact] %s: %s (LLM %d회)", os.path.basename(path), stages, runner.calls)
         return {
@@ -115,6 +122,6 @@ class FactPipeline:
     @staticmethod
     def _not_yet_implemented() -> None:
         raise NotImplementedError(
-            "FactPipeline: Record Normalizer~Comparator 는 Phase F2~F6 에서 구현됩니다. "
-            "현재(F0~F1)는 raw/compact/profile/schema artifacts 저장까지 동작합니다."
+            "FactPipeline: Fact Extractor~Comparator 는 Phase F3~F6 에서 구현됩니다. "
+            "현재(F0~F2)는 raw/compact/profile/schema/records artifacts 저장까지 동작합니다."
         )

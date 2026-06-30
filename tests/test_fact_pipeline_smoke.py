@@ -46,6 +46,14 @@ class _FactChat:
 
     def complete(self, system, user, *, temperature=0.0):
         self.calls += 1
+        if "정규화기" in system:  # RECORD_SYSTEM (F2)
+            return json.dumps({"records": [{
+                "record_id": "row-2",
+                "entity": {"category": "", "subcategory": "", "display_name": "충전환경온도"},
+                "quantitative_spec": {"lower": -5, "target": None, "upper": 55, "unit": ""},
+                "qualitative_spec": "", "metadata": {},
+                "source": {"row": 2}, "evidence_text": "충전환경온도 -5 55", "confidence": 0.9,
+            }]})
         if "semantic_role" in system:  # SCHEMA_SYSTEM
             return json.dumps({
                 "table_profile": {
@@ -82,10 +90,13 @@ def test_excel_produces_f1_artifacts(tmp_path):
     with pytest.raises(NotImplementedError):
         pipe.run("기준.xlsx", [])
     d = tmp_path / ArtifactStore.slug("기준.xlsx")
-    for stage in ("physical_raw", "compact_raw", "document_profile", "table_profile", "column_schema"):
+    for stage in ("physical_raw", "compact_raw", "document_profile",
+                  "table_profile", "column_schema", "records"):
         assert (d / f"{stage}.json").exists(), stage
     cs = json.loads((d / "column_schema.json").read_text(encoding="utf-8"))
     assert cs["columns"][0]["semantic_role"] == "entity_name"
+    recs = json.loads((d / "records.json").read_text(encoding="utf-8"))
+    assert recs["records"][0]["entity"]["display_name"] == "충전환경온도"
 
 
 def test_word_produces_profile_only(tmp_path):

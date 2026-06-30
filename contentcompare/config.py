@@ -216,6 +216,9 @@ class FactConfig:
     max_llm_calls_per_doc: int = 50
     """문서당 LLM 호출 예산(결정 #2). F1+ 단계에서 사용."""
 
+    record_batch_rows: int = 30
+    """F2 Record Normalizer 의 행 배치 크기(한 LLM 호출당 처리 행 수)."""
+
     max_repair_iters: int = 2
     """Repair Loop 최대 반복(F4 에서 사용)."""
 
