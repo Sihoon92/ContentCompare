@@ -80,15 +80,15 @@ def main(argv: list[str] | None = None) -> int:
 
     pipeline = make_pipeline(config, args.engine)
 
-    # 신규 fact 엔진(Phase F0): raw/compact artifacts 저장까지만 동작한다.
-    # 비교/리포트(F1~F6)는 아직 없으므로 미구현 신호를 잡아 안내하고 종료.
+    # 신규 fact 엔진(Phase F0~F2): raw/compact/profile/schema/records artifacts 저장까지 동작한다.
+    # 비교/리포트(F3~F6)는 아직 없으므로 미구현 신호를 잡아 안내하고 종료.
     if args.engine == "fact":
         try:
             pipeline.run(args.reference, args.targets, progress=_fact_progress)
         except NotImplementedError as e:
-            log_print(f"[fact 엔진 F0] {e}")
+            log_print(f"[fact 엔진] {e}")
         log_print(
-            "\nartifacts 저장 완료. fact 비교/리포트는 Phase F1~F6 에서 제공됩니다."
+            "\nartifacts 저장 완료. fact 비교/리포트는 Phase F3~F6 에서 제공됩니다."
         )
         return 0
 

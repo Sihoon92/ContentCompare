@@ -119,6 +119,20 @@ def test_no_data_rows_raises():
         normalize_records(compact, _TP, _CS, LlmRunner(_RecChat([])), batch_rows=30)
 
 
+def test_hallucinated_cell_range_is_cleared_for_row_not_in_batch():
+    """행이 배치에 없으면 LLM 이 준 cell_range 를 코드가 빈 문자열로 덮어쓴다."""
+    # 배치: 행2,3,4 만 있음. LLM 은 행99(배치 밖)를 반환하고 "Z99" 를 주장.
+    chat = _RecChat([
+        json.dumps({"records": [
+            {"record_id": "row-99", "entity": {"display_name": "ghost"},
+             "source": {"row": 99, "cell_range": "Z99"}}
+        ]})
+    ])
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+    assert len(rs.records) == 1
+    assert rs.records[0].source.cell_range == ""  # LLM 좌표 신뢰하지 않음
+
+
 def test_build_record_user_includes_columns_rows_and_carry():
     user = build_record_user(
         [{"r": 2, "cells": {"E": "충전환경온도", "F": -5}}],

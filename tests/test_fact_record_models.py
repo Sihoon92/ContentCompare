@@ -49,6 +49,15 @@ def test_record_from_llm_drops_empty_quantspec():
     assert rec.quantitative_spec is None  # 빈 정량규격 → None
 
 
+def test_from_llm_row_less_index_fallback_produces_unique_ids():
+    """row 없는 record 에 index 를 주면 row-idx-N 으로 고유 id 를 만든다."""
+    rec0 = Record.from_llm({"entity": {"display_name": "A"}}, index=0)
+    rec1 = Record.from_llm({"entity": {"display_name": "B"}}, index=1)
+    assert rec0.record_id == "row-idx-0"
+    assert rec1.record_id == "row-idx-1"
+    assert rec0.record_id != rec1.record_id
+
+
 def test_recordset_roundtrip():
     rs = RecordSet(
         location="sheet=S",

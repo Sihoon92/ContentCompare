@@ -1,4 +1,4 @@
-"""F1 LLM 프롬프트 — Document Profiler / Schema Inducer.
+"""F1/F2 LLM 프롬프트 — Document Profiler / Schema Inducer / Record Normalizer.
 
 원칙: 파일을 바로 주지 않고 compact_raw 를 보여 **LLM 이 구조를 추론**하게 한다.
 출력은 항상 JSON 한 개. 어휘(semantic_role)는 사전에서만 고르도록 강제한다.

@@ -90,12 +90,14 @@ def normalize_records(
         json.dumps(data_rows, sort_keys=True, ensure_ascii=False),
         json.dumps(column_schema.to_dict(), sort_keys=True, ensure_ascii=False),
         json.dumps(table_profile.to_dict(), sort_keys=True, ensure_ascii=False),
+        str(batch_rows),
         RECORD_VERSION,
     )
 
     def compute() -> dict:
         records: list[Record] = []
         carry = {"category": "", "subcategory": ""}
+        seq = 0  # record 전체 순번(배치 걸쳐 단조 증가) — row-less 폴백 id 생성용
         for batch in _chunks(data_rows, batch_rows):
             obj = runner.complete_json(
                 RECORD_SYSTEM, build_record_user(batch, column_schema, table_profile, carry)
@@ -103,8 +105,10 @@ def normalize_records(
             row_by_r = {r.get("r"): r for r in batch}
             batch_records: list[Record] = []
             for raw in (obj.get("records") or []):
-                rec = Record.from_llm(raw, sheet_name=sheet_name)
+                rec = Record.from_llm(raw, sheet_name=sheet_name, index=seq)
+                seq += 1
                 rec.source.sheet = sheet_name
+                rec.source.cell_range = ""  # LLM 이 준 좌표는 신뢰하지 않음(코드가 채움)
                 if rec.source.row is not None and rec.source.row in row_by_r:
                     rec.source.cell_range = _cell_range(
                         row_by_r[rec.source.row], schema_columns, rec.source.row

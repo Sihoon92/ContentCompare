@@ -146,7 +146,7 @@ class Record:
         )
 
     @classmethod
-    def from_llm(cls, d: dict, *, sheet_name: str = "") -> "Record":
+    def from_llm(cls, d: dict, *, sheet_name: str = "", index=None) -> "Record":
         d = d if isinstance(d, dict) else {}
         qs = d.get("quantitative_spec")
         quant = QuantSpec.from_dict(qs) if isinstance(qs, dict) else None
@@ -166,8 +166,14 @@ class Record:
             evidence_text=_as_str(d.get("evidence_text")),
             confidence=_as_float(d.get("confidence")),
         )
+        # record_id 미지정 시 row 기반 생성; row 도 없으면 인덱스 기반 폴백.
         if not rec.record_id:
-            rec.record_id = f"row-{source.row}" if source.row is not None else "row-?"
+            if source.row is not None:
+                rec.record_id = f"row-{source.row}"
+            elif index is not None:
+                rec.record_id = f"row-idx-{index}"
+            else:
+                rec.record_id = "row-?"
         return rec
 
 
