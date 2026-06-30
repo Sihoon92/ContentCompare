@@ -206,5 +206,99 @@ class RawWordDocument:
         }
 
 
+# --------------------------------------------------------------------------- #
+# PowerPoint
+# --------------------------------------------------------------------------- #
+@dataclass
+class RawPptShape:
+    """슬라이드 위 도형 1개의 물리 정보(텍스트박스 또는 표).
+
+    차트/이미지는 추출 대상이 아니다(텍스트박스/표만). 의미 해석은 후속 LLM 단계의 몫.
+    """
+
+    shape_id: str
+    """슬라이드-도형 안정 식별자 (예: ``p001_s002``)."""
+
+    order: int
+    """슬라이드 내 등장 순서 (1-based)."""
+
+    type: str
+    """``text`` 또는 ``table``."""
+
+    name: Optional[str] = None
+    """PPT 도형 이름 (예: ``Title 1``). 구조 추론 힌트."""
+
+    text: Optional[str] = None
+    """텍스트(type=text). 문단들을 공백으로 결합."""
+
+    rows: Optional[list[list[str]]] = None
+    """표 셀 텍스트 2D(type=table)."""
+
+    position: Optional[dict[str, float]] = None
+    """도형 위치/크기 (포인트): ``{left, top, width, height}``. 없으면 생략."""
+
+    style: Optional[dict[str, Any]] = None
+    """스타일 정보 (placeholder/bold/font_size 등). 비면 생략."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_none(
+            {
+                "shape_id": self.shape_id,
+                "order": self.order,
+                "type": self.type,
+                "name": self.name,
+                "text": self.text,
+                "rows": self.rows,
+                "position": self.position,
+                "style": self.style,
+            }
+        )
+
+
+@dataclass
+class RawPptSlide:
+    """슬라이드 1장의 물리 구조."""
+
+    slide_id: str
+    """슬라이드 안정 식별자 (예: ``p001``)."""
+
+    slide_no: int
+    """1-based 슬라이드 번호."""
+
+    layout_name: Optional[str] = None
+    """슬라이드 레이아웃 이름 (예: ``Title and Content``). 구조 추론 힌트."""
+
+    shapes: list[RawPptShape] = field(default_factory=list)
+    notes: Optional[str] = None
+    """스피커 노트 텍스트. 없으면 생략."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_none(
+            {
+                "slide_id": self.slide_id,
+                "slide_no": self.slide_no,
+                "layout_name": self.layout_name,
+                "notes": self.notes,
+                "shapes": [s.to_dict() for s in self.shapes],
+            }
+        )
+
+
+@dataclass
+class RawPptDocument:
+    """PPT 파일 1개의 raw json 루트."""
+
+    file_name: str
+    slides: list[RawPptSlide] = field(default_factory=list)
+    doc_type: str = "ppt"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "doc_type": self.doc_type,
+            "file_name": self.file_name,
+            "slides": [s.to_dict() for s in self.slides],
+        }
+
+
 # 디스패처/타입힌트용 합집합.
-RawDocument = "RawExcelDocument | RawWordDocument"
+RawDocument = "RawExcelDocument | RawWordDocument | RawPptDocument"

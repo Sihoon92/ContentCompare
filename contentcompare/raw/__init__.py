@@ -23,6 +23,9 @@ from .models import (
     RawCell,
     RawDocument,
     RawExcelDocument,
+    RawPptDocument,
+    RawPptShape,
+    RawPptSlide,
     RawSheet,
     RawWordBlock,
     RawWordDocument,
@@ -40,4 +43,7 @@ __all__ = [
     "RawSheet",
     "RawWordBlock",
     "RawWordDocument",
+    "RawPptShape",
+    "RawPptSlide",
+    "RawPptDocument",
 ]

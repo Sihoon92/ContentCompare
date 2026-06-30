@@ -12,6 +12,7 @@ import json
 from contentcompare.raw import compact_raw, compact_to_json
 from contentcompare.raw.excel_raw import CellProbe, SheetProbe, build_raw_sheet
 from contentcompare.raw.models import RawExcelDocument
+from contentcompare.raw.ppt_raw import ShapeProbe, SlideProbe, build_ppt_doc
 from contentcompare.raw.word_raw import ParaProbe, TableProbe, build_word_doc
 
 
@@ -118,3 +119,43 @@ def test_word_drops_order_field():
     parsed = json.loads(text)
     assert "order" not in parsed["blocks"][0]  # 순서는 리스트/ id 로 충분
     assert "충전환경온도" in text  # 한글 보존
+
+
+# --------------------------------------------------------------------------- #
+# PPT 압축
+# --------------------------------------------------------------------------- #
+def _ppt_doc():
+    return build_ppt_doc("deck.pptx", [
+        SlideProbe(slide_no=1, layout_name="Title and Content",
+                   notes="0.1C, 4.55V 조건 기준", shapes=[
+                       ShapeProbe(kind="text", name="Title 1", text="충전환경온도",
+                                  placeholder="title", left=38.0, top=30.0),
+                       ShapeProbe(kind="table", rows=[["항목", "규격"], ["온도", "-5~55"]]),
+                   ]),
+    ])
+
+
+def test_ppt_slides_compacted():
+    out = compact_raw(_ppt_doc())
+    assert out["doc_type"] == "ppt"
+    slide = out["slides"][0]
+    assert slide["slide_no"] == 1
+    assert slide["layout"] == "Title and Content"
+    assert slide["notes"] == "0.1C, 4.55V 조건 기준"
+    shapes = slide["shapes"]
+    assert [s["type"] for s in shapes] == ["text", "table"]
+    assert shapes[0]["text"] == "충전환경온도"
+    assert shapes[0]["name"] == "Title 1"
+    assert shapes[0]["style"] == {"placeholder": "title"}
+    assert shapes[1]["rows"] == [["항목", "규격"], ["온도", "-5~55"]]
+
+
+def test_ppt_position_dropped_in_compact():
+    text = compact_to_json(_ppt_doc())
+    assert "position" not in text
+    assert "left" not in text
+
+
+def test_ppt_korean_preserved():
+    text = compact_to_json(_ppt_doc())
+    assert "충전환경온도" in text

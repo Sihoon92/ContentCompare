@@ -12,9 +12,9 @@ import logging
 import sys
 
 from .config import AppConfig
+from .fact.engine import make_pipeline
 from .llm.health import all_ok, check_llm
 from .logging_setup import log_print, setup_logging
-from .pipeline import ComparePipeline
 from .report import render_markdown, save_report
 
 
@@ -33,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--targets", nargs="+", help="비교 대상 문서 경로(여러 개)"
     )
+    p.add_argument(
+        "--engine",
+        choices=["rag", "fact"],
+        default="rag",
+        help="비교 엔진: rag(현행 임베딩 top-k) | fact(신규 fact 파이프라인). 기본 rag",
+    )
     p.add_argument("--out", default="report.md", help="리포트 출력 경로(.md)")
     p.add_argument("-v", "--verbose", action="store_true", help="상세 로그")
     return p
@@ -40,6 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _progress(i: int, total: int, result) -> None:
     log_print(f"[{i}/{total}] {result.verdict.value:9} {result.reference.source_label}")
+
+
+def _fact_progress(i: int, total: int, path: str) -> None:
+    log_print(f"[{i}/{total}] artifacts 저장: {path}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -68,7 +78,21 @@ def main(argv: list[str] | None = None) -> int:
         log_print("오류: --reference 와 --targets 가 필요합니다 (또는 --check 로 연결만 점검).")
         return 2
 
-    pipeline = ComparePipeline(config)
+    pipeline = make_pipeline(config, args.engine)
+
+    # 신규 fact 엔진(Phase F0): raw/compact artifacts 저장까지만 동작한다.
+    # 비교/리포트(F1~F6)는 아직 없으므로 미구현 신호를 잡아 안내하고 종료.
+    if args.engine == "fact":
+        try:
+            pipeline.run(args.reference, args.targets, progress=_fact_progress)
+        except NotImplementedError as e:
+            log_print(f"[fact 엔진 F0] {e}")
+        log_print(
+            "\nartifacts 저장 완료. fact 비교/리포트는 Phase F1~F6 에서 제공됩니다."
+        )
+        return 0
+
+    # 현행 RAG 엔진(기본): 기존 동작 그대로.
     results = pipeline.run(args.reference, args.targets, progress=_progress)
 
     report = render_markdown(

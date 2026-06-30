@@ -198,12 +198,36 @@ class KnowledgeConfig:
 
 
 @dataclass
+class FactConfig:
+    """신규 fact 파이프라인 설정(엔진=fact 일 때만 사용). 현행 RAG 와 무관.
+
+    엔진 선택은 CLI ``--engine`` 으로 하며(결정 #1) config 에 두지 않는다.
+    """
+
+    artifacts_dir: str = "artifacts"
+    """중간 산출물 저장 루트: ``artifacts/<문서>/<단계>.json`` (결정 #5)."""
+
+    save_artifacts: bool = True
+    """중간 산출물을 항상 저장(테스트에서 off 가능)."""
+
+    cache: bool = True
+    """단계별 산출물 캐싱(같은 입력이면 재계산/재호출 0 — 결정 #2)."""
+
+    max_llm_calls_per_doc: int = 50
+    """문서당 LLM 호출 예산(결정 #2). F1+ 단계에서 사용."""
+
+    max_repair_iters: int = 2
+    """Repair Loop 최대 반복(F4 에서 사용)."""
+
+
+@dataclass
 class AppConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     excel: ExcelConfig = field(default_factory=ExcelConfig)
     similarity: SimilarityConfig = field(default_factory=SimilarityConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
+    fact: FactConfig = field(default_factory=FactConfig)
 
     # ----------------------------------------------------------------- #
     # 로딩
@@ -231,6 +255,7 @@ class AppConfig:
             similarity=SimilarityConfig(**data.get("similarity", {}) or {}),
             report=ReportConfig(**data.get("report", {}) or {}),
             knowledge=KnowledgeConfig(**data.get("knowledge", {}) or {}),
+            fact=FactConfig(**data.get("fact", {}) or {}),
         )
 
 

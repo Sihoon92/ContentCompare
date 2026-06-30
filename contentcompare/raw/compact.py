@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from .models import RawExcelDocument, RawWordDocument
+from .models import RawExcelDocument, RawPptDocument, RawWordDocument
 
 
 def compact_raw(doc: Any, *, max_rows: Optional[int] = None) -> dict[str, Any]:
@@ -27,6 +27,8 @@ def compact_raw(doc: Any, *, max_rows: Optional[int] = None) -> dict[str, Any]:
         return compact_excel(doc, max_rows=max_rows)
     if isinstance(doc, RawWordDocument):
         return compact_word(doc)
+    if isinstance(doc, RawPptDocument):
+        return compact_ppt(doc)
     raise TypeError(f"compact_raw: 지원하지 않는 문서 타입 {type(doc)!r}")
 
 
@@ -116,3 +118,31 @@ def compact_word(doc: RawWordDocument) -> dict[str, Any]:
             item = {"id": b.block_id, "type": "table", "rows": b.rows}
         blocks.append(item)
     return {"doc_type": "word", "file_name": doc.file_name, "blocks": blocks}
+
+
+# --------------------------------------------------------------------------- #
+# PowerPoint
+# --------------------------------------------------------------------------- #
+def compact_ppt(doc: RawPptDocument) -> dict[str, Any]:
+    """RawPptDocument → 슬라이드 단위 compact. 위치(position)는 LLM 입력에서 생략."""
+    slides: list[dict[str, Any]] = []
+    for s in doc.slides:
+        shapes: list[dict[str, Any]] = []
+        for sh in s.shapes:
+            if sh.type == "text":
+                item: dict[str, Any] = {"id": sh.shape_id, "type": "text", "text": sh.text}
+            else:  # table
+                item = {"id": sh.shape_id, "type": "table", "rows": sh.rows}
+            # 구조 추론 힌트(도형 이름/스타일)는 유지, position 은 버린다(노이즈 감소).
+            if sh.name:
+                item["name"] = sh.name
+            if sh.style:
+                item["style"] = sh.style
+            shapes.append(item)
+        out: dict[str, Any] = {"slide_no": s.slide_no, "shapes": shapes}
+        if s.layout_name:
+            out["layout"] = s.layout_name
+        if s.notes:
+            out["notes"] = s.notes
+        slides.append(out)
+    return {"doc_type": "ppt", "file_name": doc.file_name, "slides": slides}

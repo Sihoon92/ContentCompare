@@ -16,6 +16,7 @@ report.md
 .pytest_cache/
 logs/
 reports/
+artifacts/
 
 # OS / IDE
 .DS_Store

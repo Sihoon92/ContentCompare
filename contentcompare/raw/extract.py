@@ -17,14 +17,16 @@ _EXT_MAP = {
     ".xls": "excel",
     ".docx": "word",
     ".doc": "word",
+    ".pptx": "ppt",
+    ".ppt": "ppt",
 }
 
 
 def extract_raw(path: str):
     """파일 확장자에 맞는 raw 추출기를 호출한다(COM: xlwings/win32com).
 
-    PPT(.pptx)는 추후 추가 예정. 현재는 Excel/Word 만 지원한다. COM(설치된 Office)을
-    쓰므로 레거시 바이너리(.xls/.doc)도 Office 가 열 수 있다.
+    Excel/Word/PPT 를 지원한다. COM(설치된 Office)을 쓰므로 레거시 바이너리
+    (.xls/.doc/.ppt)도 Office 가 열 수 있다.
     """
     ext = os.path.splitext(path)[1].lower()
     kind = _EXT_MAP.get(ext)
@@ -36,9 +38,13 @@ def extract_raw(path: str):
         from .word_raw import extract_word_raw
 
         return extract_word_raw(path)
+    if kind == "ppt":
+        from .ppt_raw import extract_ppt_raw
+
+        return extract_ppt_raw(path)
     raise ValueError(
         f"raw 추출을 지원하지 않는 형식입니다: {ext} ({path}). "
-        "지원: .xlsx/.xlsm(Excel), .docx(Word)"
+        "지원: .xlsx/.xlsm(Excel), .docx(Word), .pptx(PPT)"
     )
 
 
