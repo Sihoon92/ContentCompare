@@ -67,4 +67,9 @@ knowledge:                 # 사람이 작성하는 도메인 지식(human-in-th
   max_chars: 12000         # 프롬프트에 주입할 지식 최대 길이(초과분은 잘림)
 
 fact:                      # 신규 fact 파이프라인(--engine fact 일 때만 사용)
-  record_batch_rows: 30        # F2: 한 LLM 호출당 정규화할 데이터 행 수
+  artifacts_dir: "artifacts"       # 중간 산출물 저장 루트(artifacts/<문서>/<단계>.json)
+  save_artifacts: true             # 중간 산출물 항상 저장
+  cache: true                      # 단계별 산출물 캐싱(같은 입력이면 재호출 0)
+  max_llm_calls_per_doc: 50        # 문서당 LLM 호출 예산
+  record_batch_rows: 30            # F2: 한 LLM 호출당 정규화할 데이터 행 수
+  max_repair_iters: 2              # Repair Loop 최대 반복(F4)

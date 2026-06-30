@@ -75,7 +75,7 @@ class FactPipeline:
                 summaries.append(self._process_one(path))
                 if progress:
                     progress(i, len(docs), path)
-            # --- F2 이후 단계(Record Normalizer~Comparator)는 아직 없음 ---
+            # --- F3 이후 단계(Fact Extractor~Comparator)는 아직 없음 ---
             self._not_yet_implemented()
             return summaries
         finally:

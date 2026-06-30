@@ -4,7 +4,7 @@
 
 핵심 발상: 파일을 LLM 에 바로 주지 않고, 코드가 만든 raw json 을 LLM 이 구조화해
 모든 문서를 공통 fact schema 로 정규화한 뒤 fact↔fact 로 정합성을 검증한다. 현재는
-Phase F0(기반 정비)까지 구현되어 있다.
+Phase F0~F2 까지 구현되어 있다.
 """
 
 from __future__ import annotations
