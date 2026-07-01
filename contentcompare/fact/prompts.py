@@ -19,6 +19,7 @@ from .semantic_roles import (
     QUANT_LOWER,
     QUANT_TARGET,
     QUANT_UPPER,
+    QUANT_VALUE,
     UNIT,
     UNKNOWN,
     guess_role,
@@ -26,6 +27,10 @@ from .semantic_roles import (
 
 PROFILER_VERSION = "profiler-v1"
 SCHEMA_VERSION = "schema-v1"
+
+
+def _as_str(v: Any, default: str = "") -> str:
+    return v if isinstance(v, str) else (default if v is None else str(v))
 
 _MAX_PREVIEW_CHARS = 6000
 _MAX_SHEET_ROWS = 15
@@ -76,6 +81,7 @@ _ROLE_DESCS = {
     QUANT_LOWER: "정량 하한(하한치/Min/Lower)",
     QUANT_TARGET: "정량 중심/기준(중심치/Nominal/Target)",
     QUANT_UPPER: "정량 상한(상한치/Max/Upper)",
+    QUANT_VALUE: "정량 단일 값(정격전압/규격값 등 — 경계가 아닌 그 자체 값)",
     UNIT: "단위",
     QUALITATIVE: "정성 규격/조건/설명/비고",
     METADATA: "비교 비대상 메타(작성일/버전/순번 등)",
@@ -152,7 +158,7 @@ def build_schema_user(sheet: dict, profile: dict) -> str:
 # --------------------------------------------------------------------------- #
 # Record Normalizer (F2) — 데이터 행 → record
 # --------------------------------------------------------------------------- #
-RECORD_VERSION = "record-v1"
+RECORD_VERSION = "record-v2"
 
 RECORD_SYSTEM = """\
 당신은 표 데이터 정규화기입니다. 주어진 열 스키마(열 → 역할)에 따라 각 데이터 행을
@@ -162,6 +168,11 @@ record(JSON)로 변환합니다.
 - display_name 은 가장 구체적인 항목 이름(소분류 우선)으로 정합니다.
 - 상위 분류(category/subcategory)가 빈 칸이면 '직전까지 확정된 분류'로 채웁니다.
 - 소계·합계·빈 행은 record 로 만들지 말고 제외합니다(records 에서 빼세요).
+- 각 데이터 컬럼을 attributes 의 한 속성(value+unit)으로 만듭니다. 속성 이름 규칙:
+  · 규격 경계 컬럼(하한/중심/상한)은 각각 lower_limit / target_value / upper_limit.
+  · 그 외 값·정성 컬럼은 그 컬럼의 이름(field_name)을 그대로 속성 이름으로(예: 정격전압, 재질).
+  · 단위 컬럼이 있으면 그 값을 해당 정량 속성의 unit 에 넣습니다.
+- 비교 대상이 아닌 메타(순번/작성일/버전 등)와 의미 불명 컬럼은 metadata 로 보냅니다.
 - 값은 셀에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
 - evidence_text 는 그 행에 실제로 있는 문구만 적습니다(지어내기 금지).
 - source 에는 row(행 번호)만 넣습니다. sheet/cell_range 는 코드가 채웁니다.
@@ -172,8 +183,7 @@ record(JSON)로 변환합니다.
     {
       "record_id": "row-<행번호>",
       "entity": {"category": "...", "subcategory": "...", "display_name": "..."},
-      "quantitative_spec": {"lower": <값|null>, "target": <값|null>, "upper": <값|null>, "unit": "..."},
-      "qualitative_spec": "...",
+      "attributes": {"<속성이름>": {"value": <값|null>, "unit": "<단위>"}},
       "metadata": {"<필드명>": "<값>"},
       "source": {"row": <행번호>},
       "evidence_text": "...",
@@ -210,4 +220,72 @@ def build_record_user(batch: list, column_schema: Any, table_profile: Any, carry
         f"{body}\n\n"
         "각 행을 records 배열의 한 항목으로 만들되 소계/합계/빈 행은 제외하세요. "
         "값은 셀에 있는 그대로 옮기고(변환 금지), source.row 에 행 번호를 넣으세요."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Fact Extractor (F3) — Word/PPT 블록/도형 → fact (Excel 은 코드 매핑이라 미사용)
+# --------------------------------------------------------------------------- #
+FACT_VERSION = "fact-v2"
+
+FACT_SYSTEM = """\
+당신은 문서에서 비교 가능한 fact 를 추출하는 분석가입니다. 각 항목 앞의 [id] 가 붙은
+블록/도형/노트를 보고, 비교 대상이 되는 사실을 fact(JSON)로 만듭니다.
+
+규칙:
+- 흩어진 서술(본문+스피커노트, 표+설명)이 같은 대상이면 하나의 fact 로 병합합니다.
+- 값·단위는 본문에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
+- attributes 이름: 규격 경계는 lower_limit/target_value/upper_limit 로, 그 외는 그 속성의 고유 이름을 그대로 씁니다.
+- evidence_text 는 입력에 실제로 있는 문구만 적습니다(지어내기 금지).
+- source_ids 에는 이 fact 의 근거가 된 [id] 만 넣습니다(입력에 보인 id 만).
+- 비교할 사실이 없는 장식/목차/빈 블록은 fact 로 만들지 않습니다.
+
+반드시 아래 JSON 만 출력하세요(설명·마크다운 금지):
+{
+  "facts": [
+    {
+      "fact_type": "quantitative_spec|qualitative_statement|descriptive",
+      "entity_name": "<무엇에 대한 사실인가>",
+      "entity_path": ["<상위 맥락>", "..."],
+      "attributes": {"<이름>": {"value": <값|null>, "unit": "<단위>"}},
+      "evidence_text": "<입력에 실제 있는 근거 문구>",
+      "source_ids": ["<근거 블록/도형 id>"],
+      "confidence": <0~1 실수>
+    }
+  ]
+}"""
+
+
+def _profile_purpose(profile: Any) -> str:
+    if profile is None:
+        return ""
+    if isinstance(profile, dict):
+        return _as_str(profile.get("main_purpose"))
+    return _as_str(getattr(profile, "main_purpose", ""))
+
+
+def _render_unit(u: dict) -> str:
+    uid = u.get("id")
+    loc = f" slide={u['slide_no']}" if u.get("slide_no") else ""
+    note = " (스피커노트)" if u.get("is_note") else ""
+    if u.get("type") == "table":
+        content = f"표 {u.get('rows')}"
+    else:
+        content = _as_str(u.get("text"))
+    return f"[{uid}]{loc}{note} {content}"
+
+
+def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
+    header = (
+        f"다음은 {doc_type} 문서의 블록/도형입니다. 각 항목 앞의 [id] 는 "
+        "source_ids 에 넣을 식별자입니다."
+    )
+    purpose = _profile_purpose(profile)
+    if purpose:
+        header += f"\n문서 맥락: {purpose}"
+    body = "\n".join(_render_unit(u) for u in units)
+    return (
+        f"{header}\n\n{body}\n\n"
+        "위에서 비교 가능한 사실을 facts 배열의 fact 로 추출하세요. 흩어진 서술이 같은 "
+        "대상이면 하나로 병합하고, source_ids 에는 근거가 된 [id] 만 넣으세요."
     )

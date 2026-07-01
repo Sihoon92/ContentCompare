@@ -1,8 +1,12 @@
-"""F2 산출물 데이터 모델 — Record / Entity / QuantSpec / RecordSource / RecordSet.
+"""F2 산출물 데이터 모델 — Record / Entity / Attribute / RecordSource / RecordSet.
 
 F1 ``schema_models`` 패턴을 따른다: ``to_dict``(저장용), ``from_dict``(저장본 로드),
 ``from_llm``(LLM 원본 dict — 키 누락·타입오류에 관대). LLM 산출 record 를 코드가
 안전하게 받아 다운스트림(F3 Fact Extractor)이 그대로 쓰게 한다.
+
+정량/정성 값은 모두 ``attributes: {name -> Attribute(value, unit)}`` 단일 맵으로 담는다
+(규격 경계는 canonical 키 lower_limit/target_value/upper_limit, 일반 컬럼은 field_name).
+``Attribute`` 는 F3 ``Fact`` 와 공유한다.
 """
 
 from __future__ import annotations
@@ -27,6 +31,39 @@ def _as_float(v: Any, default: float = 0.0) -> float:
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+@dataclass
+class Attribute:
+    """비교 대상 속성값 — 값 + 단위(가공하지 않음). F2 Record / F3 Fact 공유."""
+
+    value: Any = None
+    unit: str = ""
+
+    def is_empty(self) -> bool:
+        return self.value is None and not self.unit
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"value": self.value, "unit": self.unit}
+
+    @classmethod
+    def from_dict(cls, d: Any) -> "Attribute":
+        if isinstance(d, dict):
+            return cls(value=d.get("value"), unit=_as_str(d.get("unit")))
+        # {value, unit} dict 가 아니면 원값을 value 로 보정.
+        return cls(value=d)
+
+
+def parse_attributes(raw: Any) -> dict[str, Attribute]:
+    """LLM/저장 dict → {name: Attribute}. 빈 속성은 제외."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Attribute] = {}
+    for name, val in raw.items():
+        attr = Attribute.from_dict(val)
+        if not attr.is_empty():
+            out[_as_str(name)] = attr
+    return out
 
 
 @dataclass
@@ -64,30 +101,6 @@ class Entity:
 
 
 @dataclass
-class QuantSpec:
-    lower: Any = None
-    target: Any = None
-    upper: Any = None
-    unit: str = ""
-
-    def is_empty(self) -> bool:
-        return self.lower is None and self.target is None and self.upper is None and not self.unit
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"lower": self.lower, "target": self.target, "upper": self.upper, "unit": self.unit}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "QuantSpec":
-        d = d or {}
-        return cls(
-            lower=d.get("lower"),
-            target=d.get("target"),
-            upper=d.get("upper"),
-            unit=_as_str(d.get("unit")),
-        )
-
-
-@dataclass
 class RecordSource:
     sheet: str = ""
     row: Optional[int] = None
@@ -110,8 +123,7 @@ class RecordSource:
 class Record:
     record_id: str = ""
     entity: Entity = field(default_factory=Entity)
-    quantitative_spec: Optional[QuantSpec] = None
-    qualitative_spec: str = ""
+    attributes: dict[str, Attribute] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     source: RecordSource = field(default_factory=RecordSource)
     evidence_text: str = ""
@@ -121,8 +133,7 @@ class Record:
         return {
             "record_id": self.record_id,
             "entity": self.entity.to_dict(),
-            "quantitative_spec": self.quantitative_spec.to_dict() if self.quantitative_spec else None,
-            "qualitative_spec": self.qualitative_spec,
+            "attributes": {k: a.to_dict() for k, a in self.attributes.items()},
             "metadata": self.metadata,
             "source": self.source.to_dict(),
             "evidence_text": self.evidence_text,
@@ -132,13 +143,11 @@ class Record:
     @classmethod
     def from_dict(cls, d: dict) -> "Record":
         d = d or {}
-        qs = d.get("quantitative_spec")
         meta = d.get("metadata")
         return cls(
             record_id=_as_str(d.get("record_id")),
             entity=Entity.from_dict(d.get("entity") or {}),
-            quantitative_spec=QuantSpec.from_dict(qs) if isinstance(qs, dict) else None,
-            qualitative_spec=_as_str(d.get("qualitative_spec")),
+            attributes=parse_attributes(d.get("attributes")),
             metadata=meta if isinstance(meta, dict) else {},
             source=RecordSource.from_dict(d.get("source") or {}),
             evidence_text=_as_str(d.get("evidence_text")),
@@ -148,10 +157,6 @@ class Record:
     @classmethod
     def from_llm(cls, d: dict, *, sheet_name: str = "", index=None) -> "Record":
         d = d if isinstance(d, dict) else {}
-        qs = d.get("quantitative_spec")
-        quant = QuantSpec.from_dict(qs) if isinstance(qs, dict) else None
-        if quant is not None and quant.is_empty():
-            quant = None
         source = RecordSource.from_dict(d.get("source") or {})
         if not source.sheet:
             source.sheet = sheet_name
@@ -159,8 +164,7 @@ class Record:
         rec = cls(
             record_id=_as_str(d.get("record_id")),
             entity=Entity.from_llm(d.get("entity") or {}),
-            quantitative_spec=quant,
-            qualitative_spec=_as_str(d.get("qualitative_spec")),
+            attributes=parse_attributes(d.get("attributes")),
             metadata=meta if isinstance(meta, dict) else {},
             source=source,
             evidence_text=_as_str(d.get("evidence_text")),

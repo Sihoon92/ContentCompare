@@ -44,11 +44,11 @@ _CS = ColumnSchema(location="sheet=S", columns=[
 ])
 
 
-def _rec(row, name, cat=""):
+def _rec(row, name, cat="", attrs=None):
     return {
         "record_id": f"row-{row}", "source": {"row": row},
         "entity": {"category": cat, "display_name": name},
-        "quantitative_spec": {"lower": None, "target": None, "upper": None, "unit": ""},
+        "attributes": attrs or {},
         "evidence_text": name, "confidence": 0.9,
     }
 
@@ -104,6 +104,20 @@ def test_cache_hit_skips_llm(tmp_path):
     rs2 = normalize_records(_COMPACT, _TP, _CS, runner2, batch_rows=30, store=store)
     assert runner2.calls == 0
     assert [r.record_id for r in rs2.records] == ["row-2", "row-3", "row-4"]
+
+
+def test_attributes_parsed_through_normalizer():
+    """규격 경계(canonical) + 일반 field_name 속성이 모두 무손실로 파싱된다."""
+    chat = _RecChat([json.dumps({"records": [
+        _rec(2, "충전환경온도", "기본사양", attrs={
+            "lower_limit": {"value": -5, "unit": "℃"},
+            "정격전압": {"value": 3.7, "unit": "V"},
+        })
+    ]})])
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+    a = rs.records[0].attributes
+    assert a["lower_limit"].value == -5 and a["lower_limit"].unit == "℃"
+    assert a["정격전압"].value == 3.7  # 일반 속성도 유실 없이 보존
 
 
 def test_empty_records_batch_ok():

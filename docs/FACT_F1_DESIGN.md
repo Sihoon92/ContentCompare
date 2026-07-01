@@ -4,6 +4,8 @@
 > 상태: **설계→구현** — F1 의 파일·JSON 스키마·프롬프트·테스트를 고정한다.
 > 상위 계획: [`FACT_PIPELINE_PLAN.md`](FACT_PIPELINE_PLAN.md) (§4 Step 1~2, §9 Phase F1)
 > 선행: [`FACT_F0_DESIGN.md`](FACT_F0_DESIGN.md) (raw→compact→artifacts 토대 완료)
+>
+> ⚠️ **개정(2026-07-01)**: semantic_role 어휘에 **`quantitative_value`**(경계가 아닌 단일 정량 값 — 정격전압/규격값 등)가 추가되었다. 규격표가 아닌 일반 속성표 지원 — [`FACT_ATTR_GENERALIZATION_DESIGN.md`](FACT_ATTR_GENERALIZATION_DESIGN.md) 참고.
 
 ---
 

@@ -4,6 +4,8 @@
 > 상태: **설계→구현** — F2 의 파일·JSON 스키마·프롬프트·테스트를 고정한다.
 > 상위 계획: [`FACT_PIPELINE_PLAN.md`](FACT_PIPELINE_PLAN.md) (§4 Step 3, §9 Phase F2)
 > 선행: [`FACT_F1_DESIGN.md`](FACT_F1_DESIGN.md) (compact_raw → document_profile/table_profile/column_schema 완료)
+>
+> ⚠️ **개정(2026-07-01)**: 아래 `quantitative_spec`/`qualitative_spec` 는 이후 **`attributes` 단일 맵**(`{name: {value, unit}}`)으로 통합되었다(규격 경계=canonical 키, 그 외=field_name). 일반 속성표 무손실을 위한 변경 — [`FACT_ATTR_GENERALIZATION_DESIGN.md`](FACT_ATTR_GENERALIZATION_DESIGN.md) 참고.
 
 ---
 

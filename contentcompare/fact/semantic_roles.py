@@ -22,6 +22,7 @@ ENTITY_SUBCATEGORY = "entity_subcategory"
 QUANT_LOWER = "quantitative_lower_bound"
 QUANT_TARGET = "quantitative_target"
 QUANT_UPPER = "quantitative_upper_bound"
+QUANT_VALUE = "quantitative_value"  # 경계가 아닌 단일 정량 값(정격전압/규격값 등)
 UNIT = "unit"
 QUALITATIVE = "qualitative_spec"
 METADATA = "metadata"
@@ -34,6 +35,7 @@ SEMANTIC_ROLES = (
     QUANT_LOWER,
     QUANT_TARGET,
     QUANT_UPPER,
+    QUANT_VALUE,
     UNIT,
     QUALITATIVE,
     METADATA,
@@ -45,6 +47,7 @@ ROLE_SYNONYMS: dict[str, list[str]] = {
     QUANT_LOWER: ["하한치", "하한값", "하한", "최소값", "최소", "min", "lower", "lsl"],
     QUANT_UPPER: ["상한치", "상한값", "상한", "최대값", "최대", "max", "upper", "usl"],
     QUANT_TARGET: ["중심치", "중심", "기준값", "기준", "표준값", "target", "nominal", "typ", "center"],
+    QUANT_VALUE: ["정격", "규격값", "측정값", "실측값", "설계값", "정격값"],
     UNIT: ["단위", "unit", "uom"],
     ENTITY_SUBCATEGORY: ["중분류", "소분류", "subcategory", "subcat"],
     ENTITY_CATEGORY: ["대분류", "category", "구분", "분류"],
@@ -55,7 +58,7 @@ ROLE_SYNONYMS: dict[str, list[str]] = {
 
 # guess_role 매칭 우선순위(구체/정량 → 일반).
 _PRIORITY = (
-    QUANT_LOWER, QUANT_UPPER, QUANT_TARGET, UNIT,
+    QUANT_LOWER, QUANT_UPPER, QUANT_TARGET, UNIT, QUANT_VALUE,
     ENTITY_SUBCATEGORY, ENTITY_CATEGORY, ENTITY_NAME,
     QUALITATIVE, METADATA,
 )

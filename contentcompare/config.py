@@ -219,6 +219,9 @@ class FactConfig:
     record_batch_rows: int = 30
     """F2 Record Normalizer 의 행 배치 크기(한 LLM 호출당 처리 행 수)."""
 
+    fact_batch_blocks: int = 20
+    """F3 Fact Extractor 의 Word/PPT 블록/도형 배치 크기(한 LLM 호출당 처리 블록 수)."""
+
     max_repair_iters: int = 2
     """Repair Loop 최대 반복(F4 에서 사용)."""
 

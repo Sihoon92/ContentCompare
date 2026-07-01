@@ -1,13 +1,14 @@
 """Fact 비교 파이프라인 — 신규 엔진(현행 ComparePipeline 과 별개).
 
-설계는 ``docs/FACT_PIPELINE_PLAN.md`` 참고. 현재 구현 범위(F0~F2):
+설계는 ``docs/FACT_PIPELINE_PLAN.md`` 참고. 현재 구현 범위(F0~F3):
 
     Raw Extractor → Raw Compactor → artifacts 저장        (F0)
     Document Profiler → Schema Inducer(Excel)             (F1, LLM)
     Record Normalizer(Excel)                              (F2, LLM)
-    Fact Extractor → ... → Comparator                    (F3~F6, 미구현)
+    Fact Extractor(Excel 코드 / Word·PPT LLM)            (F3)
+    Validator → Repair → Comparator                      (F4~F6, 미구현)
 
-F3 이후 LLM 단계는 :meth:`FactPipeline.run` 에서 :class:`NotImplementedError` 로
+F4 이후 단계는 :meth:`FactPipeline.run` 에서 :class:`NotImplementedError` 로
 명시적으로 막는다(상위 호출부가 잡아 안내).
 
 테스트 용이성을 위해 추출기/압축기/chat 을 주입할 수 있다(기본은 COM 기반
@@ -24,6 +25,7 @@ from ..config import AppConfig, FactConfig
 from ..raw import compact_raw, extract_raw
 from ..readers import close_all_office
 from .artifacts import ArtifactStore
+from .fact_extractor import extract_facts
 from .llm_stage import LlmRunner
 from .profiler import profile_document
 from .record_normalizer import normalize_records
@@ -33,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class FactPipeline:
-    """fact 기반 비교 엔진. 현재 F0(raw/compact)+F1(profile/schema)+F2(records)까지 동작한다."""
+    """fact 기반 비교 엔진. 현재 F0(raw/compact)+F1(profile/schema)+F2(records)+F3(facts)까지 동작한다."""
 
     def __init__(
         self,
@@ -63,9 +65,9 @@ class FactPipeline:
         targets: list[str],
         progress: Optional[Callable[[int, int, str], None]] = None,
     ) -> list[dict]:
-        """모든 문서를 raw→compact→profile→schema→records(Excel) 로 처리해 artifacts 에 저장.
+        """모든 문서를 raw→compact→profile→schema/records(Excel)→facts 로 처리해 저장.
 
-        F3 이후 단계가 없어 :class:`NotImplementedError` 를 던진다. ``finally`` 에서
+        F4 이후 단계가 없어 :class:`NotImplementedError` 를 던진다. ``finally`` 에서
         열린 COM 문서를 정리한다.
         """
         docs = [reference, *targets]
@@ -75,14 +77,14 @@ class FactPipeline:
                 summaries.append(self._process_one(path))
                 if progress:
                     progress(i, len(docs), path)
-            # --- F3 이후 단계(Fact Extractor~Comparator)는 아직 없음 ---
+            # --- F4 이후 단계(Validator~Comparator)는 아직 없음 ---
             self._not_yet_implemented()
             return summaries
         finally:
             close_all_office()
 
     def _process_one(self, path: str) -> dict:
-        """문서 1개: F0(raw/compact 저장) → F1(profile, Excel 은 schema)."""
+        """문서 1개: F0(raw/compact) → F1(profile, Excel 은 schema) → F2(Excel records) → F3(facts)."""
         store = ArtifactStore(
             self.fact.artifacts_dir,
             os.path.basename(path),
@@ -104,11 +106,20 @@ class FactPipeline:
         if compact.get("doc_type") == "excel":
             tp, cs = induce_schema(compact, profile, runner, store)
             stages += ["table_profile", "column_schema"]
-            normalize_records(
+            records = normalize_records(
                 compact, tp, cs, runner,
                 batch_rows=self.fact.record_batch_rows, store=store,
             )
             stages += ["records"]
+            # F3: records → facts (코드 결정적, 무 LLM)
+            extract_facts(compact, records=records, store=store)
+        else:
+            # F3: Word/PPT 는 블록/도형 → facts 직행 (LLM)
+            extract_facts(
+                compact, profile=profile, runner=runner,
+                store=store, batch_blocks=self.fact.fact_batch_blocks,
+            )
+        stages += ["facts"]
 
         logger.info("[Fact] %s: %s (LLM %d회)", os.path.basename(path), stages, runner.calls)
         return {
@@ -122,6 +133,6 @@ class FactPipeline:
     @staticmethod
     def _not_yet_implemented() -> None:
         raise NotImplementedError(
-            "FactPipeline: Fact Extractor~Comparator 는 Phase F3~F6 에서 구현됩니다. "
-            "현재(F0~F2)는 raw/compact/profile/schema/records artifacts 저장까지 동작합니다."
+            "FactPipeline: Validator~Comparator 는 Phase F4~F6 에서 구현됩니다. "
+            "현재(F0~F3)는 raw/compact/profile/schema/records/facts artifacts 저장까지 동작합니다."
         )

@@ -41,6 +41,15 @@ def test_normalize_role():
     assert sr.normalize_role(None) == sr.UNKNOWN
 
 
+def test_quantitative_value_role_and_hint():
+    # 경계가 아닌 단일 정량 값 역할(정격전압/규격값 등).
+    assert sr.QUANT_VALUE in sr.SEMANTIC_ROLES
+    assert sr.normalize_role("quantitative_value") == sr.QUANT_VALUE
+    assert sr.guess_role("정격전압") == sr.QUANT_VALUE
+    # 경계 역할이 여전히 우선(회귀 방지).
+    assert sr.guess_role("하한치") == sr.QUANT_LOWER
+
+
 def test_roles_set_integrity():
     # 사전의 모든 역할이 SEMANTIC_ROLES 에 포함된다.
     for role in sr.ROLE_SYNONYMS:

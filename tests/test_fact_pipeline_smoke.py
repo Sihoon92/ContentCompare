@@ -1,7 +1,8 @@
-"""FactPipeline(F0+F1) 스모크 테스트.
+"""FactPipeline(F0~F3) 스모크 테스트.
 
 COM/네트워크를 피하려고 가짜 추출기 + 가짜 chat 을 주입한다. raw→compact→profile→
-schema(Excel) 까지 artifacts 가 생성되고, F2 단계는 명시적 미구현인지 검증한다.
+schema/records(Excel)→facts 까지 artifacts 가 생성되고, F4 단계는 명시적 미구현인지
+검증한다.
 """
 
 from __future__ import annotations
@@ -46,12 +47,15 @@ class _FactChat:
 
     def complete(self, system, user, *, temperature=0.0):
         self.calls += 1
+        if "비교 가능한 fact" in system:  # FACT_SYSTEM (F3, Word/PPT)
+            return json.dumps({"facts": []})
         if "정규화기" in system:  # RECORD_SYSTEM (F2)
             return json.dumps({"records": [{
                 "record_id": "row-2",
                 "entity": {"category": "", "subcategory": "", "display_name": "충전환경온도"},
-                "quantitative_spec": {"lower": -5, "target": None, "upper": 55, "unit": ""},
-                "qualitative_spec": "", "metadata": {},
+                "attributes": {"lower_limit": {"value": -5, "unit": ""},
+                               "upper_limit": {"value": 55, "unit": ""}},
+                "metadata": {},
                 "source": {"row": 2}, "evidence_text": "충전환경온도 -5 55", "confidence": 0.9,
             }]})
         if "semantic_role" in system:  # SCHEMA_SYSTEM
@@ -85,30 +89,36 @@ def _pipe(tmp_path, *, extractor=_fake_excel, save=True, chat=None):
     return FactPipeline(_config(tmp_path, save=save), extractor=extractor, chat=chat or _FactChat())
 
 
-def test_excel_produces_f1_artifacts(tmp_path):
+def test_excel_produces_facts_artifact(tmp_path):
     pipe = _pipe(tmp_path)
     with pytest.raises(NotImplementedError):
         pipe.run("기준.xlsx", [])
     d = tmp_path / ArtifactStore.slug("기준.xlsx")
     for stage in ("physical_raw", "compact_raw", "document_profile",
-                  "table_profile", "column_schema", "records"):
+                  "table_profile", "column_schema", "records", "facts"):
         assert (d / f"{stage}.json").exists(), stage
     cs = json.loads((d / "column_schema.json").read_text(encoding="utf-8"))
     assert cs["columns"][0]["semantic_role"] == "entity_name"
-    recs = json.loads((d / "records.json").read_text(encoding="utf-8"))
-    assert recs["records"][0]["entity"]["display_name"] == "충전환경온도"
+    # F3: records → facts 코드 매핑(무 LLM). 정량 규격이 limit attribute 로.
+    facts = json.loads((d / "facts.json").read_text(encoding="utf-8"))
+    f = facts["facts"][0]
+    assert f["entity_name"] == "충전환경온도"
+    assert f["attributes"]["lower_limit"]["value"] == -5
+    assert f["source"]["doc_type"] == "excel"
 
 
-def test_word_produces_profile_only(tmp_path):
+def test_word_produces_facts_not_schema(tmp_path):
     pipe = _pipe(tmp_path, extractor=_fake_word)
     with pytest.raises(NotImplementedError):
         pipe.run("설명.docx", [])
     d = tmp_path / ArtifactStore.slug("설명.docx")
     assert (d / "document_profile.json").exists()
+    assert (d / "facts.json").exists()             # Word 도 F3 에서 facts 생성
     assert not (d / "table_profile.json").exists()  # Word 는 schema induction 비대상
+    assert not (d / "records.json").exists()        # Word 는 record 정규화 비대상
 
 
-def test_run_raises_not_implemented_for_f2(tmp_path):
+def test_run_raises_not_implemented_for_f4(tmp_path):
     with pytest.raises(NotImplementedError):
         _pipe(tmp_path).run("기준.xlsx", ["대상.xlsx"])
 
