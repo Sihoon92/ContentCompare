@@ -1,7 +1,7 @@
 # Fact 기반 비교 파이프라인 구현 계획 (Fact Pipeline Plan)
 
-> 작성일: 2026-06-28
-> 상태: **계획(미착수)** — 본 문서는 "무엇을 만들지"를 고정하는 로드맵이다.
+> 작성일: 2026-06-28 · 보완: 2026-07-02 (설계 검토 반영 — §5 F4a/F4b 분할, §6.2 `unknown` 추가, §9 Phase F3.5 신설, 결정 #7)
+> 상태: **진행 중** — F0~F3 구현 완료(§9), F3.5 이후 미착수. 본 문서는 "무엇을 만들지"를 고정하는 로드맵이다.
 > 선행 설계 문서: [`DESIGN.md`](DESIGN.md), [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
 > (위 두 문서는 **현행(구) 방식**을 다루며 Phase 1~5 완료 상태다. 본 문서는 그와 **별개의 신규 방식**이다.)
 
@@ -149,12 +149,12 @@ comparison_result.json
 - Word/PPT도 **동일한 fact schema**로 변환 → 이후 비교가 단순해짐.
 - `evidence_text`는 raw에 실제 존재하는 문구만(지어내기 금지) — §5 source 검증과 연동.
 
-### Step 5. Rule Validator (코드)
+### Step 5. Rule Validator (코드) — F4a
 - 입력: `facts.json` + (records/raw)
 - 출력: `validation_report.json` — check별 pass/fail + reason, overall
 - 검사 항목(§5 상세).
 
-### Step 6. Repair Loop (LLM)
+### Step 6. Repair Loop (LLM) — F4b
 - 입력: 실패한 fact + validator 피드백(error/reason/suggestion)
 - 출력: 교정된 `facts.json`
 - 종료 조건: 전부 pass 또는 최대 반복 횟수 도달(설정).
@@ -172,10 +172,15 @@ comparison_result.json
 
 ## 5. 검증기(Validator) + Repair Loop 설계
 
+> 🔎 **F4 는 두 하위 단계로 분할한다 (2026-07-02 결정).**
+> - **F4a — 결정적 Validator (코드, 선행)**: §5.1 은 실패 데이터 없이 확정 가능한 수학적/구조적 불변식이므로 먼저 구현한다. Phase F3.5 라이브 검증(§9)의 **계측 도구**를 겸한다.
+> - **F4b — Repair Loop (LLM, 후행)**: repair 프롬프트는 실제 모델의 최빈 실패 모드에 맞춰야 효과가 있다. F4a 를 라이브 facts 에 돌린 `validation_report` 의 **실패 분포를 본 뒤** 설계한다. §5.2 예시는 후보일 뿐이며 분포 확인 전에 확정하지 않는다.
+
 ### 5.1 검사 항목
 - **Header 검증**: header row 아래 data row 존재? header는 문자열 비율 높은가? merged cell이 상위 header로 해석됐는가?
 - **정량규격 검증**: `lower <= target <= upper`? `spec_expression`이 lower/upper와 일치(예 `25+-30 → -5..55`)? 수치 있는데 unit 비었나? 숫자형 컬럼에 문자열 과다?
 - **Source 검증**: fact 값이 raw json에 실제 존재? source cell/block/shape 연결? `evidence_text`와 fact 값 일치?
+  - `evidence_text` 실재 검사는 naive substring 금지 — LLM 이 공백/개행/셀 구분자를 바꿔 옮기는 경향이 있으므로 **공백 축약·정규화 후 부분일치**로 판정한다. 실패해도 fact 를 즉시 버리지 않고 `low_confidence` 태깅으로 사람 검수 대상에 남긴다(§6.2 `unknown` 연동).
 
 ### 5.2 Repair 예시
 ```
@@ -201,10 +206,16 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
   "entity_name": "충전환경온도",
   "excel_value": {"upper_limit": 55, "unit": "도씨"},
   "ppt_value":   {"upper_limit": 50, "unit": "℃"},
+  "excel_evidence": {"evidence_text": "충전환경온도 | 상한치 55 | 도씨",
+                     "source": {"sheet": "규격", "row": 12, "cell_range": "B12:F12"}},
+  "ppt_evidence":   {"evidence_text": "충전환경온도: -5~50℃",
+                     "source": {"slide_no": 3, "shape_id": 7}},
   "reason": "동일 항목의 상한치가 Excel 55도씨, PPT 50℃로 불일치",
   "recommended_action": "PPT 상한치 50℃가 최신 기준인지 확인 필요" }
 ```
-- `match` / `mismatch(타입)` / `missing`(한쪽에만 존재) 3분류 + 단위 정규화 체크.
+- `match` / `mismatch(타입)` / `missing`(한쪽에만 존재) / **`unknown`(판단보류)** 4분류 + 단위 정규화 체크. (2026-07-02: `unknown` 추가)
+- **`unknown` 판정 조건**: 후보 fact 는 찾았으나 attributes 키가 겹치지 않음 · 단위가 등가 사전에 없는 조합 · 매칭 스코어가 경계값 · fact `confidence` 낮음(F4a `low_confidence` 태깅 포함). 현행 RAG 경로의 판단보류 원칙(`comparison/prompts.py` 의 `unknown`: 확신이 없으면 보류하고 이유를 설명)을 fact 경로에서도 1급 상태로 유지한다.
+- **양측 evidence 인용 필수**: 모든 결과는 기준/대상 fact 의 `evidence_text`+`source` 를 나란히 실어, 사람이 원문 대조로 검수(할루시네이션 확인)할 수 있게 한다 — RAG 경로의 evidence 인용 원칙 승계. fact 는 양쪽 모두 F3 에서 코드 검증된 source 를 갖고 있으므로 RAG 보다 검수 속성이 강화된다.
 
 ---
 
@@ -260,11 +271,17 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
   - Excel: F2 `records` → `facts` **코드 결정적 변환**(무 LLM). Word/PPT: `compact_raw` 블록/도형 → `facts` **LLM 추출**(F1·F2 건너뜀).
   - 공통 스키마(entity_name/entity_path/attributes{value,unit}/source/evidence_text). `source_ids` 는 코드가 배치 실제 id 와 대조 검증(할루시네이션 방지).
   - 미구현 경계가 **F4** 로 이동. 라이브(gemma4:12b) 검증은 F2 `records` 라이브 검증과 함께 대기.
-- **Phase F4 — Validator + Repair Loop** (정량/단위/source 검사, 재교정).
-- **Phase F5 — Fact Store + Fact Comparator** → `comparison_result.json` (match/mismatch/missing).
-- **Phase F6 — Report + 벤치마크 하니스** (fact 결과 렌더 + `compare_engines.py` 실측).
+- **Phase F3.5 — 라이브 검증 + 골든셋 + 매칭 spike** (2026-07-02 신설 — F4~F6 이 사변 설계가 되는 것을 방지)
+  - **에러 격리 선행**: `FactPipeline.run` 루프에 문서 단위 try/except(`LlmBudgetExceeded`/`ValueError`) + summary `status`/`error` 필드, CLI 문서별 성공/실패 출력. 라이브 검증은 "실패를 관찰하는 작업"이므로 격리가 전제.
+  - **F2/F3 라이브 검증**(실문서 + 실제 LLM)으로 미체크 DoD 를 닫는다. 실문서 20~50항목 사람 라벨 **골든셋** 구축(F6 벤치마크에 그대로 재사용). `LlmRunner` 재시도/실패 카운터, 무근거 fact **드롭 수/사유 계측** 추가 — 침묵하는 recall 손실(대상 문서 fact 누락 → F5 missing 오판)을 가시화.
+  - **F5 매칭 spike** `scripts/spike_fact_match.py`(일회성, 무 LLM): 라이브 `facts.json` 끼리 (a) 정규화 entity_name exact match, (b) 실패분에 BM25/임베딩 폴백(`similarity/` 읽기 전용 재사용)으로 **매칭률·오매칭 사례 실측**. 신규 방식의 최대 가설("상대 문서의 대응 fact 를 찾을 수 있다")을 최저 비용으로 조기 검증하고, F5 검색 전략(가중치·rerank 필요 여부)을 실측으로 확정.
+- **Phase F4 — Validator + Repair Loop** — **F4a/F4b 로 분할** (§5).
+  - F4a: 결정적 validator(정량 불변식·단위 정합·evidence/source 실재) → 라이브 facts 실패 분포 리포트.
+  - F4b: Repair Loop — F4a 실패 분포 기반으로 프롬프트 설계(사변 설계 금지).
+- **Phase F5 — Fact Store + Fact Comparator** → `comparison_result.json` (match/mismatch/missing/**unknown**, §6.2). 기준(Excel)↔대상 비대칭 구분을 파이프라인 summaries 에 반영.
+- **Phase F6 — Report + 벤치마크 하니스** (fact 결과 렌더 + `compare_engines.py` 실측 — F3.5 골든셋 재사용).
 
-의존 순서: F0 → F1 → F2 → F3 → F4 → F5 → F6.
+의존 순서: F0 → F1 → F2 → F3 → **F3.5** → F4a → F4b → F5 → F6.
 
 ---
 
@@ -278,9 +295,11 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
 | 4 | fact 매칭 방향 | **엑셀 기준 1:N (점진 전환), N:N 확장 여지 설계** | 현행과 결과 대응이 쉬워 비교가 명확, Fact Store/Comparator는 N:N 가능하게 추상화 |
 | 5 | artifacts 보존 정책 | **항상 저장 (`artifacts/<문서>/<단계>.json`)** | 추적·오류원인 분석이 본 설계의 핵심 가치. 용량은 `.gitignore`로 관리 |
 | 6 | PPT 차트/이미지 텍스트 | **초기 제외 (텍스트박스/표/스피커노트만)** | OCR/차트데이터 추출은 후순위 Phase로 분리 |
+| 7 | agent 프레임워크(LangGraph 등) 도입 여부 | **도입 안 함 (2026-07-02)** | 워크플로우가 정적 DAG(분기=doc_type 1개)이고 유일한 반복(F4b repair)은 유계(`max_repair_iters`) for-loop 로 충분 — 프레임워크의 그래프/상태 보일러플레이트가 그 루프보다 큼. ArtifactStore 지문 캐싱이 이미 체크포인트/재개 역할(산출물이 사람이 읽는 순수 JSON = 결정 #5 의 추적성에 더 부합). 소형 로컬 LLM 은 agentic planning/tool-calling 이 약점 — "LLM 은 단일 목적 JSON 산출만, 제어 흐름은 100% 코드" 원칙 유지. agent 루프의 비결정적 호출 수는 문서당 예산(결정 #2)·지문 캐싱과 상충, 의존성 무게는 코어 최소 정책과 상충. **재평가 트리거**: (a) LLM 판단 의존 분기가 3~4개를 넘어 조합이 문서마다 달라질 때 (b) F4b 구현 후 repair 성공률이 낮아 fact 별 다단계·다전략 repair 가 실측으로 필요할 때 (c) tool-calling 신뢰 가능한 대형 모델로 이전될 때 — 충족 시에도 명시적 상태기계 코드 우선, 프레임워크는 그 다음 |
 
 > 위 결정에 따라 §6(1:N 우선·N:N 추상화), §7(항상 저장), §8.1(CLI `--engine`)을 적용한다.
 > 변경 시 본 표를 갱신한다.
+> 2026-07-02 설계 검토 보완: 결정 #7 추가, §5 F4a/F4b 분할, §6.2 `unknown`+양측 evidence 인용, §9 Phase F3.5 신설.
 
 ---
 
