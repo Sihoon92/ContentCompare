@@ -3,16 +3,20 @@ rem ============================================================
 rem  ContentCompare 개발환경 준비 스크립트 (Windows)
 rem  - .venv 가상환경 생성(없을 때만) → 활성화 → 패키지 설치
 rem  사용법:
-rem    setup.bat                 (기본: office,ui,dev 설치)
-rem    setup.bat office,ui,dev,fastembed
+rem    setup.bat                 (기본: office,ui,dev,fastembed,langchain 전부 설치)
+rem    setup.bat all             (기본 + onnx 까지 모두)
+rem    setup.bat office,ui       (원하는 extras 만 골라서)
 rem    setup.bat core            (코어 의존성만: pyyaml+requests)
 rem ============================================================
 rem  (이 파일은 CP949/ANSI 로 저장되어야 한글이 콘솔에 정상 출력됩니다)
 setlocal
 cd /d "%~dp0"
 
-set "EXTRAS=%~1"
-if "%EXTRAS%"=="" set "EXTRAS=office,ui,dev"
+rem  %* 로 받아야 콤마가 인자 구분자로 잘리지 않는다. 공백 구분도 콤마로 정규화.
+set "EXTRAS=%*"
+if "%EXTRAS%"=="" set "EXTRAS=office,ui,dev,fastembed,langchain"
+set "EXTRAS=%EXTRAS: =,%"
+if /i "%EXTRAS%"=="all" set "EXTRAS=office,ui,dev,fastembed,langchain,onnx"
 
 rem --- 1) 파이썬 인터프리터 찾기 (py 런처 우선) ---------------
 set "PY_CMD="
