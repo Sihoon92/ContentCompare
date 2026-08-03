@@ -131,7 +131,8 @@ def test_embed_feeds_only_declared_inputs(tmp_path):
     be = LocalOnnxEmbedding(_cfg(str(tmp_path)), session=sess, tokenizer=FakeTokenizer(encs))
     be.embed(["x"])
     assert set(sess.feed) == {"input_ids", "attention_mask", "token_type_ids"}
-    assert sess.feed["token_type_ids"] == [[0, 0]]  # zeros, input 과 같은 길이
+    # numpy 배열일 수 있으므로 list 로 변환 후 비교(배열 == 는 요소별 비교라 단정 불가).
+    assert [list(row) for row in sess.feed["token_type_ids"]] == [[0, 0]]  # zeros, input 과 같은 길이
 
 
 def test_missing_path_raises():
