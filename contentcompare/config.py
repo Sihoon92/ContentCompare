@@ -24,6 +24,22 @@ except ImportError:  # pragma: no cover - 선택적 의존성
 class OllamaConfig:
     host: str = "http://localhost:11434"
 
+    num_ctx: int = 0
+    """컨텍스트 창 크기(토큰). 0 이면 미지정(Ollama 기본 = 보통 4096).
+
+    fact 파이프라인처럼 표 전체를 한 프롬프트에 넣는 단계는 기본 4096 을 쉽게 넘긴다.
+    초과하면 Ollama 는 오류 대신 **빈 응답**(``done_reason="length"``)을 돌려주므로
+    반드시 문서 크기에 맞춰 올려야 한다(16384 권장).
+    """
+
+    think: Optional[bool] = None
+    """thinking 모델의 사고 과정 사용 여부. ``None`` 이면 미지정(모델 기본).
+
+    ``False`` 로 두면 사고 토큰을 쓰지 않아 **응답이 크게 빨라지고**(실측 219s→26s)
+    컨텍스트를 답변에만 쓴다. thinking 미지원 모델에 지정하면 Ollama 가 거부할 수
+    있으므로 기본은 미지정이다.
+    """
+
 
 @dataclass
 class InternalConfig:

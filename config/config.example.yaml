@@ -22,6 +22,12 @@ llm:
 
   ollama:
     host: http://localhost:11434
+    num_ctx: 16384         # 컨텍스트 창(토큰). 0=미지정(Ollama 기본 4096).
+                           # fact 엔진은 표 전체를 한 프롬프트에 넣어 4096 을 쉽게 넘고,
+                           # 초과 시 Ollama 는 오류가 아니라 빈 응답을 준다 → 반드시 상향.
+    think: false           # thinking 모델의 사고 과정 사용 여부(미지정하려면 줄 삭제).
+                           # false 면 훨씬 빠르고(실측 219s→26s) 컨텍스트를 답변에만 쓴다.
+                           # thinking 미지원 모델에 지정하면 Ollama 가 거부할 수 있다.
 
   # internal(requests 직접 호출) 과 langchain(langchain-openai) 백엔드는
   # 아래 internal 섹션 설정을 공유한다. backend 값만 바꾸면 된다.

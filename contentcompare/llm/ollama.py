@@ -10,7 +10,7 @@ import time
 from typing import Any, Callable, Optional
 
 from ..config import LLMConfig
-from .http import RetryPolicy, extract, post_json
+from .http import LLMRequestError, RetryPolicy, extract, post_json
 
 
 class OllamaBackend:
@@ -49,19 +49,45 @@ class OllamaBackend:
     # --- LLMClient -------------------------------------------------------- #
     def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
         url = f"{self.host}/api/chat"
-        data = self._post(
-            url,
-            {
-                "model": self.config.chat_model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "stream": False,
-                "options": {"temperature": temperature},
-            },
+        options: dict[str, Any] = {"temperature": temperature}
+        if self.config.ollama.num_ctx:
+            options["num_ctx"] = self.config.ollama.num_ctx
+        payload: dict[str, Any] = {
+            "model": self.config.chat_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "options": options,
+        }
+        if self.config.ollama.think is not None:
+            payload["think"] = self.config.ollama.think
+        data = self._post(url, payload)
+        content = extract(data, "message", "content", url=url)
+        if not content:
+            self._explain_empty(data, url)
+        return content
+
+    @staticmethod
+    def _explain_empty(data: dict, url: str) -> None:
+        """빈 응답의 원인을 설명하는 에러로 바꾼다.
+
+        Ollama 는 컨텍스트가 모자라면 오류 대신 **빈 ``content``** 를 돌려준다
+        (``done_reason="length"``). thinking 모델은 사고 토큰이 컨텍스트를 먼저
+        먹어치우기 때문에 문서가 조금만 커져도 이 상황이 된다 — 원인을 모르면
+        "LLM JSON 파싱 실패: ''" 로만 보여 디버깅이 매우 어렵다.
+        """
+        if data.get("done_reason") != "length":
+            return
+        used = data.get("prompt_eval_count", 0) + data.get("eval_count", 0)
+        thinking = (data.get("message") or {}).get("thinking")
+        raise LLMRequestError(
+            f"{url} 응답이 비었습니다(done_reason=length, 사용 토큰 ≈{used})."
+            + (" 모델이 컨텍스트를 사고(thinking)에 모두 사용했습니다." if thinking else "")
+            + " config 의 llm.ollama.num_ctx 를 늘리거나(예: 16384)"
+            " llm.ollama.think: false 로 사고를 끄세요."
         )
-        return extract(data, "message", "content", url=url)
 
     # --- EmbeddingClient -------------------------------------------------- #
     def embed(self, texts: list[str], *, kind: str = "passage") -> list[list[float]]:
