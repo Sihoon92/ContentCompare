@@ -1,0 +1,1384 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContentCompare 는 문서를 어떻게 비교하는가</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1c1b19; --muted:#6b6a66; --line:#e2e0dc;
+  --card:#ffffff; --code-bg:#f4f3f0; --accent:#2f6f4e; --accent-soft:#e6f0ea;
+  --excel:#2f6f4e; --excel-bg:#e6f0ea;
+  --word:#2b5c99; --word-bg:#e6edf6;
+  --ppt:#b4581f; --ppt-bg:#f8eae0;
+  --llm:#6b3fa0; --llm-bg:#efe8f8;
+  --code-role:#8a6d1f; --code-role-bg:#f7efd9;
+  --warn:#a33a2a; --warn-bg:#fbeae7;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#16171a; --fg:#e8e6e3; --muted:#a2a09b; --line:#31333a;
+    --card:#1d1f23; --code-bg:#212429; --accent:#7fc9a2; --accent-soft:#1e2f27;
+    --excel:#7fc9a2; --excel-bg:#1e2f27;
+    --word:#8ab4e8; --word-bg:#1c2733;
+    --ppt:#e8a06a; --ppt-bg:#33251a;
+    --llm:#c0a2ec; --llm-bg:#272033;
+    --code-role:#e0c473; --code-role-bg:#2e2818;
+    --warn:#f0958a; --warn-bg:#331f1c;
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,-apple-system,"Segoe UI",sans-serif;
+  line-height:1.75; font-size:17px;
+}
+.wrap{max-width:860px; margin:0 auto; padding:32px 20px 140px}
+h1{font-size:2rem; line-height:1.3; margin:0 0 8px}
+h2{font-size:1.45rem; margin:56px 0 12px; padding-top:12px; border-top:1px solid var(--line)}
+h3{font-size:1.15rem; margin:32px 0 8px}
+h4{font-size:1rem; margin:22px 0 6px; color:var(--muted)}
+p{margin:12px 0}
+a{color:var(--accent)}
+ul,ol{padding-left:22px}
+li{margin:6px 0}
+.lede{font-size:1.08rem; color:var(--muted)}
+.meta{color:var(--muted); font-size:.9rem; margin-bottom:24px}
+code{background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:.88em;
+  font-family:"Cascadia Mono",Consolas,"D2Coding",monospace}
+pre{
+  background:var(--code-bg); border:1px solid var(--line); border-radius:8px;
+  padding:14px 16px; overflow-x:auto; white-space:pre; font-size:.82rem; line-height:1.6;
+  font-family:"Cascadia Mono",Consolas,"D2Coding",monospace;
+}
+pre code{background:none; padding:0; font-size:1em}
+.filename{
+  font-family:"Cascadia Mono",Consolas,monospace; font-size:.76rem; color:var(--muted);
+  background:var(--code-bg); border:1px solid var(--line); border-bottom:none;
+  border-radius:8px 8px 0 0; padding:5px 12px; display:inline-block; margin-bottom:-1px;
+}
+.filename + pre{border-radius:0 8px 8px 8px}
+table{border-collapse:collapse; width:100%; font-size:.9rem; margin:16px 0; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+th{background:var(--code-bg); font-weight:600}
+
+/* ── callouts ─────────────────────────────── */
+.callout{border-left:4px solid var(--accent); background:var(--accent-soft);
+  padding:12px 16px; border-radius:0 8px 8px 0; margin:20px 0}
+.callout.warn{border-color:var(--warn); background:var(--warn-bg)}
+.callout.llm{border-color:var(--llm); background:var(--llm-bg)}
+.callout .tag{display:block; font-size:.78rem; font-weight:700; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--muted); margin-bottom:4px}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+
+/* ── TOC ─────────────────────────────────── */
+nav.toc{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:28px 0}
+nav.toc ol{margin:6px 0 0; padding-left:20px}
+nav.toc li{margin:3px 0}
+nav.toc a{text-decoration:none}
+nav.toc a:hover{text-decoration:underline}
+
+/* ── 문서 카드 다이어그램 ──────────────────── */
+.docs{display:flex; gap:12px; flex-wrap:wrap; margin:18px 0}
+.doccard{flex:1 1 220px; border:1px solid var(--line); border-radius:10px; background:var(--card); overflow:hidden}
+.doccard .head{padding:6px 12px; font-size:.82rem; font-weight:700}
+.doccard.excel .head{background:var(--excel-bg); color:var(--excel)}
+.doccard.word  .head{background:var(--word-bg);  color:var(--word)}
+.doccard.ppt   .head{background:var(--ppt-bg);   color:var(--ppt)}
+.doccard .body{padding:10px 12px; font-size:.84rem; line-height:1.55}
+.doccard .body .row{border-bottom:1px dashed var(--line); padding:3px 0}
+.doccard .body .row:last-child{border-bottom:none}
+.tiny{font-size:.78rem; color:var(--muted)}
+
+/* ── 파이프라인 레인 ───────────────────────── */
+.lane{display:flex; flex-direction:column; gap:8px; margin:20px 0}
+.step{display:flex; align-items:flex-start; gap:12px; border:1px solid var(--line);
+  border-radius:10px; background:var(--card); padding:10px 14px}
+.step .badge{flex:0 0 auto; font-size:.7rem; font-weight:700; padding:3px 8px; border-radius:999px;
+  letter-spacing:.03em; white-space:nowrap; margin-top:3px}
+.badge.code{background:var(--code-bg); color:var(--muted); border:1px solid var(--line)}
+.badge.llm{background:var(--llm-bg); color:var(--llm)}
+.badge.embed{background:var(--word-bg); color:var(--word)}
+.step .txt{flex:1 1 auto; font-size:.9rem}
+.step .txt b{font-size:.95rem}
+.step .txt .where{display:block; color:var(--muted); font-size:.78rem;
+  font-family:"Cascadia Mono",Consolas,monospace; margin-top:2px}
+.arrowdown{text-align:center; color:var(--muted); font-size:1rem; line-height:1; margin:-2px 0}
+
+/* ── 판정 배지(리포트와 같은 표기) ─────────── */
+.verdict{display:inline-block; font-size:.82rem; font-weight:600; padding:2px 9px;
+  border-radius:999px; border:1px solid var(--line); background:var(--card); white-space:nowrap}
+.v-same{background:var(--excel-bg); color:var(--excel); border-color:transparent}
+.v-diff{background:var(--warn-bg); color:var(--warn); border-color:transparent}
+.v-part{background:var(--code-role-bg); color:var(--code-role); border-color:transparent}
+.v-unk {background:var(--llm-bg); color:var(--llm); border-color:transparent}
+.v-nf  {background:var(--code-bg); color:var(--muted); border-color:transparent}
+
+/* ── 후보 리스트(점수 막대) ────────────────── */
+.cands{margin:16px 0; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card)}
+.cand{display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--line); font-size:.84rem}
+.cand:last-child{border-bottom:none}
+.cand.hit{background:var(--accent-soft)}
+.cand .score{flex:0 0 52px; font-family:"Cascadia Mono",Consolas,monospace; font-size:.78rem; color:var(--muted)}
+.cand .bar{flex:0 0 84px; height:8px; background:var(--code-bg); border-radius:4px; overflow:hidden}
+.cand .bar i{display:block; height:100%; background:var(--accent)}
+.cand .who{flex:1 1 auto}
+.cand .who .src{display:block; font-size:.74rem; color:var(--muted)}
+
+/* ── 나란히 비교 ──────────────────────────── */
+.side{display:flex; gap:14px; flex-wrap:wrap; margin:18px 0}
+.side > div{flex:1 1 280px; border:1px solid var(--line); border-radius:10px; background:var(--card); padding:12px 16px}
+.side h4{margin-top:0}
+
+/* ── 질문 메모 ────────────────────────────── */
+.qmemo{border:1.5px dashed var(--line); background:transparent; border-radius:10px;
+  padding:12px 14px; margin:22px 0}
+.qmemo[data-status="answered"]{border:1.5px solid var(--accent); background:var(--accent-soft)}
+.qmemo-head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+.qmemo-label{font-size:.76rem; font-weight:700; color:var(--accent); letter-spacing:.04em}
+.qmemo-hint{font-size:.74rem; color:var(--muted)}
+.qmemo-question{min-height:2.2em; margin-top:8px; padding:8px 10px; border-radius:6px;
+  background:var(--card); border:1px solid var(--line); font-size:.9rem; outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder); color:var(--muted)}
+.qmemo-question:focus{border-color:var(--accent)}
+.qmemo-answer{margin-top:10px; padding:10px 12px; border-radius:6px; background:var(--card);
+  border-left:3px solid var(--accent); font-size:.9rem}
+.qmemo-answer:before{content:"답변"; display:block; font-size:.72rem; font-weight:700;
+  color:var(--accent); letter-spacing:.04em; margin-bottom:4px}
+
+/* ── 퀴즈 ─────────────────────────────────── */
+.quiz{border:1px solid var(--line); border-radius:10px; background:var(--card); padding:16px 18px; margin:20px 0}
+.quiz .q{font-weight:600; margin-bottom:10px}
+.quiz button.opt{display:block; width:100%; text-align:left; margin:6px 0; padding:9px 12px;
+  border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg);
+  font:inherit; font-size:.9rem; cursor:pointer}
+.quiz button.opt:hover{border-color:var(--accent)}
+.quiz button.opt.right{background:var(--accent-soft); border-color:var(--accent)}
+.quiz button.opt.wrong{background:var(--warn-bg); border-color:var(--warn)}
+.quiz .fb{margin-top:10px; font-size:.88rem; padding:10px 12px; border-radius:8px;
+  background:var(--code-bg); display:none}
+.quiz .fb.show{display:block}
+
+/* ── 저장 바 ──────────────────────────────── */
+#qmemo-bar{position:fixed; left:0; right:0; bottom:0; z-index:50;
+  background:var(--card); border-top:1px solid var(--line);
+  padding:10px 16px; display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap}
+#qmemo-save-btn{font:inherit; font-size:.88rem; padding:7px 16px; border-radius:8px;
+  border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer}
+#qmemo-save-btn:hover{filter:brightness(1.08)}
+#qmemo-saymsg{font-size:.8rem; color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>ContentCompare 는 문서를 어떻게 비교하는가</h1>
+<p class="meta">2026-08-03 · 대상 브랜치 <code>claude/doc-fact-extraction-comparison-wz9x7p</code> · 코드 기준 커밋 <code>43c85f8</code></p>
+
+<p class="lede">
+엑셀에 적힌 숫자가, 워드 보고서와 파워포인트 발표자료에도 <em>똑같이</em> 적혀 있을까?
+사람이 눈으로 대조하면 몇 시간 걸리는 이 일을, 이 프로젝트는 임베딩 검색과 LLM 으로 자동화한다.
+이 글은 그 과정을 <b>아주 처음부터</b>, 그리고 <b>실제 코드 한 줄까지</b> 따라간다.
+</p>
+
+<div class="callout">
+  <span class="tag">이 글의 약속</span>
+  <p>어려운 낱말은 나올 때마다 그 자리에서 풀어 쓴다. 예시는 상상이 아니라 이 저장소에 실제로 들어 있는
+  파일(<code>samples/report.md</code>, <code>artifacts/기준_xlsx/*.json</code>)에서 그대로 가져왔다.
+  그래서 글을 읽다가 "정말 그런가?" 싶으면 저장소를 열어 눈으로 확인할 수 있다.</p>
+</div>
+
+<div class="callout llm">
+  <span class="tag">읽는 중에 질문이 생기면</span>
+  <p>글 곳곳에 <b>질문 메모</b> 상자가 있다. 궁금한 점을 그냥 거기에 타이핑하면 된다.
+  적는 즉시 이 브라우저에 자동 저장되고(localStorage), 맨 아래 <b>질문 저장</b> 버튼을 누르면
+  질문이 박힌 채로 이 페이지가 파일로 내려받아진다. 그 파일을
+  <code>docs/understanding/</code> 의 원본에 덮어쓴 뒤 Claude 에게 "질문에 답해줘" 라고 하면
+  답이 채워진 새 버전이 만들어진다.</p>
+</div>
+
+<nav class="toc">
+  <b>목차</b>
+  <ol>
+    <li><a href="#bg-basic">배경 ①: 아주 기초 — 컴퓨터가 "같은 내용"을 찾기 어려운 이유</a> <span class="tiny">(이미 아는 사람은 건너뛰어도 됨)</span></li>
+    <li><a href="#bg-project">배경 ②: 이 프로젝트의 지도</a></li>
+    <li><a href="#intuition">직관: 항목 하나가 판정되기까지</a></li>
+    <li><a href="#walkthrough">코드 워크스루 ①: 현행 RAG 엔진</a></li>
+    <li><a href="#llm-role">LLM 은 정확히 어디서 무엇을 하는가</a></li>
+    <li><a href="#rag-problems">현행 RAG 방식의 문제점</a></li>
+    <li><a href="#fact">코드 워크스루 ②: 새로운 Fact 방식</a></li>
+    <li><a href="#why-better">왜 새 방식이 더 나은가 — 그리고 아직 아닌 부분</a></li>
+    <li><a href="#endtoend">전체 프로세스 총정리</a></li>
+    <li><a href="#quiz">이해도 퀴즈 5문항</a></li>
+    <li><a href="#map">부록: 파일 지도</a></li>
+  </ol>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="bg-basic">1. 배경 ①: 아주 기초 — 컴퓨터가 "같은 내용"을 찾기 어려운 이유</h2>
+
+<p>회사에는 같은 사실을 여러 문서에 나눠 적는 일이 흔하다. 예를 들어 이 저장소의 샘플 문서 세 개를 보자.</p>
+
+<div class="docs">
+  <div class="doccard excel">
+    <div class="head">📊 기준.xlsx — 표(엑셀)</div>
+    <div class="body">
+      <div class="row"><b>제품명 · 연도 · 매출액 · 직원수</b></div>
+      <div class="row">A제품 · 2023 · 1,200억원 · 500명</div>
+      <div class="row">B제품 · 2024 · 800억원 · 320명</div>
+      <div class="row">C제품 · 2023 · 350억원 · 90명</div>
+    </div>
+  </div>
+  <div class="doccard word">
+    <div class="head">📄 사업보고서.docx — 글(워드)</div>
+    <div class="body">
+      <div class="row">A제품의 2023년 매출액은 1,200억원이며, 해당 사업부의 직원수는 500명이다.</div>
+      <div class="row">B제품은 2024년에 매출 <b>950억원</b>을 기록하였고, 직원은 320명 규모로 운영되었다.</div>
+    </div>
+  </div>
+  <div class="doccard word">
+    <div class="head">📄 요약.docx — 영어 요약</div>
+    <div class="body">
+      <div class="row">Executive Summary</div>
+      <div class="row">Product A employed about 500 people in 2023 and led the company's revenue.</div>
+    </div>
+  </div>
+</div>
+
+<p>사람은 이 셋을 보고 3초 만에 안다. "B제품 매출이 엑셀은 800억, 보고서는 950억이네. 하나는 틀렸다."
+그런데 컴퓨터에게 이건 굉장히 어려운 일이다. 이유는 세 가지다.</p>
+
+<ol>
+  <li><b>글자가 다르다.</b> 엑셀은 <code>매출액=800억원</code> 이라고 칸에 적혀 있고, 워드는 "매출 950억원을 기록하였고" 라는 문장이다. 글자를 그대로 비교하면 겹치는 게 거의 없다.</li>
+  <li><b>어디에 있는지 모른다.</b> 워드 문서가 300쪽이면, 엑셀 한 줄에 해당하는 문장이 어느 쪽 몇 번째 문단인지 먼저 찾아야 한다.</li>
+  <li><b>말이 달라도 같은 뜻일 수 있다.</b> "500명" 과 "about 500 people", "도씨" 와 "℃" 는 같은 뜻이다. 반대로 "800억" 과 "950억" 은 비슷하게 생겼지만 완전히 다른 사실이다.</li>
+</ol>
+
+<h3>세 가지 도구를 먼저 알아두자</h3>
+
+<p>이 프로젝트는 이 어려움을 세 가지 도구로 나눠서 푼다. 각각 잘하는 일이 다르다.</p>
+
+<h4>① 임베딩 — "뜻이 비슷한 정도"를 숫자로 재는 자</h4>
+<p>임베딩(embedding)은 문장을 <b>숫자 목록</b>으로 바꾸는 기술이다. 예를 들어 문장 하나가
+<code>[0.12, -0.03, 0.88, ...]</code> 같은 1024개짜리 숫자가 된다. 이 숫자 목록을 공간 속의 화살표라고 생각하면,
+<b>뜻이 비슷한 문장일수록 화살표가 같은 방향</b>을 가리킨다.</p>
+<p>두 화살표가 얼마나 같은 방향인지는 <b>코사인 유사도</b>로 잰다. 완전히 같은 방향이면 1, 아무 상관 없으면 0에 가깝다.
+코드에서는 화살표 길이를 1로 맞춰(정규화) 놓고 곱해서 더하기만 하면 된다 — 그게 <code>_dot()</code> 이다.</p>
+<div class="filename">contentcompare/similarity/hybrid_index.py</div>
+<pre><code>def _normalize(vec: list[float]) -> list[float]:
+    norm = math.sqrt(sum(v * v for v in vec))
+    if norm == 0:
+        return vec
+    return [v / norm for v in vec]          # 길이를 1로 → 내적 = 코사인유사도
+
+def _dot(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b))</code></pre>
+<p>임베딩의 강점은 <b>말이 달라도 뜻이 비슷하면 찾아낸다</b>는 것이다. "500명" 과 "about 500 people" 도 같은 방향을 가리킬 수 있다.
+약점은 <b>정확한 이름·숫자·코드를 놓칠 때가 있다</b>는 것. "B제품" 과 "D제품"은 뜻이 비슷해서 헷갈린다.</p>
+
+<h4>② BM25 — "같은 낱말이 몇 번 나오나"를 세는 검색</h4>
+<p>BM25 는 옛날부터 쓰이는 검색 방식이다. 원리는 단순하다. <b>드문 낱말이 겹칠수록 점수를 높게</b> 준다.
+"제품"처럼 아무 문서에나 나오는 낱말은 점수가 낮고, "B제품", "950" 처럼 드문 낱말이 겹치면 점수가 확 높아진다.
+이 프로젝트는 외부 라이브러리 없이 60줄짜리로 직접 구현했다.</p>
+<div class="filename">contentcompare/similarity/bm25.py</div>
+<pre><code># idf = 그 낱말이 얼마나 '드문가' — 드물수록 큰 값
+self._idf = {
+    term: math.log(1 + (n - df + 0.5) / (df + 0.5))
+    for term, df in self._df.items()
+}</code></pre>
+<p>BM25 의 강점은 <b>정확한 낱말·숫자에 강하다</b>는 것, 약점은 <b>말이 다르면 아예 못 찾는다</b>는 것이다.
+한국어는 "영업이익은", "영업이익이" 처럼 조사가 붙어 낱말이 달라지므로, 이 프로젝트는 한글 3글자 이상을
+두 글자씩 잘라 추가로 넣어 준다(bigram).</p>
+<div class="filename">contentcompare/similarity/tokenize.py</div>
+<pre><code>for tok in _WORD_RE.findall(text.lower()):
+    tokens.append(tok)
+    # 한글 3글자 이상은 bigram 보강(예: "영업이익" → 영업/업이/이익).
+    if len(tok) >= 3 and _HANGUL_RE.fullmatch(tok):
+        tokens.extend(tok[i : i + 2] for i in range(len(tok) - 1))</code></pre>
+
+<h4>③ LLM — 읽고 판단하는 사람 역할</h4>
+<p>LLM(대규모 언어 모델)은 ChatGPT 같은 것이다. 글을 읽고 "이 둘은 같은 내용인가?" 를 사람처럼 판단할 수 있다.
+대신 <b>느리고, 비싸고, 가끔 틀린 말을 지어낸다</b>(할루시네이션). 그래서 이 프로젝트의 핵심 설계 원칙은 이렇다:</p>
+
+<div class="callout llm">
+  <span class="tag">설계 원칙</span>
+  <p><b>찾기</b>는 임베딩과 BM25 가 빠르게 하고(수천 개 중에서 10개로 좁히기),
+  <b>판단</b>만 LLM 에게 맡긴다. 그리고 LLM 이 지어낸 말은 <b>코드가 다시 검사</b>한다.</p>
+</div>
+
+<div class="qmemo" data-qid="bg-basic-tools" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">임베딩·BM25·LLM 중 아직 잘 안 그려지는 게 있나요? 여기에 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="bg-project">2. 배경 ②: 이 프로젝트의 지도</h2>
+
+<p>ContentCompare 에는 <b>비교 엔진이 두 개</b> 들어 있다. 이게 이 저장소를 처음 볼 때 제일 헷갈리는 지점이라 먼저 정리한다.</p>
+
+<div class="side">
+  <div>
+    <h4>① RAG 엔진 <span class="tiny">(현행 · 기본값 · 완성)</span></h4>
+    <p class="tiny">엑셀 한 줄을 검색어로 삼아, 대상 문서 조각 중 비슷한 걸 10개 찾고, 그 10개를 LLM 에게 보여 주고 판정을 받는다.</p>
+    <p class="tiny"><code>pipeline.py</code>, <code>readers/</code>, <code>similarity/</code>, <code>comparison/</code></p>
+    <p class="tiny">실행: <code>contentcompare --engine rag</code> (기본)</p>
+  </div>
+  <div>
+    <h4>② Fact 엔진 <span class="tiny">(신규 · 만드는 중)</span></h4>
+    <p class="tiny">모든 문서를 먼저 <b>사실 카드(fact)</b> 로 바꾼 뒤, 카드끼리 맞대어 본다.</p>
+    <p class="tiny"><code>raw/</code>, <code>fact/</code></p>
+    <p class="tiny">실행: <code>contentcompare --engine fact</code> — <b>현재는 중간 산출물 저장까지만</b> 동작</p>
+  </div>
+</div>
+
+<p>"RAG" 는 Retrieval-Augmented Generation 의 줄임말로, <b>먼저 검색(retrieval)해서 찾은 조각을 LLM 프롬프트에 넣어 주는</b> 방식을 말한다.
+요즘 챗봇이 사내 문서를 참고할 때 쓰는 그 방식이다.</p>
+
+<h3>비교의 재료 — 데이터 모델 4개</h3>
+
+<p>코드를 읽을 때 이 네 개만 알면 절반은 읽은 것이다. 전부 <code>contentcompare/models.py</code> 에 있다.</p>
+
+<table>
+<thead><tr><th>이름</th><th>무엇인가</th><th>실제 예시</th></tr></thead>
+<tbody>
+<tr><td><code>DocItem</code></td><td>문서에서 뜯어낸 <b>비교 단위 하나</b>. 워드 문단 1개, PPT 도형 1개, 엑셀 행 1개.</td>
+<td><code>text</code>="B제품은 2024년에 매출 950억원…"<br><code>source_label</code>="사업보고서.docx &gt; 1페이지 &gt; 3번째 단락"</td></tr>
+<tr><td><code>RecordItem</code></td><td><code>DocItem</code> 을 물려받은 <b>엑셀 한 행</b>. 안에 셀별 <code>FieldClaim</code> 목록을 가진다.</td>
+<td><code>key_context</code>="[제품명=B제품]"<br><code>text</code>="제품명=B제품 | 연도=2024 | 매출액=800억원 | 직원수=320명"</td></tr>
+<tr><td><code>FieldClaim</code></td><td>엑셀 <b>셀 하나 = 검증받을 주장 하나</b>.</td>
+<td><code>field_id</code>="기준.xlsx#실적!C3"<br><code>header</code>="매출액", <code>value_norm</code>="800억원"</td></tr>
+<tr><td><code>Verdict</code></td><td>판정 결과 5종.</td>
+<td><span class="verdict v-same">✅ 같음</span> <span class="verdict v-part">🟡 부분일치</span> <span class="verdict v-diff">❌ 다름</span> <span class="verdict v-unk">❓ 판단보류</span> <span class="verdict v-nf">⚪ 미발견</span></td></tr>
+</tbody>
+</table>
+
+<div class="callout">
+  <span class="tag">핵심 개념: 행은 찾는 단위, 셀은 따지는 단위</span>
+  <p>엑셀 한 행(<code>RecordItem</code>)은 <b>검색</b>할 때 통째로 쓰인다. "B제품 2024 800억원 320명" 전체를 검색어로 써야
+  대상 문서에서 그 제품 이야기를 찾을 수 있기 때문이다.<br>
+  하지만 <b>판정</b>은 셀 단위(<code>FieldClaim</code>)로 따진다. 연도는 맞고 매출액만 틀렸다는 걸 구분해야 하니까.<br>
+  설정 이름은 <code>excel.granularity: hybrid</code> — 두 방식을 섞었다는 뜻이다.</p>
+</div>
+
+<p>그리고 <code>❓ 판단보류(unknown)</code> 가 1급 상태로 있는 게 이 프로젝트의 성격을 보여 준다.
+LLM 에게 "확신이 안 서면 억지로 고르지 말고 unknown 을 고르고, 왜 어려운지 설명하라" 고 프롬프트에서 명시적으로 지시한다.
+<b>틀린 확신보다 정직한 모름이 낫다</b>는 판단이다.</p>
+
+<div class="qmemo" data-qid="bg-project-models" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">두 엔진의 관계나 데이터 모델 4개 중 헷갈리는 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="intuition">3. 직관: 항목 하나가 판정되기까지</h2>
+
+<p>이제 실제로 따라가 보자. 목표는 이 한 줄이다.</p>
+
+<div class="docs">
+  <div class="doccard excel">
+    <div class="head">📊 기준.xlsx — [실적] 3행</div>
+    <div class="body">
+      <div class="row">제품명 = <b>B제품</b></div>
+      <div class="row">연도 = 2024</div>
+      <div class="row">매출액 = <b>800억원</b></div>
+      <div class="row">직원수 = 320명</div>
+    </div>
+  </div>
+</div>
+
+<p>이 한 줄이 <b>사업보고서.docx</b> 와 <b>요약.docx</b> 안에 제대로 반영돼 있는지 확인하고 싶다.
+컴퓨터는 다섯 걸음을 밟는다.</p>
+
+<div class="lane">
+  <div class="step">
+    <span class="badge code">1 · 코드</span>
+    <span class="txt"><b>읽기</b> — 문서를 열어 조각으로 뜯는다.<br>
+    엑셀은 행마다 <code>RecordItem</code>, 워드는 문단마다 <code>DocItem</code>. 이 예에서 대상 조각은 7개가 나왔다.
+    <span class="where">pipeline._read() → readers/</span></span>
+  </div>
+  <div class="arrowdown">▼</div>
+  <div class="step">
+    <span class="badge embed">2 · 임베딩</span>
+    <span class="txt"><b>인덱싱</b> — 대상 조각 7개를 전부 숫자 화살표로 바꿔 저장하고, 낱말도 세어 둔다(BM25 색인).<br>
+    한 번 계산한 임베딩은 디스크에 캐시돼 다음 실행 때 재사용된다.
+    <span class="where">chunk_items() → HybridIndex.add()</span></span>
+  </div>
+  <div class="arrowdown">▼</div>
+  <div class="step">
+    <span class="badge code">3 · 코드</span>
+    <span class="txt"><b>검색</b> — "제품명=B제품 | 연도=2024 | …" 을 검색어로 던져, 7개 중 관련 있어 보이는 순서로 줄 세운다.
+    <span class="where">HybridIndex.search(recall_k=30, top_k=10)</span></span>
+  </div>
+  <div class="arrowdown">▼</div>
+  <div class="step">
+    <span class="badge llm">4 · LLM</span>
+    <span class="txt"><b>판정</b> — 기준 행 + 셀 목록 + 후보 전부를 한 프롬프트에 담아 LLM 에게 주고, JSON 으로 답을 받는다.
+    <span class="where">Comparator.compare_record()</span></span>
+  </div>
+  <div class="arrowdown">▼</div>
+  <div class="step">
+    <span class="badge code">5 · 코드</span>
+    <span class="txt"><b>리포트</b> — 판정·출처·근거·인용을 표로 렌더링해 <code>report.md</code> 로 저장.
+    <span class="where">report.render_markdown()</span></span>
+  </div>
+</div>
+
+<h3>3단계에서 실제로 나온 후보 목록</h3>
+
+<p>아래는 <code>samples/report.md</code> 에 실제로 기록된, B제품 행에 대한 검색 결과다.
+왼쪽 숫자가 점수이고, 초록색 줄이 LLM 이 "이게 근거다" 라고 지목한 후보다.</p>
+
+<div class="cands">
+  <div class="cand hit"><span class="score">0.033</span><span class="bar"><i style="width:100%"></i></span>
+    <span class="who">B제품은 2024년에 매출 950억원을 기록하였고, 직원은 320명 규모로 운영되었다.
+    <span class="src">사업보고서.docx &gt; 1페이지 &gt; 3번째 단락 ⟵ 매칭</span></span></div>
+  <div class="cand"><span class="score">0.032</span><span class="bar"><i style="width:97%"></i></span>
+    <span class="who">A제품의 2023년 매출액은 1,200억원이며, 해당 사업부의 직원수는 500명이다.
+    <span class="src">사업보고서.docx &gt; 1페이지 &gt; 2번째 단락</span></span></div>
+  <div class="cand"><span class="score">0.031</span><span class="bar"><i style="width:94%"></i></span>
+    <span class="who">신규 라인 D제품은 2025년 출시 예정으로 현재 매출 실적은 집계되지 않았다.
+    <span class="src">요약.docx &gt; 1페이지 &gt; 3번째 단락</span></span></div>
+  <div class="cand"><span class="score">0.031</span><span class="bar"><i style="width:94%"></i></span>
+    <span class="who">2024 사업보고서
+    <span class="src">사업보고서.docx &gt; 1페이지 &gt; 1번째 단락</span></span></div>
+  <div class="cand"><span class="score">0.016</span><span class="bar"><i style="width:48%"></i></span>
+    <span class="who">Product A employed about 500 people in 2023 and led the company's revenue.
+    <span class="src">요약.docx &gt; 1페이지 &gt; 2번째 단락</span></span></div>
+</div>
+
+<div class="callout warn">
+  <span class="tag">여기서 꼭 짚고 갈 것 — 0.033 은 "3.3% 비슷함" 이 아니다</span>
+  <p>이 점수는 코사인 유사도가 아니라 <b>RRF 융합 점수</b>다. 계산식이
+  <code>1/(60+순위)</code> 를 더하는 형태라 값이 원래 작다.<br>
+  0.033 ≈ 1/61 + 1/61 → <b>임베딩 순위 1등이자 BM25 순위 1등</b>.<br>
+  0.016 ≈ 1/64 → <b>한쪽 목록에서만 4등</b>, 다른 목록엔 아예 없음.<br>
+  즉 점수의 절대값이 아니라 <b>두 검색기가 모두 위로 올렸는가</b>를 보는 숫자다. 다음 장에서 계산을 직접 따라간다.</p>
+</div>
+
+<div class="qmemo" data-qid="intuition-scores" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">후보 점수나 5단계 흐름에서 걸리는 부분을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>4단계에서 나온 판정</h3>
+
+<p>LLM 은 이렇게 답했고(리포트에 그대로 남아 있다), 코드는 그걸 표로 만들었다.</p>
+
+<table>
+<thead><tr><th>항목(열)</th><th>기준값</th><th>확인</th><th>근거</th><th>인용(후보 원문)</th></tr></thead>
+<tbody>
+<tr><td>연도</td><td>2024</td><td>✅ 있음</td><td>일치 (2024)</td><td>“B제품은 2024년에 매출 950억원을 기록하였고”</td></tr>
+<tr><td>매출액</td><td>800억원</td><td>✅ 있음</td><td><b>다름 (기준: 800억원, 후보: 950억원)</b></td><td>“B제품은 2024년에 매출 950억원을 기록하였고”</td></tr>
+<tr><td>직원수</td><td>320명</td><td>✅ 있음</td><td>일치 (320명)</td><td>“직원은 320명 규모로 운영되었다.”</td></tr>
+</tbody>
+</table>
+
+<p>행 전체 판정은 <span class="verdict v-diff">❌ 다름</span>. 그리고 <b>어디에</b>(사업보고서 3번째 단락) <b>왜</b>(매출액이 800 vs 950)까지 함께 나온다.
+맨 오른쪽 <b>인용</b> 칸이 중요하다. LLM 이 지어낸 말인지 사람이 5초 만에 확인할 수 있도록,
+<b>판단 근거가 된 원문을 그대로 따오게</b> 강제한 것이다.</p>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="walkthrough">4. 코드 워크스루 ①: 현행 RAG 엔진</h2>
+
+<p>이제 같은 과정을 코드로 본다. 출발점은 <code>ComparePipeline._run()</code> 하나이고, 이 함수가 전부를 조립한다.</p>
+
+<div class="filename">contentcompare/pipeline.py — 파이프라인 전체 (핵심만 발췌)</div>
+<pre><code>def _run(self, reference_path, target_paths, *, progress=None):
+    # 1) 문서 읽기
+    reference_items = self._read(reference_path)              # 기준(엑셀) 행들
+    target_items: list[DocItem] = []
+    for path in target_paths:
+        target_items.extend(self._read(path))                 # 대상 문서 조각 전부
+
+    # 2) 하이브리드 인덱스 구축 (청킹 후, 임베딩 캐시 적용)
+    sim = self.config.similarity
+    chunks = chunk_items(target_items, sim.chunk_chars)
+    embedder = CachedEmbedder(self.embedder, sim.cache_dir,
+                              model_name=self.config.llm.embed_model)
+    index = HybridIndex(embedder, fusion=sim.fusion, rrf_k=sim.rrf_k,
+                        mmr_lambda=sim.mmr_lambda, per_doc_cap=sim.per_doc_cap,
+                        min_score=sim.min_score)
+    index.add(chunks)
+
+    # 3~4) 기준 항목 순차 비교
+    results = []
+    for i, ref in enumerate(reference_items, start=1):
+        if ref.is_empty():
+            continue
+        candidates = index.search(ref.text, recall_k=sim.recall_k, top_k=sim.top_k)
+        if isinstance(ref, RecordItem) and ref.fields:
+            result = self.comparator.compare_record(ref, candidates)   # 행 종합 판정
+        else:
+            result = self.comparator.compare(ref, candidates)          # 단순 항목
+        results.append(result)
+    return results</code></pre>
+
+<p>딱 20줄이다. 이 안의 각 부품을 하나씩 열어 본다.</p>
+
+<h3>4.1 읽기 — 엑셀 한 행을 세 가지 얼굴로 만든다</h3>
+
+<p>엑셀 리더는 COM(엑셀 프로그램을 코드로 조종하는 윈도우 기술)으로 시트를 <code>SheetGrid</code>(2차원 값 배열)로 뽑은 뒤,
+파싱은 순수 파이썬으로 한다. 이렇게 나눠 둔 덕분에 <b>엑셀이 설치되지 않은 환경에서도 파싱 로직을 테스트</b>할 수 있다.</p>
+
+<p>핵심은 <code>_build_record()</code>다. 한 행에서 세 가지를 동시에 만든다.</p>
+
+<div class="filename">contentcompare/readers/excel_reader.py — _build_record() 발췌</div>
+<pre><code># ① 키 문맥 — 이 행이 "무엇에 대한" 행인지
+key_parts = [f"{header_of(c)}={disp(c)}" for c in key_idx if disp(c)]
+key_context = "[" + ", ".join(key_parts) + "]" if key_parts else ""
+#   → "[제품명=B제품]"
+
+# ② 필드(주장)들 — 셀 하나 = 검증 대상 하나
+for c in compare_idx:
+    text = disp(c)
+    if not text:
+        continue
+    cell_ref = f"{_col_letter(grid.first_col + c)}{abs_row}"     # "C3"
+    fields.append(FieldClaim(
+        field_id=f"{doc_id}#{grid.name}!{cell_ref}",             # "기준.xlsx#실적!C3"
+        header=header_of(c),                                     # "매출액"
+        value_raw=raw_val,                                       # 셀 원본값
+        value_norm=normalize_value(text),                        # "800억원"
+        cell_ref=cell_ref,
+    ))
+
+# ③ 검색용 텍스트 — 모든 셀을 "헤더=값" 으로 이어 붙인 한 문장
+text = " | ".join(text_parts)
+#   → "제품명=B제품 | 연도=2024 | 매출액=800억원 | 직원수=320명"</code></pre>
+
+<p><code>normalize_value()</code> 는 비교하기 좋게 값을 다듬는다. 다만 <b>의미를 바꾸는 것은 절대 건드리지 않는다</b>.</p>
+<pre><code>"₩1,200,000"  →  "1200000"     # 통화기호·천단위 콤마는 제거
+"12.50%"      →  "12.5%"       # 퍼센트는 의미가 있으므로 보존
+"1,200억원"    →  "1200억원"     # '억원' 단위도 보존
+"제품 A"       →  "제품 A"       # 숫자가 아니면 공백만 정돈</code></pre>
+<p class="tiny">그래서 리포트의 "기준 내용" 에는 <code>매출액=1,200억원</code>(보이는 그대로)이, 판정 표의 "기준값" 에는 <code>1200억원</code>(정규화)이 나온다. 둘 다 실제 리포트에서 확인할 수 있다.</p>
+
+<div class="qmemo" data-qid="walkthrough-excel-reader" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">엑셀 한 행이 RecordItem + FieldClaim 으로 나뉘는 부분, 이해되셨나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>4.2 인덱싱 — 조각을 화살표로 바꿔 쌓는다</h3>
+
+<p>먼저 너무 긴 조각은 잘라낸다(<code>chunk_chars: 800</code>). 임베딩 모델은 긴 글일수록 뜻이 흐려지기 때문이다.</p>
+<div class="filename">contentcompare/similarity/chunker.py</div>
+<pre><code>def chunk_items(items: list[DocItem], chunk_chars: int) -> list[DocItem]:
+    out = []
+    for item in items:
+        if len(item.text) &lt;= chunk_chars:
+            out.append(item)                    # 엑셀 행처럼 짧으면 그대로 통과
+            continue
+        for i, piece in enumerate(_split(item.text, chunk_chars), start=1):
+            out.append(replace(item, item_id=f"{item.item_id}#chunk{i}",
+                               text=piece,
+                               source_label=f"{item.source_label} (조각 {i})"))
+    return out
+
+def _split(text: str, size: int) -> list[str]:
+    # TODO: 문장/단락 경계 기반 정교한 분할 + 오버랩 추가.
+    return [text[i : i + size] for i in range(0, len(text), size)]</code></pre>
+
+<div class="callout warn">
+  <span class="tag">여기 TODO 주석을 기억해 두자</span>
+  <p>지금은 800자마다 <b>글자 수로 뚝 자른다</b>. 문장 중간에서 잘릴 수 있고, 조각 사이에 겹치는 부분도 없다.
+  뒤의 "문제점" 장에서 이게 왜 위험한지 다시 나온다.</p>
+</div>
+
+<p>그 다음 <code>HybridIndex.add()</code> 가 조각들을 임베딩하고 낱말도 센다.</p>
+<div class="filename">contentcompare/similarity/hybrid_index.py</div>
+<pre><code>def add(self, items: list[DocItem], *, batch_size: int = 64) -> None:
+    items = [it for it in items if not it.is_empty()]
+    for start in range(0, len(items), batch_size):
+        batch = items[start : start + batch_size]
+        # 본문 청크 → passage 로 임베딩(e5 계열 접두어 분리).
+        vectors = self.embedder.embed([it.text for it in batch], kind="passage")
+        for it, vec in zip(batch, vectors):
+            self._items.append(it)
+            self._vectors.append(_normalize(list(vec)))
+            self._tokens.append(tokenize(it.text))          # BM25 용 낱말
+    if items:
+        self._dirty = True                                  # BM25 재색인 필요 표시</code></pre>
+
+<p><code>kind="passage"</code> 가 눈에 띈다. e5 계열 임베딩 모델은 <b>검색어</b>와 <b>본문</b>에 서로 다른 접두어를 붙여야 성능이 나온다
+(<code>query: </code> / <code>passage: </code>). 특히 한국어 검색어로 영어 문장을 찾는 <b>교차 언어 검색</b>에서 차이가 크다.
+설정에서 <code>embed_query_prefix</code> / <code>embed_passage_prefix</code> 로 지정한다.</p>
+
+<h3>4.3 검색 — 두 개의 순위를 합치고, 겹치는 걸 걷어낸다</h3>
+
+<p>여기가 이 프로젝트에서 가장 재미있는 부분이다. <code>search()</code> 안에서 세 가지 일이 순서대로 벌어진다.</p>
+
+<div class="filename">contentcompare/similarity/hybrid_index.py — search()</div>
+<pre><code>q_vec = _normalize(list(self.embedder.embed([query_text], kind="query")[0]))
+cos = [_dot(q_vec, v) for v in self._vectors]              # ① 임베딩 유사도 전부 계산
+
+if self.fusion == "cosine":
+    order = sorted(range(len(cos)), key=lambda i: cos[i], reverse=True)
+    pool = [i for i in order if cos[i] &gt;= self.min_score][:recall_k]
+    relevance = {i: cos[i] for i in pool}
+else:
+    # ② RRF: 임베딩 순위 + BM25 순위 융합.
+    emb_rank = sorted(range(len(cos)), key=lambda i: cos[i], reverse=True)[:recall_k]
+    bm = self._bm25.scores(tokenize(query_text))
+    bm_rank = [i for i in sorted(range(len(bm)), key=lambda i: bm[i], reverse=True)
+               if bm[i] &gt; 0][:recall_k]
+    fused = reciprocal_rank_fusion([emb_rank, bm_rank], k=self.rrf_k)
+    pool = [idx for idx, _ in fused]
+    relevance = dict(fused)
+
+chosen = mmr_select(pool, relevance, vec_of=..., doc_of=...,      # ③ MMR + 문서별 상한
+                    lambda_=lam, top_k=top_k, per_doc_cap=cap)
+return [Candidate(item=self._items[i], score=round(relevance[i], 6)) for i in chosen]</code></pre>
+
+<h4>② RRF — 점수 대신 등수를 합친다</h4>
+<p>임베딩 점수(0.87 같은 값)와 BM25 점수(4.2 같은 값)는 <b>단위가 달라서 그냥 더할 수 없다</b>.
+그래서 점수를 버리고 <b>등수만</b> 쓴다. 등수가 높을수록(1등에 가까울수록) 큰 값을 주는 공식이 RRF 다.</p>
+<div class="filename">contentcompare/similarity/fusion.py</div>
+<pre><code>for w, ranking in zip(weights, rankings):
+    for rank, idx in enumerate(ranking):
+        fused[idx] += w / (k + rank + 1)      # k=60, rank 0-based → +1</code></pre>
+
+<p>실제 B제품 검색에 대입해 보면 앞에서 본 점수가 정확히 나온다.</p>
+<table>
+<thead><tr><th>후보</th><th>임베딩 등수</th><th>BM25 등수</th><th>계산</th><th>최종 점수</th></tr></thead>
+<tbody>
+<tr><td>사업보고서 p3 (B제품 문장)</td><td>1등</td><td>1등</td><td>1/61 + 1/61</td><td><b>0.0328 → 0.033</b></td></tr>
+<tr><td>사업보고서 p2 (A제품 문장)</td><td>2등</td><td>2등</td><td>1/62 + 1/62</td><td>0.0323 → 0.032</td></tr>
+<tr><td>요약 p2 (영어 문장)</td><td>4등</td><td>없음</td><td>1/64 + 0</td><td>0.0156 → 0.016</td></tr>
+</tbody>
+</table>
+<p>마지막 줄이 의미심장하다. 영어 문장은 <b>BM25 목록에 아예 없다</b>. "B제품", "2024", "800" 중 겹치는 낱말이 하나도 없기 때문이다.
+그래서 오직 임베딩만이 그 문장을 붙잡고 있다. 이게 뒤에서 이야기할 <b>교차 언어 누락 위험</b>의 실제 모습이다.</p>
+
+<h4>③ MMR — "비슷한 후보만 10개" 를 막는다</h4>
+<p>관련도만 보고 10개를 뽑으면, 거의 똑같은 문단 10개가 뽑힐 수 있다. 그러면 LLM 은 같은 정보를 열 번 보는 셈이다.
+MMR 은 <b>관련도</b>와 <b>이미 뽑힌 것과의 다름</b>을 저울질한다.</p>
+<div class="filename">contentcompare/similarity/mmr.py</div>
+<pre><code>redundancy = 0.0
+if selected:
+    redundancy = max(_dot(vec_of(idx), vec_of(s)) for s in selected)   # 이미 뽑힌 것 중 가장 비슷한 정도
+score = lambda_ * norm_rel(idx) - (1 - lambda_) * redundancy
+#       ↑ 관련도(0.5)              ↑ 중복 페널티(0.5)</code></pre>
+<p>여기에 <code>per_doc_cap=4</code> 가 더해진다. 한 대상 문서가 최종 후보 10칸을 독차지하지 못하게 <b>문서당 최대 4개</b>로 제한한다.
+문서 A가 아무리 관련성이 높아도, 문서 B의 내용을 볼 기회를 남겨 두는 장치다.</p>
+
+<div class="qmemo" data-qid="walkthrough-search" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">RRF 계산이나 MMR 의 λ(람다), per_doc_cap 에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>4.4 판정 — LLM 에게 무엇을 어떻게 묻는가</h3>
+
+<p>후보 10개가 정해지면 <code>Comparator.compare_record()</code> 가 프롬프트를 조립한다. 실제로 만들어지는 문자열은 이렇게 생겼다.</p>
+
+<div class="filename">LLM 에게 실제로 가는 user 프롬프트 (B제품 행, 후보는 줄여서 표시)</div>
+<pre><code>(knowledge/ 폴더의 도메인 지식 .md 내용이 있으면 여기 먼저 붙는다)
+
+[기준 레코드]
+- 출처: 기준.xlsx &gt; [실적] 3행 [제품명=B제품]
+- 키 문맥: [제품명=B제품]
+- 행 전체: 제품명=B제품 | 연도=2024 | 매출액=800억원 | 직원수=320명
+
+[이 행의 항목(필드) 목록]
+- field_id: 기준.xlsx#실적!B3 | 항목: 연도   | 기준값: 2024
+- field_id: 기준.xlsx#실적!C3 | 항목: 매출액 | 기준값: 800억원
+- field_id: 기준.xlsx#실적!D3 | 항목: 직원수 | 기준값: 320명
+
+[후보 단락 목록]
+- item_id: 사업보고서.docx#p3 | 유사도: 0.033 | 출처: 사업보고서.docx &gt; 1페이지 &gt; 3번째 단락
+  내용: B제품은 2024년에 매출 950억원을 기록하였고, 직원은 320명 규모로 운영되었다.
+- item_id: 사업보고서.docx#p2 | 유사도: 0.032 | 출처: ...
+  내용: A제품의 2023년 매출액은 1,200억원이며, ...
+  (…이하 후보들…)
+
+이 행의 모든 항목을 종합해 행 단위로 JSON 판정하세요. findings 의 field_id 는 위 값을 그대로 사용합니다.</code></pre>
+
+<p>system 프롬프트에는 판정 규칙이 못 박혀 있다. 세 가지 원칙이 특히 중요하다.</p>
+<div class="filename">contentcompare/comparison/prompts.py — RECORD_SYSTEM_PROMPT 발췌</div>
+<pre><code>판정 원칙(매우 중요):
+1. 값(숫자·날짜·금액)이 **정확히 같으면 일치**, **다르면 다름**으로 분명히 표시하세요.
+   숫자는 단위·표기를 감안해 의미가 같으면 일치로 봅니다(예: 1,200 과 1200, 1.2천 과 1200).
+2. 다만 **단위가 불명확**하거나(예: 기준 '1200' vs 후보 '1,200억원'), 표현이 모호하거나,
+   해당 분야 지식이 없어 같은 항목인지조차 확신할 수 없으면 **억지로 same/different 를 고르지 말고
+   "unknown"** 으로 두세요. 그리고 reasoning 에 **왜 어려운지/모호한지를 반드시 설명**하세요
+3. 후보(대상 문서)에 실제로 적혀 있지 않은 내용을 추측해 채우지 마세요. 근거가 없으면 not_found 또는 unknown.</code></pre>
+
+<p>그리고 답은 반드시 정해진 JSON 형태여야 한다.</p>
+<pre><code>{
+  "verdict": "same|partial|different|unknown|not_found",
+  "matched_item_ids": ["&lt;이 행의 근거가 된 후보 item_id 들&gt;"],
+  "reasoning": "&lt;어디에 있는지, 왜 그렇게 판단했는지 종합 서술&gt;",
+  "findings": [
+    { "field_id": "...", "found": true,
+      "note": "&lt;일치/다름/불명과 그 근거 한 줄&gt;",
+      "evidence": "&lt;판단 근거가 된 후보 원문을 그대로 인용(지어내지 말 것)&gt;" }
+  ]
+}</code></pre>
+
+<h4>코드가 LLM 을 못 믿는 세 지점</h4>
+<p>답이 돌아온 뒤, <code>comparator.py</code> 는 그것을 그대로 쓰지 않는다. 세 겹의 안전망이 있다.</p>
+
+<div class="filename">contentcompare/comparison/comparator.py</div>
+<pre><code># ① JSON 이 아니면? → "JSON만 출력" 지시를 붙여 딱 한 번 다시 요청
+def _complete_json(self, system: str, user: str) -> dict:
+    raw = self.llm.complete(system, user)
+    parsed = self._parse(raw)
+    if parsed:
+        return parsed
+    logger.warning("LLM 응답 JSON 파싱 실패 → 'JSON만 출력' 지시로 재요청")
+    retry_user = user + "\n\n위 형식의 JSON 객체만 출력하세요. 다른 텍스트나 코드펜스는 금지합니다."
+    return self._parse(self.llm.complete(system, retry_user))
+
+# ② 존재하지 않는 후보 id 를 지어냈다면? → 실제 후보 집합과 교집합만 신뢰
+valid_cand_ids = {c.item.item_id for c in candidates}
+matched = [str(x) for x in (parsed.get("matched_item_ids") or [])
+           if str(x) in valid_cand_ids]
+
+# ③ 어떤 필드 얘기를 통째로 빼먹었다면? → 빠뜨린 필드를 '검토 필요'로 채워 넣는다
+for fc in record.fields:
+    entry = by_id.get(fc.field_id)
+    if entry is None:
+        findings.append(FieldFinding(field=fc, found=False,
+                                     note="LLM 응답에 항목 내역 누락(검토 필요)."))
+        continue</code></pre>
+
+<div class="callout">
+  <span class="tag">이 프로젝트를 관통하는 태도</span>
+  <p><b>LLM 은 판단만 하고, 사실 확인은 코드가 한다.</b> LLM 이 "3번 후보가 근거야" 라고 해도
+  3번 후보가 실제로 존재하지 않으면 코드가 조용히 지운다. 이 패턴은 뒤에 볼 Fact 엔진에서 훨씬 더 강해진다.</p>
+</div>
+
+<div class="qmemo" data-qid="walkthrough-comparator" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">프롬프트 구성이나 LLM 응답 검증(안전망 3종)에 대해 궁금한 점은?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="llm-role">5. LLM 은 정확히 어디서 무엇을 하는가</h2>
+
+<p>"AI 가 문서를 비교한다" 는 말은 사실 너무 뭉뚱그린 표현이다. 이 프로젝트에서 LLM 이 호출되는 지점은 <b>손에 꼽을 정도로 적고, 하는 일도 명확히 정해져 있다</b>. 정리해 보자.</p>
+
+<h3>먼저: 서로 다른 두 종류의 모델이 쓰인다</h3>
+<div class="side">
+  <div>
+    <h4>임베딩 모델 <span class="tiny">(예: bge-m3, multilingual-e5-large)</span></h4>
+    <p class="tiny">문장 → 숫자 화살표. <b>말을 하지 않는다.</b> 대상 조각마다 1회, 검색어마다 1회 호출.
+    결과는 <code>.cache/embeddings</code> 에 디스크 캐시되어 두 번째 실행부터는 거의 공짜.</p>
+  </div>
+  <div>
+    <h4>채팅 LLM <span class="tiny">(예: qwen2.5:14b, gemma)</span></h4>
+    <p class="tiny">글을 읽고 <b>JSON 으로 판단</b>을 내놓는다. 비싸고 느린 쪽. 이 프로젝트가 호출 수를 아끼려고 애쓰는 대상.</p>
+  </div>
+</div>
+<p class="tiny">두 모델의 백엔드는 <b>따로</b> 고를 수 있다(<code>llm.backend</code> / <code>llm.embed_backend</code>).
+사내 chat 엔드포인트가 임베딩을 제공하지 않을 때 <code>chat=internal</code> + <code>embed=fastembed</code> 처럼 섞어 쓰기 위한 설계다.</p>
+
+<h3>RAG 엔진에서 채팅 LLM 이 하는 일 — 딱 2가지</h3>
+<table>
+<thead><tr><th>#</th><th>어디</th><th>무엇을 시키나</th><th>호출 횟수</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>readers/header_detect.py</code></td><td>엑셀 상위 12행을 보여 주고 "몇 번째 행이 머리글이고 몇 줄짜리냐" 를 묻는다. <b>선택 기능</b>(<code>auto_header: true</code> 일 때만).</td><td>시트당 최대 1회</td></tr>
+<tr><td>2</td><td><code>comparison/comparator.py</code></td><td><b>핵심.</b> 기준 행 + 셀 목록 + 후보 10개를 주고 판정 JSON 을 받는다.</td><td>기준 행당 1회<br>(+파싱 실패 시 1회 재시도)</td></tr>
+</tbody>
+</table>
+<p>즉 엑셀에 100행이 있으면 채팅 LLM 은 대략 <b>100번</b> 불린다. 검색은 전부 코드가 하므로 LLM 을 부르지 않는다.</p>
+
+<h3>LLM 이 <em>하지 않는</em> 일</h3>
+<ul>
+  <li><b>문서를 통째로 읽지 않는다.</b> 파일을 LLM 에 던지지 않고, 코드가 뜯어낸 조각 중 관련 있는 10개만 보여 준다.</li>
+  <li><b>어디를 볼지 스스로 정하지 않는다.</b> 후보 선정은 임베딩+BM25+MMR 이라는 결정적(deterministic) 코드의 몫이다.</li>
+  <li><b>출처 좌표를 만들지 않는다.</b> "사업보고서 3번째 단락" 이라는 라벨은 리더가 붙인 것이고, LLM 은 주어진 id 중에서 고를 뿐이다.</li>
+  <li><b>제어 흐름을 정하지 않는다.</b> 다음에 무슨 단계를 할지는 100% 파이썬 코드가 정한다. 에이전트 프레임워크(LangGraph 등)를 쓰지 않기로 한 결정(<code>FACT_PIPELINE_PLAN.md</code> 결정 #7)이 이 원칙을 명문화하고 있다.</li>
+</ul>
+
+<div class="callout llm">
+  <span class="tag">한 줄 요약</span>
+  <p>LLM 의 역할은 <b>"이 후보들 중에 우리 항목과 같은 내용이 있나? 값이 맞나? 왜 그렇게 보나?" 에 JSON 으로 답하는 것</b>, 그 하나다.</p>
+</div>
+
+<div class="qmemo" data-qid="llm-role" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">LLM 이 하는 일 / 하지 않는 일 구분에서 의외였던 점이 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="rag-problems">6. 현행 RAG 방식의 문제점</h2>
+
+<p>지금까지 본 RAG 방식은 잘 동작하고, 빠르고, 싸다. 그런데 이 프로젝트가 <b>새 엔진을 처음부터 다시 설계하기로 한</b> 이유가 있다.
+<code>docs/FACT_PIPELINE_PLAN.md</code> §1 에 정리된 문제들을, 코드의 어느 줄에서 비롯되는지와 함께 짚어 보자.</p>
+
+<h3>문제 1 — 비교하는 두 단위의 모양이 다르다</h3>
+<p>기준은 <b>표의 한 행</b>이고, 대상은 <b>글의 한 덩어리</b>다. 사과와 문단을 비교하는 셈이다.
+한 행에 담긴 4개의 사실을, 자유롭게 쓰인 문장 안에서 LLM 이 매번 다시 찾아내야 한다.</p>
+
+<h3>문제 2 — 정보가 흩어져 있으면 조각 하나로는 부족하다</h3>
+<p>이 저장소의 실제 PPT 샘플을 보자. 한 슬라이드 안에서도 값이 <b>본문과 스피커노트로 쪼개져</b> 있다.</p>
+<div class="filename">artifacts/발표_pptx/compact_raw.json (실제 파일)</div>
+<pre><code>{ "slide_no": 1,
+  "shapes": [
+    { "id": "p001_s001", "type": "text", "text": "충전환경온도" },
+    { "id": "p001_s002", "type": "text", "text": "-5~55℃, 중심치 25℃" }
+  ],
+  "notes": "0.1C, 4.55V 조건 기준" }</code></pre>
+<p>"충전환경온도가 -5~55℃ 인데, 그건 0.1C·4.55V 조건에서다" 라는 <b>하나의 사실</b>이 도형 2개 + 노트 1개에 나뉘어 있다.
+RAG 엔진은 각각을 별개 조각으로 인덱싱하므로, top-k 후보에 셋이 다 들어오지 않으면 <b>조건이 빠진 채로 판정</b>될 수 있다.</p>
+
+<h3>문제 3 — 표현이 다르면 검색에서 아예 빠질 수 있다</h3>
+<p>앞의 RRF 계산표에서 봤듯, 영어 문장 "Product A employed about 500 people" 은 <b>BM25 목록에 없다</b>.
+임베딩이 잡아 주면 다행이지만, 임베딩 순위마저 밀리면 후보 10개 안에 못 들고 <b>조용히 사라진다</b>.
+그리고 검색되지 않은 내용은 리포트 어디에도 "놓쳤다" 고 표시되지 않는다 — 그냥 <span class="verdict v-nf">⚪ 미발견</span> 이 된다.
+<b>진짜 없는 것</b>과 <b>못 찾은 것</b>이 구분되지 않는 것이다.</p>
+
+<div class="callout warn">
+  <span class="tag">조용한 실패가 가장 위험하다</span>
+  <p><code>top_k=10</code>, <code>per_doc_cap=4</code>, <code>chunk_chars=800</code> 은 모두 "여기서 자른다" 는 결정이다.
+  잘린 뒤에는 그 사실이 결과에 남지 않는다. 리포트를 보는 사람은 10개 후보만 보고 "충분히 찾아봤구나" 라고 믿게 된다.</p>
+</div>
+
+<h3>문제 4 — 단위와 동의어를 처리할 코드가 없다</h3>
+<p>"도씨" 와 "℃", "1200" 과 "1.2천" 이 같다는 판단은 <b>전부 LLM 의 머릿속</b>과 사람이 <code>knowledge/*.md</code> 에 적어 둔 메모에 의존한다.
+코드에는 단위 등가 변환기가 없다. 그래서 같은 문서를 두 번 돌리면 판정이 달라질 수도 있다.</p>
+
+<h3>문제 5 — 비교가 한쪽 방향뿐이다</h3>
+<p>엑셀은 <b>질문하는 쪽</b>, 나머지는 <b>대답하는 쪽</b>으로 고정돼 있다. 그래서 이런 건 절대 발견되지 않는다:
+<em>"보고서에는 D제품 이야기가 있는데 엑셀에는 그 행이 없다."</em>
+실제로 샘플 리포트에도 "신규 라인 D제품…" 문단이 후보로는 계속 등장하지만, 그것이 <b>기준에 없는 내용</b>이라는 지적은 어디에도 없다.</p>
+
+<h3>문제 6 — 왜 그런 결과가 나왔는지 되짚기 어렵다</h3>
+<p>남는 것은 최종 리포트뿐이다. 중간에 무엇이 어떻게 계산됐는지는 로그 파일을 뒤져야 한다.
+오판이 났을 때 "검색이 못 찾은 건가, LLM 이 잘못 읽은 건가, 리더가 셀을 잘못 뜯은 건가" 를 가리기가 힘들다.</p>
+
+<h3>문제 7 — LLM 산출물을 검증하는 장치가 사실상 없다</h3>
+<p>있는 것은 ① JSON 파싱 실패 시 1회 재시도, ② 후보 id 교집합 검증, ③ 누락 필드 표시 — 이 세 개뿐이다.
+<b>인용문(evidence)이 진짜 원문에 있는 문구인지 확인하는 코드는 없다.</b> 지금은 사람이 리포트를 보며 눈으로 대조해야 한다.</p>
+
+<div class="qmemo" data-qid="rag-problems" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">일곱 문제 중 우리 업무에서 제일 아플 것 같은 건 무엇인가요? 왜 그런지도 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="fact">7. 코드 워크스루 ②: 새로운 Fact 방식</h2>
+
+<p>새 방식의 발상은 한 문장으로 요약된다.</p>
+
+<div class="callout">
+  <span class="tag">핵심 아이디어</span>
+  <p><b>비교하기 전에, 모든 문서를 같은 모양의 "사실 카드" 로 먼저 바꾼다.</b><br>
+  엑셀이든 워드든 PPT 든 일단 카드가 되면, 그다음 비교는 카드끼리 맞대 보는 단순한 일이 된다.</p>
+</div>
+
+<h3>7.1 사실 카드(fact) 는 이렇게 생겼다</h3>
+
+<p>세 문서가 같은 사실을 이렇게 다르게 적고 있다고 하자(설계 문서 §1.2 의 예시).</p>
+<div class="docs">
+  <div class="doccard excel"><div class="head">📊 Excel</div><div class="body">
+    <div class="row">충전환경온도 / 하한치 -5 / 중심치 25 / 상한치 55 / 단위 도씨</div></div></div>
+  <div class="doccard word"><div class="head">📄 Word</div><div class="body">
+    <div class="row">충전환경온도는 -5℃에서 55℃ 범위로 관리하며 중심치는 25℃로 한다.</div></div></div>
+  <div class="doccard ppt"><div class="head">📽 PPT</div><div class="body">
+    <div class="row">충전환경온도: -5~55℃, 중심치 25℃</div>
+    <div class="row tiny">(스피커노트) 0.1C, 4.55V 조건 기준</div></div></div>
+</div>
+
+<p>세 개를 전부 아래 <b>같은 모양</b>으로 바꾼다.</p>
+<pre><code>{
+  "fact_id": "fact-ppt-1",
+  "fact_type": "quantitative_spec",
+  "entity_name": "충전환경온도",
+  "entity_path": ["기본사양", "충전환경온도"],
+  "attributes": {
+    "lower_limit":  { "value": -5, "unit": "℃" },
+    "target_value": { "value": 25, "unit": "℃" },
+    "upper_limit":  { "value": 55, "unit": "℃" }
+  },
+  "search_text": "충전환경온도 -5 25 55 ℃",
+  "source":  { "doc_type": "ppt", "slide_no": 1,
+               "shape_ids": ["p001_s002"], "from_notes": true },
+  "evidence_text": "-5~55℃, 중심치 25℃",
+  "confidence": 0.9
+}</code></pre>
+
+<p>이제 비교는 <b>"같은 <code>entity_name</code> 을 가진 카드끼리 <code>attributes</code> 를 키별로 맞춰 본다"</b> 가 된다.
+문장 구조도, 문서 종류도 더는 상관없다. 그리고 <code>source</code> 와 <code>evidence_text</code> 가 카드에 붙어 다니므로
+"이 값 어디서 나왔어?" 에 언제나 답할 수 있다.</p>
+
+<div class="qmemo" data-qid="fact-card-shape" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 fact JSON 에서 각 필드가 왜 필요한지 잘 안 와닿는 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>7.2 카드를 만드는 9단계 — 그리고 매 단계가 파일로 남는다</h3>
+
+<div class="lane">
+  <div class="step"><span class="badge code">F0 · 코드</span><span class="txt"><b>Raw Extractor</b> — 문서를 <em>해석 없이</em> 물리 정보 그대로 뽑는다. 셀 주소, 병합 영역, 서식, 도형 위치, 슬라이드 번호…
+    <span class="where">raw/excel_raw.py · word_raw.py · ppt_raw.py → physical_raw.json</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge code">F0 · 코드</span><span class="txt"><b>Raw Compactor</b> — LLM 이 읽기 좋게 압축. 셀마다 반복되던 메타를 걷어내고 행 단위 <code>{열:값}</code> 맵으로.
+    <span class="where">raw/compact.py → compact_raw.json</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge llm">F1 · LLM</span><span class="txt"><b>Document Profiler</b> — "이 문서는 무슨 문서이고 주요 구조가 뭐냐"
+    <span class="where">fact/profiler.py → document_profile.json</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge llm">F1 · LLM</span><span class="txt"><b>Schema Inducer</b> — 표의 머리글은 어디이고, 한 행은 무슨 뜻이며, <b>각 열의 의미 역할</b>은 무엇인가
+    <span class="where">fact/schema_inducer.py → table_profile.json + column_schema.json</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge llm">F2 · LLM</span><span class="txt"><b>Record Normalizer</b> — 데이터 행들을 스키마에 따라 의미 단위로 정규화(30행씩 묶어 호출)
+    <span class="where">fact/record_normalizer.py → records.json</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge code">F3 · 코드/LLM</span><span class="txt"><b>Fact Extractor</b> — Excel 은 <b>코드로 결정적 변환</b>(LLM 0회), Word/PPT 는 블록·도형을 LLM 으로 추출
+    <span class="where">fact/fact_extractor.py → facts.json</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge code">F4a · 코드</span><span class="txt"><b>Rule Validator</b> — <code>lower ≤ target ≤ upper</code> 인가? 값에 단위가 있나? 인용문이 원문에 실제로 있나? <span class="tiny">(미구현)</span>
+    <span class="where">→ validation_report.json</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge llm">F4b · LLM</span><span class="txt"><b>Repair Loop</b> — 검증 실패한 카드만 골라 이유를 알려 주고 고치게 한다 <span class="tiny">(미구현)</span></span></div>
+  <div class="arrowdown">▼</div>
+  <div class="step"><span class="badge code">F5 · 코드</span><span class="txt"><b>Fact Comparator</b> — 카드끼리 맞대어 <code>match / mismatch / missing / unknown</code> 판정 <span class="tiny">(미구현)</span>
+    <span class="where">→ comparison_result.json</span></span></div>
+</div>
+
+<h3>7.3 실제 산출물로 따라가기 — 기준.xlsx 한 장</h3>
+
+<p>이 저장소의 <code>artifacts/기준_xlsx/</code> 에 진짜 결과물이 들어 있다. 순서대로 보자.</p>
+
+<h4>① compact_raw.json — 표가 표 모양 그대로 보인다</h4>
+<div class="filename">artifacts/기준_xlsx/compact_raw.json (실제 파일, 일부)</div>
+<pre><code>{ "doc_type": "excel", "file_name": "기준.xlsx",
+  "sheets": [{
+    "sheet_name": "실적", "used_range": "A1:D4", "n_rows": 4, "n_cols": 4,
+    "merged_cells": [],
+    "rows": [
+      { "r": 1, "cells": { "A": "제품명", "B": "연도", "C": "매출액", "D": "직원수" } },
+      { "r": 2, "cells": { "A": "A제품", "B": 2023.0, "C": "1,200억원", "D": "500명" } },
+      { "r": 3, "cells": { "A": "B제품", "B": 2024.0, "C": "800억원",  "D": "320명" } },
+      { "r": 4, "cells": { "A": "C제품", "B": 2023.0, "C": "350억원",  "D": "90명"  } }
+    ] }] }</code></pre>
+<p class="tiny">중요한 점: 압축기는 <b>어디가 머리글인지 판단하지 않는다</b>. 병합 영역·굵은 글씨 같은 <em>단서</em>만 남기고,
+판단은 다음 단계의 LLM 에게 넘긴다. 이 역할 분리가 설계의 핵심이다.</p>
+
+<h4>② table_profile.json — 표의 골격 (LLM 이 판단)</h4>
+<pre><code>{ "location": "sheet=실적",
+  "header_structure": { "header_start_row": 1, "header_rows": 1,
+                        "data_start_row": 2, "header_depth": 1 },
+  "row_grain": { "description": "특정 연도 및 제품별 실적(매출액, 직원수) 정보",
+                 "primary_entity_columns": ["A"] } }</code></pre>
+<p><code>row_grain</code> 이 이 단계의 알맹이다. <b>"이 표에서 한 행은 무엇을 뜻하는가"</b> 를 LLM 이 문장으로 적어 둔다.
+RAG 엔진에는 이런 개념 자체가 없었다.</p>
+
+<h4>③ column_schema.json — 열의 의미 역할</h4>
+<pre><code>{ "columns": [
+  { "column": "A", "field_name": "제품명",  "semantic_role": "entity_name",          "data_type": "string" },
+  { "column": "B", "field_name": "연도",    "semantic_role": "metadata",             "data_type": "number" },
+  { "column": "C", "field_name": "매출액",  "semantic_role": "quantitative_target",  "data_type": "string" },
+  { "column": "D", "field_name": "직원수",  "semantic_role": "quantitative_target",  "data_type": "string" } ] }</code></pre>
+
+<div class="callout">
+  <span class="tag">semantic_role 이 왜 결정적인가</span>
+  <p>문서마다 열 이름이 제각각이다 — "하한치", "하한", "최소값", "Min", "Lower", "LSL".
+  이걸 <b>전부 하나의 표준 이름</b> <code>quantitative_lower_bound</code> 로 모아 주는 사전이
+  <code>fact/semantic_roles.py</code> 에 있다. 이름이 달라도 <em>역할</em>이 같으면 비교가 성립한다.</p>
+</div>
+
+<div class="filename">contentcompare/fact/semantic_roles.py</div>
+<pre><code>ROLE_SYNONYMS: dict[str, list[str]] = {
+    QUANT_LOWER:  ["하한치", "하한값", "하한", "최소값", "최소", "min", "lower", "lsl"],
+    QUANT_UPPER:  ["상한치", "상한값", "상한", "최대값", "최대", "max", "upper", "usl"],
+    QUANT_TARGET: ["중심치", "중심", "기준값", "기준", "표준값", "target", "nominal", "typ", "center"],
+    UNIT:         ["단위", "unit", "uom"],
+    ...
+}
+
+def guess_role(header: str) -> Optional[str]:
+    """헤더 문자열 → 추정 표준 역할. LLM 힌트/검증용 코드 추정이며 권위 있는 결정은 아니다."""
+    # 영문 동의어는 단어 경계(\b)로 — 'nominal' 안의 'min' 오매칭 방지
+    # 한글 동의어는 공백 제거 후 부분 포함으로</code></pre>
+<p class="tiny">주석이 알려 주듯 이 함수는 <b>LLM 의 결정을 대체하지 않는다</b>. 프롬프트에 힌트로 넣고, 나중에 검증에 쓴다.
+"코드가 힌트를 주고, LLM 이 판단하고, 다시 코드가 검사한다" 는 3중 구조다.</p>
+
+<h4>④ facts.json — 엑셀은 LLM 없이 코드가 변환한다</h4>
+<p>F2 가 이미 의미를 정규화해 뒀으므로, 엑셀의 fact 변환은 <b>규칙 매핑</b>이면 충분하다. LLM 을 부르지 않으니 비용도 0, 지어낼 위험도 0.</p>
+<div class="filename">contentcompare/fact/fact_extractor.py</div>
+<pre><code>def _facts_from_records(records: RecordSet) -> FactSet:
+    facts: list[Fact] = []
+    for rec in records.records:
+        entity_name = rec.entity.display_name or (rec.entity.path[-1] if rec.entity.path else "")
+        attrs = dict(rec.attributes)                       # F2 결과 그대로 통과
+        facts.append(Fact(
+            fact_id=f"fact-{rec.record_id}",
+            fact_type=_fact_type_of(attrs),                # 숫자 값이 있으면 정량 규격
+            entity_name=entity_name,
+            entity_path=list(rec.entity.path),
+            attributes=attrs,
+            search_text=_build_search_text(entity_name, rec.entity.path, attrs),
+            source={"doc_type": "excel", **rec.source.to_dict()},   # 좌표는 코드가 승계
+            evidence_text=rec.evidence_text,
+            confidence=rec.confidence,
+        ))
+    return FactSet(location=records.location, facts=facts)</code></pre>
+
+<h4>⑤ Word/PPT 는 LLM 이 추출하되, 코드가 뒷조사를 한다</h4>
+<p>PPT 는 <b>슬라이드 하나를 한 덩어리</b>로 묶어 LLM 에게 준다. 본문 도형과 스피커노트가 같은 배치에 들어가야
+"이 둘은 같은 사실" 이라고 합칠 수 있기 때문이다.</p>
+<div class="filename">contentcompare/fact/fact_extractor.py — _facts_from_blocks()</div>
+<pre><code>for batch in _pack_batches(groups, batch_blocks):
+    batch_ids = {u["id"] for u in batch}
+    obj = runner.complete_json(FACT_SYSTEM, build_fact_user(batch, doc_type, profile))
+    for raw in obj.get("facts") or []:
+        # source_ids 를 배치 실제 id 와 교집합만 신뢰(할루시네이션 방지, 결정 F3-7).
+        valid_ids = [i for i in (raw.get("source_ids") or []) if i in batch_ids]
+        if not valid_ids:
+            continue                       # ← 근거 id 가 하나도 없으면 fact 자체를 버린다
+        fact = Fact.from_llm(raw)
+        seq += 1
+        fact.fact_id = f"fact-{doc_type}-{seq}"            # id 는 코드가 발급
+        fact.source = _build_source(doc_type, valid_ids, unit_index)   # 좌표도 코드가 조립
+        fact.search_text = _build_search_text(fact.entity_name, fact.entity_path, fact.attributes)
+        facts.append(fact)</code></pre>
+
+<div class="callout llm">
+  <span class="tag">LLM 이 준 값 중 무엇을 믿는가</span>
+  <p><b>믿는다:</b> entity_name, attributes, evidence_text, fact_type — <em>의미 판단</em>의 결과<br>
+  <b>안 믿는다:</b> fact_id, source, search_text — <em>사실 좌표</em>는 전부 코드가 다시 만든다.
+  근거 id 가 하나도 유효하지 않으면 그 카드는 통째로 버려진다.</p>
+</div>
+
+<h3>7.4 비용을 통제하는 두 장치</h3>
+<p>단계가 늘면 LLM 호출이 폭증한다. 그래서 두 개의 브레이크가 있다.</p>
+<div class="side">
+  <div>
+    <h4>① 호출 예산</h4>
+    <pre style="font-size:.76rem"><code>if self.calls >= self.max_calls:
+    raise LlmBudgetExceeded(
+        f"LLM 호출 예산 초과(max_calls={self.max_calls})")
+self.calls += 1</code></pre>
+    <p class="tiny">문서당 기본 50회. 넘으면 예외를 던져 멈춘다. <code>fact/llm_stage.py</code></p>
+  </div>
+  <div>
+    <h4>② 지문 기반 캐싱</h4>
+    <pre style="font-size:.76rem"><code>if self.cache and self.exists(stage) \
+       and self._fingerprint_ok(stage, fingerprint):
+    cached = self.load(stage)
+    if cached is not None:
+        return cached          # 재계산·재호출 0</code></pre>
+    <p class="tiny">입력의 sha1 지문이 그대로면 디스크 산출물을 재사용. <code>fact/artifacts.py</code></p>
+  </div>
+</div>
+<p>지문은 산출물 JSON 을 더럽히지 않도록 <code>&lt;stage&gt;.fingerprint</code> 라는 <b>별도 파일</b>에 둔다.
+실제로 <code>artifacts/기준_xlsx/</code> 에 <code>document_profile.json</code> 과 <code>document_profile.fingerprint</code> 가 나란히 있다.
+덕분에 <b>같은 문서를 다시 돌리면 LLM 호출이 0회</b>가 되고, 산출물 JSON 은 사람이 그대로 읽을 수 있는 깨끗한 데이터로 남는다.</p>
+
+<div class="qmemo" data-qid="fact-pipeline-stages" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">9단계 중 특정 단계가 왜 필요한지, 또는 캐싱·예산 장치에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="why-better">8. 왜 새 방식이 더 나은가 — 그리고 아직 아닌 부분</h2>
+
+<p>앞 장의 문제 7개에 새 방식이 어떻게 답하는지 나란히 놓아 보자.</p>
+
+<table>
+<thead><tr><th>문제</th><th>현행 RAG</th><th>신규 Fact</th></tr></thead>
+<tbody>
+<tr><td><b>1. 비교 단위</b></td><td>엑셀 행 ↔ 글 조각(모양이 다름)</td><td>fact ↔ fact (모양이 같음)</td></tr>
+<tr><td><b>2. 흩어진 정보</b></td><td>조각 하나로 부족하면 그대로 누락</td><td>슬라이드 단위로 묶어 <b>하나의 fact 로 병합</b></td></tr>
+<tr><td><b>3. 표현 차이</b></td><td>임베딩이 놓치면 조용히 사라짐</td><td><code>entity_name</code> + <code>search_text</code> 로 다중 검색 (F5 예정)</td></tr>
+<tr><td><b>4. 단위·동의어</b></td><td>LLM + 사람이 쓴 <code>knowledge/*.md</code> 에 의존</td><td><code>{value, unit}</code> 구조 + <code>semantic_role</code> 사전 + 코드 검증</td></tr>
+<tr><td><b>5. 비교 방향</b></td><td>엑셀→나머지 한 방향</td><td>모든 문서가 fact 가 되므로 <b>양방향 가능</b></td></tr>
+<tr><td><b>6. 추적성</b></td><td>출처 라벨 + 로그</td><td>9종 중간 JSON 전부 디스크 보존</td></tr>
+<tr><td><b>7. 검증</b></td><td>JSON 재시도 1회 + id 교집합</td><td>Rule Validator + Repair Loop (F4 예정)</td></tr>
+</tbody>
+</table>
+
+<h3>공짜는 아니다 — 치르는 대가</h3>
+<ul>
+  <li><b>LLM 호출이 크게 늘어난다.</b> RAG 는 "기준 행 수 × 1회" 로 끝나지만, Fact 는 문서마다 profiler → schema → records(배치) → facts(배치) 를 거친다. 그래서 예산·캐싱 장치가 필수다.</li>
+  <li><b>느리고 비싸다.</b> 빠른 존재 확인이 목적이라면 RAG 가 여전히 합리적이다.</li>
+  <li><b>단계가 많아 실패 지점도 많다.</b> 앞 단계가 틀리면 뒤가 전부 틀어진다(예: 머리글을 잘못 잡으면 전 행의 속성이 어긋난다).</li>
+  <li><b>새로운 조용한 실패가 생긴다.</b> 근거 id 없는 fact 를 버리는 안전장치는, 뒤집어 보면 <b>대상 문서의 사실이 통째로 사라지는</b> 통로이기도 하다. 그러면 F5 비교에서 "없다(missing)" 로 오판된다. 설계 문서가 이것을 "침묵하는 recall 손실" 이라 부르며 계측 대상으로 못 박아 둔 이유다.</li>
+</ul>
+
+<div class="callout warn">
+  <span class="tag">지금 상태를 정직하게</span>
+  <p>Fact 엔진은 <b>F0~F3 까지 구현</b>돼 있고, <b>F3.5 이후(라이브 검증·Validator·Repair·Comparator·리포트)는 아직 없다</b>.
+  <code>contentcompare --engine fact</code> 를 실행하면 raw/compact/profile/schema/records/facts 를
+  <code>artifacts/</code> 에 저장한 뒤 이렇게 알려 주고 끝난다:</p>
+  <pre style="margin-top:8px"><code>raise NotImplementedError(
+    "FactPipeline: Validator~Comparator 는 Phase F4~F6 에서 구현됩니다. "
+    "현재(F0~F3)는 raw/compact/profile/schema/records/facts artifacts 저장까지 동작합니다.")</code></pre>
+  <p>즉 <b>오늘 실제로 문서를 비교해 리포트를 만드는 것은 RAG 엔진뿐</b>이다.
+  "새 방식이 더 낫다" 는 것은 현재로선 <b>설계상의 기대</b>이며, 두 엔진을 같은 입력으로 돌려 실측하는
+  벤치마크(<code>scripts/compare_engines.py</code>, Phase F6)는 아직 만들어지지 않았다.</p>
+</div>
+
+<p>그래서 계획 문서는 두 엔진을 <b>공존</b>시키기로 못 박았다. 현행 코드는 한 줄도 바꾸지 않고(🔒), 새 엔진은 별도 패키지(<code>fact/</code>)로 짓고,
+사용자가 <code>--engine</code> 으로 고른다. 새 방식이 실제로 더 낫다는 <b>증거가 나온 뒤에</b> 기본값을 바꾸겠다는 순서다.</p>
+
+<div class="qmemo" data-qid="why-better-tradeoff" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">비용·정확도 트레이드오프나 "언제 어느 엔진을 써야 하나"에 대한 질문을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="endtoend">9. 전체 프로세스 총정리</h2>
+
+<p>마지막으로, 항목 하나가 처음부터 끝까지 어떻게 흐르는지 두 엔진을 나란히 놓고 본다.
+같은 입력(기준.xlsx 3행 = B제품)을 준다고 하자.</p>
+
+<div class="side">
+  <div>
+    <h4>RAG 엔진 (오늘 동작하는 길)</h4>
+    <ol style="font-size:.88rem">
+      <li><code>ExcelReader.read()</code> → 3행이 <code>RecordItem</code> 하나 + <code>FieldClaim</code> 3개</li>
+      <li>대상 문서들 → <code>DocItem</code> 7개</li>
+      <li><code>chunk_items(800)</code> → 길면 자름</li>
+      <li><code>HybridIndex.add()</code> → 7개 임베딩(캐시) + BM25 색인</li>
+      <li><code>search()</code>: 임베딩 순위 + BM25 순위 → RRF → MMR(λ=0.5, 문서당 최대 4) → 후보 10개</li>
+      <li><code>build_record_prompt()</code> → 기준행 + 필드3 + 후보10 을 한 프롬프트로</li>
+      <li><b>LLM 1회 호출</b> → JSON</li>
+      <li>코드 검증: 후보 id 교집합, 누락 필드 채움, 파싱 실패 시 1회 재시도</li>
+      <li><code>RecordResult</code> → <code>render_markdown()</code> → <code>report.md</code></li>
+    </ol>
+    <p class="tiny">결과: <span class="verdict v-diff">❌ 다름</span> + 출처(사업보고서 3번째 단락) + 사유(800 vs 950) + 인용문</p>
+  </div>
+  <div>
+    <h4>Fact 엔진 (설계된 길, F4~ 미구현)</h4>
+    <ol style="font-size:.88rem">
+      <li><code>extract_raw()</code> → <code>physical_raw.json</code> (셀 주소·병합·서식)</li>
+      <li><code>compact_raw()</code> → <code>compact_raw.json</code></li>
+      <li><b>LLM</b> <code>profile_document()</code> → 문서 목적·구조</li>
+      <li><b>LLM</b> <code>induce_schema()</code> → 머리글 위치, row_grain, 열별 semantic_role</li>
+      <li><b>LLM</b> <code>normalize_records()</code> → 3행이 <code>Record</code>(entity=B제품, attributes={매출액…})</li>
+      <li><code>extract_facts()</code> → Excel 은 <b>코드로</b> fact 변환(LLM 0회)</li>
+      <li>대상 문서도 같은 과정 → 각자 <code>facts.json</code></li>
+      <li><span class="tiny">(F4a)</span> Validator: 값·단위·인용문 실재 검사 → <span class="tiny">(F4b)</span> 실패분만 LLM 이 교정</li>
+      <li><span class="tiny">(F5)</span> entity 로 카드를 짝지어 attributes 키별 대조 → <code>match / mismatch(매출액) / missing / unknown</code></li>
+      <li><span class="tiny">(F6)</span> 양쪽 <code>evidence_text</code> + <code>source</code> 를 나란히 실은 리포트</li>
+    </ol>
+    <p class="tiny">기대 결과: <code>mismatch_type: "매출액"</code>, excel 800억원 / word 950억원, 양쪽 원문·좌표 동시 제시</p>
+  </div>
+</div>
+
+<h3>둘의 차이를 한 문장으로</h3>
+<div class="callout">
+  <p><b>RAG 는 "비슷해 보이는 글을 찾아서 LLM 에게 읽혀 본다".</b><br>
+  <b>Fact 는 "모든 문서를 사실 카드로 바꾼 다음, 카드끼리 맞춰 본다".</b><br>
+  앞의 것은 값싸고 빠르지만 <em>글의 모양</em>에 흔들리고, 뒤의 것은 비싸고 느리지만 <em>사실의 구조</em>를 붙잡는다.</p>
+</div>
+
+<div class="qmemo" data-qid="endtoend" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">전체 흐름 중 아직 흐릿한 단계가 있다면 여기에 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="quiz">10. 이해도 퀴즈 5문항</h2>
+<p>정답을 맞히는 것보다 <b>왜 그런지</b>가 중요하다. 고르면 바로 해설이 나온다.</p>
+
+<div class="quiz" data-quiz>
+  <div class="q">Q1. 리포트에 후보 점수가 <code>0.033</code> 으로 찍혀 있다. 이 숫자의 뜻은?</div>
+  <button class="opt" data-ok="false" data-fb="코사인 유사도가 아니다. fusion 기본값이 rrf 이므로 search() 는 코사인 점수를 relevance 로 쓰지 않고 RRF 융합 점수를 쓴다. 코사인이었다면 보통 0.5~0.9 대의 값이 나온다.">기준 항목과 3.3% 비슷하다는 코사인 유사도</button>
+  <button class="opt" data-ok="true" data-fb="정확하다. RRF 는 1/(60+순위) 를 더한다. 임베딩·BM25 두 목록에서 모두 1등이면 1/61 + 1/61 = 0.0328 → 0.033. 한 목록에만 4등으로 있으면 1/64 = 0.016 이 된다. 즉 절대값이 아니라 '두 검색기가 함께 위로 올렸는가'를 읽는 숫자다.">임베딩 순위와 BM25 순위를 RRF 로 합친 점수 — 두 목록에서 모두 1등이라는 뜻</button>
+  <button class="opt" data-ok="false" data-fb="BM25 점수는 보통 1~10 범위의 값이고, 코드에서도 BM25 점수는 순위를 만드는 데만 쓰고 최종 relevance 로는 쓰지 않는다.">BM25 어휘 매칭 점수</button>
+  <button class="opt" data-ok="false" data-fb="LLM 은 점수를 매기지 않는다. 후보 점수는 LLM 을 호출하기 전에 검색 단계에서 이미 정해진다.">LLM 이 매긴 확신도</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-quiz>
+  <div class="q">Q2. <code>excel.granularity: hybrid</code> 에서 "검색 단위" 와 "판정 단위" 는 각각 무엇인가?</div>
+  <button class="opt" data-ok="false" data-fb="반대다. 셀 하나만으로 검색하면 '800억원' 같은 값만으로 대상 문서를 찾아야 해서 문맥이 사라진다.">셀이 검색 단위, 행이 판정 단위</button>
+  <button class="opt" data-ok="true" data-fb="맞다. 행(RecordItem)의 text 전체 = '제품명=B제품 | 연도=2024 | …' 를 검색어로 써야 그 제품 이야기를 찾을 수 있고, 판정은 셀(FieldClaim)별로 나눠야 '연도는 맞고 매출액만 틀렸다'를 구분할 수 있다. pipeline.py 의 isinstance(ref, RecordItem) and ref.fields 분기가 이 두 단위를 갈라 준다.">행이 검색 단위, 셀이 판정 단위</button>
+  <button class="opt" data-ok="false" data-fb="시트 단위 비교는 이 프로젝트에 없다. granularity 선택지는 row / field / hybrid 세 가지다.">시트가 검색 단위, 행이 판정 단위</button>
+  <button class="opt" data-ok="false" data-fb="granularity=row 가 그런 방식이고, hybrid 는 그것을 개선하려고 도입한 기본값이다.">둘 다 행 — 행 하나를 통째로 검색하고 통째로 판정한다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-quiz>
+  <div class="q">Q3. LLM 이 <code>matched_item_ids: ["사업보고서.docx#p9"]</code> 라고 답했는데, 후보 목록에는 p9 가 없었다. 코드는 어떻게 하는가?</div>
+  <button class="opt" data-ok="true" data-fb="맞다. compare_record() 는 valid_cand_ids = {c.item.item_id for c in candidates} 를 만들고 그 안에 있는 id 만 남긴다. 존재하지 않는 출처가 리포트에 실려 사람을 속이는 것을 막는 장치다. sources 프로퍼티도 후보 id→라벨 맵에 있는 것만 반환한다.">실제 후보 id 집합과 교집합을 취해 p9 를 버린다</button>
+  <button class="opt" data-ok="false" data-fb="LLM 응답을 그대로 믿는 설계가 아니다. 그렇게 하면 존재하지 않는 출처가 리포트에 실린다.">그대로 리포트에 출처로 싣는다</button>
+  <button class="opt" data-ok="false" data-fb="재요청은 JSON 파싱에 실패했을 때만 1회 한다. id 가 틀린 것은 파싱 성공이므로 재요청 대상이 아니다.">LLM 에게 다시 물어본다</button>
+  <button class="opt" data-ok="false" data-fb="예외를 던지지 않는다. 한 행이 실패해도 나머지 행은 계속 처리돼야 하므로, 조용히 걸러내고 진행한다.">예외를 던져 파이프라인을 중단한다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-quiz>
+  <div class="q">Q4. Fact 엔진에서 <b>엑셀</b>의 facts 는 LLM 을 전혀 쓰지 않고 코드로만 만든다. 왜 그래도 되는가?</div>
+  <button class="opt" data-ok="false" data-fb="엑셀이라고 구조가 단순하다는 보장은 없다. 오히려 병합셀·다단 헤더 때문에 까다롭다. 그래서 앞 단계(F1/F2)에서 LLM 을 쓴다.">엑셀은 표라서 구조가 항상 단순하기 때문</button>
+  <button class="opt" data-ok="true" data-fb="정확하다. F2 Record Normalizer 가 이미 LLM 으로 entity 와 attributes{value,unit} 를 정규화해 두었기 때문에, F3 는 그것을 fact 모양으로 옮기는 규칙 매핑(_facts_from_records)이면 충분하다. 덕분에 추가 비용 0, 할루시네이션 0 이다.">앞 단계(F2)에서 LLM 이 이미 의미 정규화를 끝냈으므로 규칙 매핑만 하면 되고, 그래서 비용도 할루시네이션 위험도 0 이 된다</button>
+  <button class="opt" data-ok="false" data-fb="정확도가 덜 중요한 게 아니라, 기준 문서이므로 오히려 더 중요하다. LLM 을 빼는 이유는 '이미 정규화가 끝나서 필요 없기 때문'이다.">엑셀은 기준 문서라서 정확도가 덜 중요하기 때문</button>
+  <button class="opt" data-ok="false" data-fb="반대다. Word/PPT 야말로 자유 서술이라 LLM 추출이 필요하고, 실제로 _facts_from_blocks() 에서 LLM 을 호출한다.">Word/PPT 도 마찬가지로 코드만 쓴다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-quiz>
+  <div class="q">Q5. Word/PPT fact 추출에서 LLM 이 만든 fact 의 <code>source_ids</code> 가 그 배치의 실제 id 와 하나도 겹치지 않는다면?</div>
+  <button class="opt" data-ok="false" data-fb="근거 없는 fact 를 남기면, 어디서 나왔는지 확인할 수 없는 사실이 비교에 들어가게 된다. 이 설계가 가장 피하고 싶어 하는 상황이다.">source 를 비운 채로 fact 는 살려 둔다</button>
+  <button class="opt" data-ok="true" data-fb="맞다. valid_ids 가 비면 continue 로 그 fact 를 통째로 버린다(결정 F3-7). 다만 이 안전장치에는 그림자가 있다 — 진짜 사실이 조용히 사라지면 F5 비교에서 'missing' 으로 오판된다. 그래서 계획 문서는 드롭 수와 사유를 계측해 '침묵하는 recall 손실'을 가시화하도록 F3.5 에 못 박아 두었다.">그 fact 를 통째로 버린다 — 다만 이 때문에 진짜 사실이 조용히 사라질 위험도 함께 생긴다</button>
+  <button class="opt" data-ok="false" data-fb="자동 배정하면 틀린 좌표를 코드가 확정해 주는 셈이라 더 위험하다. 좌표는 반드시 검증된 id 에서만 조립한다.">배치의 첫 번째 id 를 자동으로 붙여 준다</button>
+  <button class="opt" data-ok="false" data-fb="Repair Loop(F4b)는 Validator 실패를 고치는 별도 단계이고 아직 미구현이다. F3 단계의 대응은 즉시 드롭이다.">Repair Loop 가 즉시 돌면서 고쳐 준다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문항이 있다면 어느 부분이 헷갈렸는지 적어두세요. 그게 다음 설명의 재료가 됩니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<h2 id="map">11. 부록: 파일 지도</h2>
+
+<table>
+<thead><tr><th>경로</th><th>역할</th><th>엔진</th></tr></thead>
+<tbody>
+<tr><td><code>pipeline.py</code></td><td>RAG 엔진 오케스트레이션 — 읽기→인덱싱→검색→판정→리포트</td><td>RAG</td></tr>
+<tr><td><code>models.py</code></td><td><code>DocItem</code> / <code>RecordItem</code> / <code>FieldClaim</code> / <code>Verdict</code> / 결과 타입</td><td>RAG</td></tr>
+<tr><td><code>readers/excel_reader.py</code></td><td>엑셀 hybrid 분해 (COM I/O 와 파싱 분리)</td><td>RAG</td></tr>
+<tr><td><code>readers/header_detect.py</code></td><td>LLM 으로 머리글 행 추정 (<code>auto_header</code>)</td><td>RAG</td></tr>
+<tr><td><code>similarity/hybrid_index.py</code></td><td>임베딩 + BM25 → RRF → MMR</td><td>RAG</td></tr>
+<tr><td><code>similarity/{bm25,fusion,mmr,tokenize,chunker,cache}.py</code></td><td>검색 부품들 (전부 무의존 구현)</td><td>RAG</td></tr>
+<tr><td><code>comparison/{comparator,prompts}.py</code></td><td>프롬프트 조립 + LLM 판정 + 응답 검증</td><td>RAG</td></tr>
+<tr><td><code>report/markdown_report.py</code></td><td>요약표 + 상세 + 열별 확인 내역 렌더</td><td>공통</td></tr>
+<tr><td><code>llm/</code></td><td>chat·embed 백엔드 교체(ollama / internal / langchain / fastembed / onnx), HTTP 재시도</td><td>공통</td></tr>
+<tr><td><code>knowledge.py</code> + <code>knowledge/*.md</code></td><td>사람이 쓴 도메인 지식을 프롬프트에 항상 주입</td><td>RAG</td></tr>
+<tr><td><code>raw/{excel,word,ppt}_raw.py</code>, <code>raw/compact.py</code></td><td>해석 없는 물리 추출 → LLM 입력용 압축</td><td>Fact</td></tr>
+<tr><td><code>fact/{profiler,schema_inducer,record_normalizer,fact_extractor}.py</code></td><td>F1~F3 단계별 산출물 생성</td><td>Fact</td></tr>
+<tr><td><code>fact/{llm_stage,artifacts,semantic_roles}.py</code></td><td>호출 예산·JSON 재시도 / 지문 캐싱 / 역할 사전</td><td>Fact</td></tr>
+<tr><td><code>docs/FACT_PIPELINE_PLAN.md</code></td><td>새 방식의 로드맵과 결정 기록 (§1 비교표, §10 결정 7건)</td><td>—</td></tr>
+</tbody>
+</table>
+
+<h3>직접 확인해 보기</h3>
+<pre><code># 현행 RAG 엔진으로 비교 (기본)
+contentcompare --config config/config.yaml \
+  --reference 기준.xlsx --targets 사업보고서.docx 발표.pptx --out report.md
+
+# 새 fact 엔진 — artifacts/ 에 중간 산출물만 쌓고 안내 후 종료
+contentcompare --config config/config.yaml --engine fact \
+  --reference 기준.xlsx --targets 발표.pptx
+
+# 문서를 raw json 으로만 덤프해서 눈으로 보기
+python scripts/dump_raw.py 기준.xlsx --compact -o out/compact.json</code></pre>
+
+<div class="qmemo" data-qid="map-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">더 깊게 파고들고 싶은 파일이나 주제가 있나요? 적어두면 후속 문서로 이어집니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+</div><!-- /.wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+/* ── 질문 메모: 자동 저장 + 다운로드 ───────────────────────── */
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+/* ── 퀴즈 ─────────────────────────────────────────────────── */
+(function () {
+  document.querySelectorAll('[data-quiz]').forEach(function (quiz) {
+    var fb = quiz.querySelector('.fb');
+    quiz.querySelectorAll('button.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var ok = btn.dataset.ok === 'true';
+        btn.classList.remove('right', 'wrong');
+        btn.classList.add(ok ? 'right' : 'wrong');
+        if (ok) {
+          quiz.querySelectorAll('button.opt').forEach(function (b) {
+            if (b !== btn) b.classList.remove('wrong', 'right');
+          });
+        }
+        fb.textContent = (ok ? '✅ 정답 — ' : '❌ 다시 생각해보기 — ') + btn.dataset.fb;
+        fb.classList.add('show');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
