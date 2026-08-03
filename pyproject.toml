@@ -36,6 +36,9 @@ onnx = [
 ]
 dev = [
     "pytest>=7.0",
+    # scripts/make_synthetic_targets.py — 테스트용 대상 문서 생성(COM 불필요).
+    "python-docx>=1.1",
+    "python-pptx>=0.6",
 ]
 
 [project.scripts]
