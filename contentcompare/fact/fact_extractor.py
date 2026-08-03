@@ -28,23 +28,34 @@ def extract_facts(
     runner: Any = None,
     store: Any = None,
     batch_blocks: int = 20,
+    stats: Optional[dict] = None,
 ) -> FactSet:
     """compact(+records) → ``FactSet``. doc_type 으로 Excel(코드)/Word·PPT(LLM) 분기.
 
     ``store`` 가 있으면 ``facts`` 단계를 캐싱(같은 입력이면 재계산/재호출 0).
+
+    ``stats`` 를 주면 계측값을 채운다(out-param, F3.5). Word/PPT 경로는 근거 없는
+    fact 를 조용히 버리는데(§ ``_facts_from_blocks``), 이 드롭은 곧 대상 문서의
+    fact 누락 → F5 의 ``missing`` 오판으로 이어지므로 **사유별로 센다**.
     """
     doc_type = compact.get("doc_type")
+    computed = {"ran": False}
+    drops: dict[str, Any] = {}
     if doc_type == "excel":
         rs = records if records is not None else RecordSet()
 
         def compute() -> dict:
+            computed["ran"] = True
             return _facts_from_records(rs).to_dict()
 
         fp = fingerprint_for(json.dumps(rs.to_dict(), ensure_ascii=False)) if store else None
     else:
 
         def compute() -> dict:
-            return _facts_from_blocks(compact, profile, runner, batch_blocks).to_dict()
+            computed["ran"] = True
+            return _facts_from_blocks(
+                compact, profile, runner, batch_blocks, drops
+            ).to_dict()
 
         fp = (
             fingerprint_for(json.dumps(compact, ensure_ascii=False), FACT_VERSION)
@@ -53,8 +64,17 @@ def extract_facts(
         )
 
     if store is not None:
-        return FactSet.from_dict(store.cached_or_compute("facts", compute, fingerprint=fp))
-    return FactSet.from_dict(compute())
+        data = store.cached_or_compute("facts", compute, fingerprint=fp)
+    else:
+        data = compute()
+
+    if stats is not None:
+        stats.update({"cached": not computed["ran"], "facts_out": len(data.get("facts") or [])})
+        if doc_type == "excel":
+            stats["records_in"] = len(rs.records)
+        else:
+            stats.update(drops)
+    return FactSet.from_dict(data)
 
 
 # --------------------------------------------------------------------------- #
@@ -126,21 +146,37 @@ def _build_search_text(entity_name: str, entity_path, attributes: dict) -> str:
 # --------------------------------------------------------------------------- #
 # Word/PPT 경로 — compact 블록/도형 → facts (LLM)
 # --------------------------------------------------------------------------- #
-def _facts_from_blocks(compact: dict, profile: Any, runner: Any, batch_blocks: int) -> FactSet:
+def _facts_from_blocks(
+    compact: dict,
+    profile: Any,
+    runner: Any,
+    batch_blocks: int,
+    drops: Optional[dict] = None,
+) -> FactSet:
     doc_type = compact.get("doc_type")
     groups, unit_index = _units_by_group(compact)
     facts: list[Fact] = []
     seq = 0
+    seen = 0
+    dropped: dict[str, int] = {"not_dict": 0, "no_valid_source_id": 0}
+    samples: list[str] = []  # 드롭된 fact 의 entity_name 예시(원인 진단용)
+    cited: set[str] = set()  # 실제로 근거로 쓰인 블록 id(커버리지 계측)
     for batch in _pack_batches(groups, batch_blocks):
         batch_ids = {u["id"] for u in batch}
         obj = runner.complete_json(FACT_SYSTEM, build_fact_user(batch, doc_type, profile))
         for raw in obj.get("facts") or []:
+            seen += 1
             if not isinstance(raw, dict):
+                dropped["not_dict"] += 1
                 continue
             # source_ids 를 배치 실제 id 와 교집합만 신뢰(할루시네이션 방지, 결정 F3-7).
             valid_ids = [i for i in (raw.get("source_ids") or []) if i in batch_ids]
             if not valid_ids:
-                continue  # 근거 id 가 하나도 없으면 드롭
+                dropped["no_valid_source_id"] += 1  # 근거 id 가 하나도 없으면 드롭
+                if len(samples) < 5:
+                    samples.append(str(raw.get("entity_name") or "")[:40])
+                continue
+            cited.update(valid_ids)
             fact = Fact.from_llm(raw)
             seq += 1
             fact.fact_id = f"fact-{doc_type}-{seq}"
@@ -149,6 +185,20 @@ def _facts_from_blocks(compact: dict, profile: Any, runner: Any, batch_blocks: i
                 fact.entity_name, fact.entity_path, fact.attributes
             )
             facts.append(fact)
+    if drops is not None:
+        # 커버리지: 입력 블록 중 **어떤 fact 의 근거로도 인용되지 않은** 블록.
+        # LLM 이 애초에 뽑지 않은 내용은 드롭 카운터에 안 잡히는 무증상 손실이라
+        # (실측: Word 재실행 때 한 문단이 통째로 누락) 입력 대비로 봐야 보인다.
+        uncited = [uid for uid in unit_index if uid not in cited]
+        drops.update({
+            "llm_facts_seen": seen,
+            "dropped_not_dict": dropped["not_dict"],
+            "dropped_no_valid_source_id": dropped["no_valid_source_id"],
+            "dropped_samples": samples,
+            "blocks_in": len(unit_index),
+            "blocks_cited": len(cited),
+            "blocks_uncited_samples": uncited[:5],
+        })
     return FactSet(location=str(compact.get("file_name", "")), facts=facts)
 
 

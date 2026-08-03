@@ -83,3 +83,19 @@ def test_budget_exceeded():
     with pytest.raises(LlmBudgetExceeded):
         runner.complete_json("sys", "user")
     assert runner.calls == 1
+
+
+# --------------------------------------------------------------------------- #
+# 계측(F3.5) — 모델의 JSON 준수도를 수치로 남긴다(F4b 설계 입력)
+# --------------------------------------------------------------------------- #
+def test_stats_counts_retries_and_parse_failures():
+    chat = _ScriptedChat(["깨진 응답", '{"ok": 1}'])
+    runner = LlmRunner(chat)
+    runner.complete_json("sys", "user")
+    assert runner.stats() == {"calls": 2, "retries": 1, "parse_failures": 1}
+
+
+def test_stats_clean_run_has_no_failures():
+    runner = LlmRunner(_ScriptedChat(['{"ok": 1}']))
+    runner.complete_json("sys", "user")
+    assert runner.stats() == {"calls": 1, "retries": 0, "parse_failures": 0}

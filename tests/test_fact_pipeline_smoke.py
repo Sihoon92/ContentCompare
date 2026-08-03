@@ -138,6 +138,63 @@ def test_close_office_called_in_finally(tmp_path, monkeypatch):
     assert flag["closed"] is True
 
 
+# --------------------------------------------------------------------------- #
+# 에러 격리 + 계측 (F3.5)
+# --------------------------------------------------------------------------- #
+def test_one_doc_failure_does_not_stop_others(tmp_path):
+    """문서 하나가 죽어도 나머지는 계속 처리되고, 실패는 summary 로 보고된다."""
+
+    def flaky(path):
+        if path == "깨진.xlsx":
+            raise OSError("파일을 열 수 없습니다")  # COM 추출 실패를 흉내
+        return _fake_excel(path)
+
+    with pytest.raises(NotImplementedError) as ei:
+        _pipe(tmp_path, extractor=flaky).run("기준.xlsx", ["깨진.xlsx", "대상.xlsx"])
+
+    summaries = ei.value.summaries
+    assert [s["status"] for s in summaries] == ["ok", "error", "ok"]
+    bad = summaries[1]
+    assert bad["error"].startswith("OSError:")
+    assert bad["stages"] == []  # 추출 단계에서 죽었으므로 완료 단계 없음
+    # 실패 문서 뒤의 문서도 artifacts 를 남겼는가.
+    assert (tmp_path / ArtifactStore.slug("대상.xlsx") / "facts.json").exists()
+
+
+def test_failure_reports_completed_stages(tmp_path):
+    """중간(F1 이후)에 죽으면 그때까지 완료한 단계가 summary 에 남는다."""
+
+    class _DyingChat(_FactChat):
+        def complete(self, system, user, *, temperature=0.0):
+            if "semantic_role" in system:  # SCHEMA 단계에서 파싱 불가 응답만 반복
+                return "JSON 아님"
+            return super().complete(system, user, temperature=temperature)
+
+    with pytest.raises(NotImplementedError) as ei:
+        _pipe(tmp_path, chat=_DyingChat()).run("기준.xlsx", [])
+
+    s = ei.value.summaries[0]
+    assert s["status"] == "error" and "ValueError" in s["error"]
+    assert s["stages"] == ["physical_raw", "compact_raw", "document_profile"]
+    assert s["llm_calls"] > 0  # 죽기 전까지의 호출 수도 보존
+
+
+def test_run_stats_artifact_has_llm_and_stage_counters(tmp_path):
+    with pytest.raises(NotImplementedError) as ei:
+        _pipe(tmp_path).run("기준.xlsx", [])
+
+    stats = json.loads(
+        (tmp_path / ArtifactStore.slug("기준.xlsx") / "run_stats.json").read_text(encoding="utf-8")
+    )
+    assert stats["llm"]["calls"] == 3  # profile + schema + record
+    assert stats["llm"]["parse_failures"] == 0
+    assert stats["records"] == {
+        "cached": False, "rows_in": 1, "records_out": 1, "records_without_row": 0,
+    }
+    assert stats["facts"]["records_in"] == 1 and stats["facts"]["facts_out"] == 1
+    assert ei.value.summaries[0]["stats"]["llm"]["calls"] == 3
+
+
 def test_progress_callback_invoked(tmp_path):
     seen = []
     with pytest.raises(NotImplementedError):

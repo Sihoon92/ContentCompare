@@ -69,6 +69,20 @@ class LlmRunner:
         self.max_calls = max_calls
         self.temperature = temperature
         self.calls = 0
+        self.retries = 0  # 파싱 실패로 다시 호출한 횟수(계측 — F3.5)
+        self.parse_failures = 0  # JSON 파싱에 실패한 응답 수(재시도 성공분 포함)
+
+    def stats(self) -> dict[str, int]:
+        """계측값 — 문서별 ``run_stats.json`` 에 실린다(F3.5).
+
+        ``parse_failures`` 가 크면 모델/프롬프트의 JSON 준수도가 낮다는 뜻이고,
+        이 분포가 F4b(Repair Loop) 설계의 입력이 된다.
+        """
+        return {
+            "calls": self.calls,
+            "retries": self.retries,
+            "parse_failures": self.parse_failures,
+        }
 
     def complete_json(self, system: str, user: str, *, retries: int = 1) -> dict:
         """system/user 프롬프트로 chat 을 호출해 JSON dict 를 얻는다.
@@ -83,11 +97,14 @@ class LlmRunner:
                     f"LLM 호출 예산 초과(max_calls={self.max_calls})"
                 )
             self.calls += 1
+            if attempt > 0:
+                self.retries += 1
             prompt = user if attempt == 0 else user + _RETRY_NUDGE
             raw = self.chat.complete(system, prompt, temperature=self.temperature)
             obj = parse_json_object(raw)
             if obj is not None:
                 return obj
             last_raw = raw
+            self.parse_failures += 1
             logger.warning("JSON 파싱 실패(attempt %d): %r", attempt + 1, raw)
         raise ValueError(f"LLM JSON 파싱 실패(재시도 {retries}회): {last_raw!r}")

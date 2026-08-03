@@ -73,8 +73,15 @@ def normalize_records(
     *,
     batch_rows: int = 30,
     store: Optional[ArtifactStore] = None,
+    stats: Optional[dict] = None,
 ) -> RecordSet:
-    """엑셀 compact → :class:`RecordSet`. 데이터 행이 없으면 ValueError."""
+    """엑셀 compact → :class:`RecordSet`. 데이터 행이 없으면 ValueError.
+
+    ``stats`` 를 주면 계측값을 채운다(out-param, F3.5). ``rows_in`` 대비
+    ``records_out`` 이 적으면 LLM 이 행을 통째로 흘린 것이고,
+    ``records_without_row`` 는 좌표(cell_range) 추적에 실패한 record 수다 —
+    둘 다 조용히 사라지는 손실이라 계측하지 않으면 보이지 않는다.
+    """
     sheet = _primary_sheet(compact)
     if sheet is None:
         raise ValueError("정규화할 표(데이터 있는 시트)가 없습니다")
@@ -94,7 +101,10 @@ def normalize_records(
         RECORD_VERSION,
     )
 
+    computed = {"ran": False}
+
     def compute() -> dict:
+        computed["ran"] = True
         records: list[Record] = []
         carry = {"category": "", "subcategory": ""}
         seq = 0  # record 전체 순번(배치 걸쳐 단조 증가) — row-less 폴백 id 생성용
@@ -127,5 +137,16 @@ def normalize_records(
         data = store.cached_or_compute("records", compute, fingerprint=fp)
     else:
         data = compute()
-    logger.info("[Fact] records: %s → %d records", location, len(data.get("records", [])))
+    out = data.get("records", [])
+    if stats is not None:
+        stats.update({
+            "cached": not computed["ran"],
+            "rows_in": len(data_rows),
+            "records_out": len(out),
+            # 좌표를 못 붙인 record = LLM 이 준 row 가 배치에 없던 경우(§ _cell_range).
+            "records_without_row": sum(
+                1 for r in out if not (r.get("source") or {}).get("cell_range")
+            ),
+        })
+    logger.info("[Fact] records: %s → %d records", location, len(out))
     return RecordSet.from_dict(data)

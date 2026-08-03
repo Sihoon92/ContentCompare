@@ -245,6 +245,45 @@ def test_word_fact_with_no_valid_source_is_dropped():
     assert [f.entity_name for f in fs.facts] == ["real"]
 
 
+# --------------------------------------------------------------------------- #
+# 계측(F3.5) — 조용한 손실(드롭)을 사유별로 센다
+# --------------------------------------------------------------------------- #
+def test_stats_counts_drops_by_reason():
+    chat = _FactChat(
+        [
+            json.dumps(
+                {
+                    "facts": [
+                        {"entity_name": "real", "source_ids": ["p1"]},
+                        {"entity_name": "ghost", "source_ids": ["nope"]},  # 근거 없음
+                        {"entity_name": "ghost2", "source_ids": []},       # 근거 없음
+                        "문자열 fact",                                       # dict 아님
+                    ]
+                }
+            )
+        ]
+    )
+    stats: dict = {}
+    fs = extract_facts(_WORD, runner=LlmRunner(chat), stats=stats)
+    assert len(fs.facts) == 1
+    assert stats["llm_facts_seen"] == 4
+    assert stats["facts_out"] == 1
+    assert stats["dropped_no_valid_source_id"] == 2
+    assert stats["dropped_not_dict"] == 1
+    assert stats["dropped_samples"] == ["ghost", "ghost2"]  # 원인 진단용 예시
+    assert stats["cached"] is False
+    # 커버리지: p2 는 어떤 fact 의 근거도 되지 못했다(LLM 이 그냥 안 뽑은 내용).
+    assert stats["blocks_in"] == 2 and stats["blocks_cited"] == 1
+    assert stats["blocks_uncited_samples"] == ["p2"]
+
+
+def test_stats_excel_path_reports_records_in():
+    records = RecordSet(records=[Record(record_id="row-2", entity=Entity(display_name="A"))])
+    stats: dict = {}
+    extract_facts({"doc_type": "excel"}, records=records, stats=stats)
+    assert stats["records_in"] == 1 and stats["facts_out"] == 1
+
+
 def test_word_batches_by_block_count():
     blocks = [{"id": f"p{i}", "type": "paragraph", "text": f"항목{i} 값 {i}"} for i in range(1, 4)]
     word = {"doc_type": "word", "file_name": "x.docx", "blocks": blocks}

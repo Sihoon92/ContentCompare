@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 from .config import AppConfig
@@ -52,6 +53,36 @@ def _fact_progress(i: int, total: int, path: str) -> None:
     log_print(f"[{i}/{total}] artifacts 저장: {path}")
 
 
+def _print_fact_summaries(summaries: list[dict]) -> int:
+    """문서별 성공/실패와 계측값을 출력하고 실패 건수를 반환한다(F3.5).
+
+    라이브 검증은 실패를 관찰하는 작업이므로, 어느 문서가 어디까지 갔는지·LLM 을
+    몇 번 불렀는지·fact 를 몇 개 버렸는지를 한눈에 볼 수 있어야 한다.
+    """
+    failed = 0
+    log_print("\n문서별 처리 결과")
+    for s in summaries:
+        name = os.path.basename(s.get("path", ""))
+        stats = s.get("stats") or {}
+        if s.get("status") == "ok":
+            facts = (stats.get("facts") or {}).get("facts_out", "-")
+            log_print(
+                f"  ✅ {name}: {len(s.get('stages') or [])}단계 완료 "
+                f"(LLM {s.get('llm_calls', 0)}회, fact {facts}개) → {s.get('artifacts_dir')}"
+            )
+        else:
+            failed += 1
+            done = ", ".join(s.get("stages") or []) or "없음"
+            log_print(f"  ❌ {name}: {s.get('error')} (완료 단계: {done})")
+        for key in ("records", "facts"):
+            detail = stats.get(key)
+            if detail:
+                log_print(f"       {key}: {detail}")
+        if stats.get("llm"):
+            log_print(f"       llm: {stats['llm']}")
+    return failed
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
@@ -80,17 +111,20 @@ def main(argv: list[str] | None = None) -> int:
 
     pipeline = make_pipeline(config, args.engine)
 
-    # 신규 fact 엔진(Phase F0~F2): raw/compact/profile/schema/records artifacts 저장까지 동작한다.
-    # 비교/리포트(F3~F6)는 아직 없으므로 미구현 신호를 잡아 안내하고 종료.
+    # 신규 fact 엔진(Phase F0~F3): raw/compact/profile/schema/records/facts artifacts 저장까지 동작한다.
+    # 비교/리포트(F4~F6)는 아직 없으므로 미구현 신호를 잡아 안내하고 종료.
     if args.engine == "fact":
+        summaries: list[dict] = []
         try:
-            pipeline.run(args.reference, args.targets, progress=_fact_progress)
+            summaries = pipeline.run(args.reference, args.targets, progress=_fact_progress)
         except NotImplementedError as e:
+            summaries = getattr(e, "summaries", [])
             log_print(f"[fact 엔진] {e}")
+        failed = _print_fact_summaries(summaries)
         log_print(
-            "\nartifacts 저장 완료. fact 비교/리포트는 Phase F3~F6 에서 제공됩니다."
+            "\nartifacts 저장 완료. fact 비교/리포트는 Phase F4~F6 에서 제공됩니다."
         )
-        return 0
+        return 1 if failed else 0
 
     # 현행 RAG 엔진(기본): 기존 동작 그대로.
     results = pipeline.run(args.reference, args.targets, progress=_progress)
