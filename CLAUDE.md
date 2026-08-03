@@ -80,7 +80,13 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 ### 두 개의 추출 경로 (중요)
 
 - **`readers/`** — 운영 경로. `DocItem` 을 만들어 `ComparePipeline` 이 사용. Excel=`xlwings`, Word/PPT=`win32com`.
-- **`raw/`** — 신규/독립 경로(브랜치 `doc-fact-extraction` 주제). 문서를 *해석 없이* 관찰 가능한 물리 정보(`physical_raw` json: 셀 주소·병합·서식, Word 블록 순서 등)로 추출 → `compact_raw` 로 압축해 LLM 입력화하려는 "파일을 LLM 에 바로 주지 않는다"는 설계. **아직 `ComparePipeline` 에는 연결되어 있지 않고** `scripts/dump_raw.py` 와 `tests/test_raw_*.py` 에서만 쓰인다. Excel/Word 만 지원(PPT 미지원).
+- **`raw/`** — 신규 fact 경로의 입구. 문서를 *해석 없이* 관찰 가능한 물리 정보(`physical_raw` json: 셀 주소·병합·서식, Word 블록 순서, PPT 슬라이드·도형·스피커노트)로 추출 → `compact_raw` 로 압축해 LLM 입력화하는 "파일을 LLM 에 바로 주지 않는다"는 설계. Excel/Word/PPT 지원. 현행 `ComparePipeline`(RAG)과는 무관하고, **`--engine fact`(`fact/pipeline.py`)와 `scripts/dump_raw.py`** 가 사용한다.
+
+### fact 엔진 (`fact/`, `--engine fact`)
+
+`FactPipeline` 이 문서마다 raw→compact→profile→schema(Excel)→records(Excel)→facts 를 돌려 `artifacts/<문서>/<단계>.json` 에 남긴다. **비교(F4~F6)는 아직 없어** 마지막에 `FactStagesIncomplete`(=`NotImplementedError`)로 멈춘다. 문서 처리는 서로 격리되어 하나가 실패해도 나머지가 계속되고, 문서별 계측이 `run_stats.json`(LLM 호출/재시도/파싱실패, record·fact 수, 드롭 사유, 블록 커버리지)에 남는다 — **오판·누락 추적이 목적이므로 이 계측을 제거하지 말 것.** 설계·진행은 `docs/FACT_PIPELINE_PLAN.md`, 라이브 실측은 `docs/FACT_F3_5_LIVE_REPORT.md` 참고.
+
+> ⚠️ Ollama 는 컨텍스트가 모자라면 오류가 아니라 **빈 응답**을 준다. fact 프롬프트는 기본 `num_ctx`(4096)를 쉽게 넘으므로 `config.llm.ollama.num_ctx`(권장 16384)를 올리고, thinking 모델이면 `think: false` 로 두는 편이 훨씬 빠르다.
 
 ### 설정 (`config.py`)
 

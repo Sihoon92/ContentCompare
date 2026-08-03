@@ -299,8 +299,10 @@ class FactConfig:
 **DoD**:
 - [x] 신규 단위테스트 통과(record_models/record_normalizer/pipeline).
 - [x] RAG 무회귀(엔진 기본 rag, 기존 스모크 유지).
-- [ ] ollama 라이브 1회(`gemma4:12b`): `기준.xlsx` → `records.json` 생성, entity/quant_spec
-      /source 가 schema 와 정합. 배치 분할(행 많을 때) 동작 확인.
+- [x] ollama 라이브 1회(`gemma4:12b`) — **2026-08-03 완료**([결과: `FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md)).
+      `자표준문서.xlsx`(데이터 20행) → `records.json` 20건, entity/attributes/source 정합, 좌표 누락 0건.
+      상위 분류가 빈 15~22행에 `기본사양` 이 **carry-over** 로 채워지는 것까지 확인.
+      (20행 < `record_batch_rows`=30 이라 배치 분할은 단위테스트로만 검증된 상태로 남는다.)
 - [x] `FACT_PIPELINE_PLAN.md` §9 F2 완료 표기 + 미구현 경계 F3 갱신.
 
 ---

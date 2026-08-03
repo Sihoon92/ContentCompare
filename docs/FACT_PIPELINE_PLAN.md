@@ -1,7 +1,9 @@
 # Fact 기반 비교 파이프라인 구현 계획 (Fact Pipeline Plan)
 
 > 작성일: 2026-06-28 · 보완: 2026-07-02 (설계 검토 반영 — §5 F4a/F4b 분할, §6.2 `unknown` 추가, §9 Phase F3.5 신설, 결정 #7)
-> 상태: **진행 중** — F0~F3 구현 완료(§9), F3.5 이후 미착수. 본 문서는 "무엇을 만들지"를 고정하는 로드맵이다.
+>            · 2026-08-03 (F3 라이브 검증·F3.5 완료 반영 — §9)
+> 상태: **진행 중** — F0~F3.5 완료(§9), 다음은 **F4a**. 본 문서는 "무엇을 만들지"를 고정하는 로드맵이다.
+> F4a/F4b/F5 는 이제 실측 근거가 있다 → [`FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md) §7 참조.
 > 선행 설계 문서: [`DESIGN.md`](DESIGN.md), [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
 > (위 두 문서는 **현행(구) 방식**을 다루며 Phase 1~5 완료 상태다. 본 문서는 그와 **별개의 신규 방식**이다.)
 
@@ -267,14 +269,16 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
 - **Phase F2 — Record Normalizer** ✅ **완료(2026-06-30)** ([상세 설계: `FACT_F2_DESIGN.md`](FACT_F2_DESIGN.md))
   - Excel primary 시트의 데이터 행을 LLM 이 의미 정규화 → `records.json`. 행 배치(`record_batch_rows`=30)+carry-over, source 좌표는 코드가 채움.
   - 미구현 경계가 F3 로 이동. Word/PPT 는 F3 에서 블록→fact 직행.
-- **Phase F3 — Fact Extractor** → `facts.json` (Excel/Word/PPT 공통 schema). **핵심 마일스톤.** — 구현·단위테스트 완료(2026-07-01), ⏳ 라이브 검증 대기 ([상세 설계: `FACT_F3_DESIGN.md`](FACT_F3_DESIGN.md))
+- **Phase F3 — Fact Extractor** → `facts.json` (Excel/Word/PPT 공통 schema). **핵심 마일스톤.** ✅ **완료(2026-08-03 라이브 검증)** ([상세 설계: `FACT_F3_DESIGN.md`](FACT_F3_DESIGN.md))
   - Excel: F2 `records` → `facts` **코드 결정적 변환**(무 LLM). Word/PPT: `compact_raw` 블록/도형 → `facts` **LLM 추출**(F1·F2 건너뜀).
   - 공통 스키마(entity_name/entity_path/attributes{value,unit}/source/evidence_text). `source_ids` 는 코드가 배치 실제 id 와 대조 검증(할루시네이션 방지).
   - 미구현 경계가 **F4** 로 이동. 라이브(gemma4:12b) 검증은 F2 `records` 라이브 검증과 함께 대기.
-- **Phase F3.5 — 라이브 검증 + 골든셋 + 매칭 spike** (2026-07-02 신설 — F4~F6 이 사변 설계가 되는 것을 방지)
-  - **에러 격리 선행**: `FactPipeline.run` 루프에 문서 단위 try/except(`LlmBudgetExceeded`/`ValueError`) + summary `status`/`error` 필드, CLI 문서별 성공/실패 출력. 라이브 검증은 "실패를 관찰하는 작업"이므로 격리가 전제.
-  - **F2/F3 라이브 검증**(실문서 + 실제 LLM)으로 미체크 DoD 를 닫는다. 실문서 20~50항목 사람 라벨 **골든셋** 구축(F6 벤치마크에 그대로 재사용). `LlmRunner` 재시도/실패 카운터, 무근거 fact **드롭 수/사유 계측** 추가 — 침묵하는 recall 손실(대상 문서 fact 누락 → F5 missing 오판)을 가시화.
-  - **F5 매칭 spike** `scripts/spike_fact_match.py`(일회성, 무 LLM): 라이브 `facts.json` 끼리 (a) 정규화 entity_name exact match, (b) 실패분에 BM25/임베딩 폴백(`similarity/` 읽기 전용 재사용)으로 **매칭률·오매칭 사례 실측**. 신규 방식의 최대 가설("상대 문서의 대응 fact 를 찾을 수 있다")을 최저 비용으로 조기 검증하고, F5 검색 전략(가중치·rerank 필요 여부)을 실측으로 확정.
+- **Phase F3.5 — 라이브 검증 + 골든셋 + 매칭 spike** ✅ **완료(2026-08-03)** ([결과: `FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md))
+  - **에러 격리**: `FactPipeline.run` 에 문서 단위 try/except + summary `status`/`error`/`stats`, CLI 문서별 성공/실패 표·종료코드. 격리 범위는 `Exception` 으로 넓혔다 — 실측 최빈 실패가 **COM 예외**라 로드맵의 `LlmBudgetExceeded`/`ValueError` 만으로는 목적을 달성하지 못했다.
+  - **계측**: `LlmRunner`(호출/재시도/파싱실패), records(`rows_in`/`records_out`/좌표 미해결), facts(사유별 드롭 + **블록 커버리지**) → 문서별 `run_stats.json`. 커버리지는 실측 중 추가했다 — 드롭 카운터가 0인데 fact 가 사라지는 무증상 손실(LLM 이 애초에 안 뽑은 블록)이 관찰됐기 때문.
+  - **F2/F3 라이브 검증 완료**: `자표준문서.xlsx`(20행) + 합성 대상 docx/pptx 로 3경로 전부 성공. 블로커였던 **Ollama 컨텍스트 소진 → 빈 응답**은 `llm.ollama.num_ctx`/`think` + 원인 설명 에러로 해결.
+  - **골든셋 27항목**(match 17/mismatch 3/missing 6/unknown 1) — `golden/자표준_골든셋.jsonl`. 대상 문서와 정답을 `scripts/make_synthetic_targets.py` 의 **같은 CASES 테이블**에서 생성해 드리프트를 차단. F6 벤치마크에 그대로 재사용.
+  - **F5 매칭 spike 실측**(`scripts/spike_fact_match.py`): entity_name 완전일치 Word 50%/PPT 15%, BM25 recall@1 100%/80%, **임베딩 100%/100%**, RRF 단순융합은 이득 없음, 대상에 없는 항목은 **3/3 오매칭**. → F5 는 **임베딩 필수 + 점수 임계값 필수**로 확정(리포트 §6).
 - **Phase F4 — Validator + Repair Loop** — **F4a/F4b 로 분할** (§5).
   - F4a: 결정적 validator(정량 불변식·단위 정합·evidence/source 실재) → 라이브 facts 실패 분포 리포트.
   - F4b: Repair Loop — F4a 실패 분포 기반으로 프롬프트 설계(사변 설계 금지).

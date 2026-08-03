@@ -332,10 +332,12 @@ class FactConfig:
 **DoD**:
 - [x] 신규 단위테스트 통과(fact_types/fact_models/fact_extractor/pipeline) — 2026-07-01, fact 스위트 94개 통과.
 - [x] RAG 무회귀(엔진 기본 rag, 기존 스모크 유지) — RAG 스모크+engine 9개 통과.
-- [ ] ollama 라이브 1회(`gemma4:12b`): `기준.xlsx` → `facts.json` **및**
-      `발표.pptx`(또는 `사업보고서.docx`) → `facts.json` 가 schema 와 정합(entity/
-      attributes/source/evidence). ⚠️ 이때 **F2 의 미체크 라이브 DoD**
-      (`기준.xlsx`→`records.json`, [`FACT_F2_DESIGN.md`](FACT_F2_DESIGN.md) §8)도 함께 닫는다.
+- [x] ollama 라이브 1회(`gemma4:12b`) — **2026-08-03 완료**([결과: `FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md)).
+      `자표준문서.xlsx`(20행) → 20 fact, `자표준_규격서.docx` → 10 fact, `자표준_발표.pptx` → 12 fact 로
+      Excel/Word/PPT 3경로 모두 schema 정합(entity/attributes/source/evidence), source 검증에서
+      할루시네이션 id 0건. F2 의 미체크 라이브 DoD 도 함께 닫음.
+      선행 블로커였던 **Ollama 컨텍스트 소진 → 빈 응답**은 `llm.ollama.num_ctx`/`think` 설정과
+      원인 설명 에러로 해결(리포트 §2).
 - [x] `FACT_PIPELINE_PLAN.md` §9 F3 진행 표기 + 미구현 경계 F4 갱신.
 
 ---
