@@ -251,8 +251,10 @@ end-to-end 가 완성돼 `--engine fact` 가 리포트까지 만든다. 위 §6 
 §9.4 에서 관찰한 "경계 점수 오매칭이 mismatch 로 보고된다" 위험을 F7(`FACT_F7_DESIGN.md`)로
 해결했다는 것을 이번 실행으로 확인했다. 실행: `python scripts/compare_engines.py --config
 config/config.yaml --reference samples/자표준문서.xlsx --targets samples/자표준_규격서.docx
-samples/자표준_발표.pptx --golden golden/자표준_골든셋.jsonl --engines fact` (기존
-`artifacts/` 캐시 재사용 — 문서 추출 단계는 그대로, 개념·비교 단계만 새로 돌았다).
+samples/자표준_발표.pptx --golden golden/자표준_골든셋.jsonl --engines fact` (**기존
+`artifacts/` 를 지우지 않고 그대로 재사용** — F3/F3.5/F4a 추출·검증 단계는 이번 실행의
+코드로 새로 생성된 것이 아니라 이전 실행이 남긴 캐시다. 이번 실행에서 실제로 새로 돈
+것은 F7 개념 단계와 F5 비교 단계뿐이다).
 
 ### 10.1 §9.4 위험은 해소됐다
 
@@ -309,11 +311,27 @@ Comparator)가 그 위에서 LLM 을 한 번 더 쓴 것은 "연결해도 되는
 ### 10.3 재현성(온톨로지 승격 후 LLM 호출 감소) — 부분 검증
 
 `knowledge/ontology.yaml` 에 미리 승격해 둔 4개 관계(회귀 3쌍 + 진짜 동의어 1쌍)는 실제로
-LLM 을 건너뛰었다(`pairs_from_ontology`: 0.3 기준 6, 0.6 기준 4 — 값은 후보 쌍 수에 비례해
-달라진다). 다만 설계 §11 DoD #4("재실행 시 개념 단계 LLM 호출이 0~1회")를 **이 실측
+LLM 을 건너뛰었다. **실측치와 출처**: `concept_recall_min=0.3` 실행의 값은 그 실행 직후
+`artifacts/자표준문서_xlsx/concept_graph.json` 의 `stats` 를 읽어 확인한 것이고(이후
+`0.45`/`0.6` 실행이 같은 경로를 덮어써 그 시점 파일은 더는 없다), `0.6` 실행의 값은 이
+문서를 쓰는 시점까지 그 파일이 마지막 실행(=0.6) 결과 그대로 남아 있어(이후 재실행 없음)
+같은 파일에서 다시 읽어 확인했다:
+
+| `concept_recall_min` | `pairs_considered` | `pairs_from_ontology` |
+|---|---|---|
+| 0.3 | 148 | 6 |
+| 0.45 | (미기록) | (미기록) |
+| 0.6 | 65 | 4 |
+
+값은 후보 쌍 수에 비례해 달라진다(임계값이 높을수록 후보가 줄어 온톨로지 적중 수도
+준다). `0.45` 실행은 골든셋 정확도만 기록하고 `stats.concept` 를 따로 저장해 두지
+않아 이 표에는 넣지 않는다 — 범위(예: "65~148")로 뭉뚱그리면 관측하지 않은 값처럼
+보이므로, 실제로 관측한 두 값만 남긴다.
+
+다만 설계 §11 DoD #4("재실행 시 개념 단계 LLM 호출이 0~1회")를 **이 실측
 문서셋 전체 규모로는 확인하지 않았다** — `knowledge/ontology.yaml` 은 브리프 지시대로
-2026-08-03 에 실측 확인된 4개 관계만 담고 있고, 이 문서셋에는 그 밖에도 100개가 넘는 후보
-쌍이 있어(`pairs_considered`: 65~148) 대부분은 여전히 LLM 이 처음 판단한다 — 이는 결함이
+2026-08-03 에 실측 확인된 4개 관계만 담고 있고, 이 문서셋에는 그 밖에도 후보 쌍이
+훨씬 많아(위 표) 대부분은 여전히 LLM 이 처음 판단한다 — 이는 결함이
 아니라 "사람이 검토해 승격할수록 줄어든다"는 온톨로지의 점진적 설계 그대로다. DoD #4 는
 `tests/test_concept_regression.py::test_promoted_ontology_blocks_them_without_llm` 에서
 **단위 테스트 수준으로는 확인됐다**(온톨로지가 후보를 전부 덮으면 `chat.calls == 0`).
