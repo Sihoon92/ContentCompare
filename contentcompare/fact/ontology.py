@@ -56,6 +56,10 @@ def load_ontology(path: str = DEFAULT_ONTOLOGY_PATH) -> Ontology:
     """YAML 을 읽어 :class:`Ontology` 로. 파일이 없으면 빈 온톨로지(정상 경로)."""
     onto = Ontology()
     if not os.path.exists(path):
+        # 정상 경로지만 반드시 남긴다 — 경로 오타나 CWD 불일치로 재현성 장치가
+        # 소리 없이 사라지면 "왜 승격이 안 먹지"를 추적할 단서가 없다.
+        logger.info("[Ontology] %s 가 없어 빈 온톨로지로 시작합니다(cwd: %s)",
+                    path, os.getcwd())
         return onto
     try:
         with open(path, encoding="utf-8") as f:

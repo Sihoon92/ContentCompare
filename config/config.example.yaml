@@ -94,4 +94,9 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
   concept_batch_pairs: 20          # 한 LLM 호출당 판정할 쌍 수
   max_llm_calls_per_concept: 30    # 개념 단계 LLM 호출 예산
   ontology_path: knowledge/ontology.yaml   # 사람이 승격한 개념 관계
-  # ※ use_concept_graph: true 면 match_min_score / match_review_score 는 사용되지 않는다.
+  # ※ use_concept_graph: true 면 match_top_k / match_min_score / match_review_score 는
+  #    비교 경로에서 사용되지 않는다(후보는 개념 그래프가 준다). 롤백용으로만 남겨 둔 값이며
+  #    조정해도 F7 결과는 바뀌지 않는다 — 후보 수는 concept_recall_top_k 로 조절한다.
+  # ※ compare_use_llm: false 는 더 이상 '무 LLM 실행'을 보장하지 않는다. 개념 단계(F7)는
+  #    max_llm_calls_per_concept 라는 별도 예산으로 LLM 을 호출한다. 완전히 끄려면
+  #    use_concept_graph: false 로 둘 것(온톨로지에 이미 승격된 쌍은 원래 LLM 을 안 쓴다).

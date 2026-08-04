@@ -348,6 +348,14 @@ def validate_graph(graph: Any) -> ValidationReport:
     """개념 그래프의 무결성을 검사한다(LLM 미사용).
 
     코드는 **위상만** 본다 — ``axis`` 문자열의 의미는 검사하지 않는다(설계 §2.1).
+
+    .. warning::
+       이 리포트의 :attr:`CheckResult.fact_id` 는 **쌍 라벨**(``"doc#id ↔ doc#id"``)
+       이지 실제 fact id 가 아니다. 그래프는 실행 단위, ``validation_report.json`` 은
+       문서 단위라 같은 스키마를 빌려 쓰되 키의 의미가 다르다. 따라서 이 결과를
+       :attr:`DocFacts.low_confidence_ids` 같은 fact id 기반 경로에 넣으면 안 된다 —
+       매칭되지 않거나 엉뚱한 fact 를 저신뢰로 표시하게 된다. 현재는
+       ``concept_validation.json`` 저장 전용이다.
     """
     from .concept_models import DIFFERS_BY, SAME_AS, UNKNOWN as REL_UNKNOWN
 
