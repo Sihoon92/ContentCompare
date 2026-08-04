@@ -66,7 +66,7 @@ def _reply(**kw) -> str:
 def test_llm_relation_becomes_edge():
     pairs = candidate_pairs(_store(), embedder=_FakeEmbedder())
     runner = LlmRunner(_ScriptedChat([_reply()]), max_calls=5)
-    edges = judge_pairs(runner, pairs)
+    edges, _ = judge_pairs(runner, pairs)
     assert len(edges) == 1
     assert edges[0].relation == DIFFERS_BY and edges[0].axis == "측정조건"
 
@@ -75,7 +75,7 @@ def test_unknown_fact_id_in_reply_is_dropped():
     """LLM 이 주어지지 않은 id 를 지목해도 후보를 벗어나지 않는다."""
     pairs = candidate_pairs(_store(), embedder=_FakeEmbedder())
     runner = LlmRunner(_ScriptedChat([_reply(right_fact_id="없는id")]), max_calls=5)
-    edges = judge_pairs(runner, pairs)
+    edges, _ = judge_pairs(runner, pairs)
     assert [e.relation for e in edges] == [UNKNOWN]
 
 
@@ -83,7 +83,7 @@ def test_missing_pair_in_reply_becomes_unknown():
     """응답이 일부 쌍을 빠뜨려도 그 쌍을 잃지 않는다."""
     pairs = candidate_pairs(_store(), embedder=_FakeEmbedder())
     runner = LlmRunner(_ScriptedChat(['{"pairs": []}']), max_calls=5)
-    edges = judge_pairs(runner, pairs)
+    edges, _ = judge_pairs(runner, pairs)
     assert len(edges) == 1 and edges[0].relation == UNKNOWN
 
 
@@ -102,14 +102,22 @@ def test_budget_exceeded_leaves_rest_unknown():
     store.reference.facts.facts.append(_fact("fact-row-21", "3개월저장온도"))
     pairs = candidate_pairs(store, embedder=_FakeEmbedder())
     runner = LlmRunner(_ScriptedChat(['{"pairs": []}']), max_calls=1)
-    edges = judge_pairs(runner, pairs, batch_size=1)
+    edges, exhausted = judge_pairs(runner, pairs, batch_size=1)
     assert len(edges) == 2
     assert all(e.relation == UNKNOWN for e in edges)
+    assert exhausted == 1  # 두 번째 배치의 1쌍이 예산 소진으로 판정되지 못했다
+
+
+def test_ordinary_llm_failure_is_not_counted_as_budget_exhaustion():
+    """네트워크 실패는 예산 문제가 아니다 — 카운터가 오염되면 안내가 틀린다."""
+    pairs = candidate_pairs(_store(), embedder=_FakeEmbedder())
+    _edges, exhausted = judge_pairs(LlmRunner(_BoomChat(), max_calls=5), pairs)
+    assert exhausted == 0
 
 
 def test_llm_failure_is_isolated_as_unknown():
     pairs = candidate_pairs(_store(), embedder=_FakeEmbedder())
-    edges = judge_pairs(LlmRunner(_BoomChat(), max_calls=5), pairs)
+    edges, _ = judge_pairs(LlmRunner(_BoomChat(), max_calls=5), pairs)
     assert [e.relation for e in edges] == [UNKNOWN]
 
 
@@ -159,6 +167,37 @@ def test_build_graph_stats_report_pair_sources():
     for key in ("pairs_considered", "pairs_from_ontology", "pairs_by_code",
                 "pairs_by_llm", "llm_calls"):
         assert key in graph.stats
+
+
+def test_budget_exhaustion_is_visible_in_stats():
+    """예산 초과는 조용히 전 항목 missing 으로 귀결된다 — 계측으로 드러나야 한다.
+
+    후보 쌍 3건을 배치 1로 쪼개고 예산을 1로 두면 2쌍이 판정되지 못한다.
+    """
+    store = _store()
+    store.reference.facts.facts.extend([
+        _fact("fact-row-21", "3개월저장온도"), _fact("fact-row-22", "1년저장온도")])
+    runner = LlmRunner(_ScriptedChat(['{"pairs": []}']), max_calls=1)
+    graph = build_concept_graph(store, embedder=_FakeEmbedder(), runner=runner,
+                                batch_size=1)
+    assert graph.stats["budget_exhausted_pairs"] == 2
+
+
+def test_no_budget_exhaustion_when_budget_is_enough():
+    """대조군 — 예산이 넉넉하면 카운터가 0 이다."""
+    runner = LlmRunner(_ScriptedChat([_reply()]), max_calls=5)
+    graph = build_concept_graph(_store(), embedder=_FakeEmbedder(), runner=runner)
+    assert graph.stats["budget_exhausted_pairs"] == 0
+
+
+def test_edges_without_runner_are_not_attributed_to_llm():
+    """LLM 을 쓰지 않아 판정하지 않은 쌍을 ``decided_by=llm`` 으로 기록하면 안 된다."""
+    from contentcompare.fact.concept_models import BY_LLM, BY_NONE
+
+    graph = build_concept_graph(_store(), embedder=_FakeEmbedder(), runner=None)
+    assert [e.relation for e in graph.edges] == [UNKNOWN]
+    assert graph.edges[0].decided_by == BY_NONE
+    assert graph.edges[0].decided_by != BY_LLM
 
 
 def test_empty_store_yields_empty_graph():

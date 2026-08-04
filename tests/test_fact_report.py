@@ -214,6 +214,25 @@ def test_no_review_section_when_graph_is_clean():
     assert "검토 필요" not in md
 
 
+def test_budget_exhaustion_is_warned_in_the_report():
+    """예산이 모자라면 전 항목이 조용히 '대상에 없음'이 된다 — 원인과 조치를 알려야 한다."""
+    graph = _unknown_graph()
+    graph.stats = {"budget_exhausted_pairs": 42}
+    md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+                              graph=graph)
+    assert "42" in md
+    assert "max_llm_calls_per_concept" in md
+
+
+def test_no_budget_warning_when_counter_is_zero():
+    """대조군 — 예산이 충분하면 경고가 나오면 안 된다."""
+    graph = _unknown_graph()
+    graph.stats = {"budget_exhausted_pairs": 0}
+    md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+                              graph=graph)
+    assert "max_llm_calls_per_concept" not in md
+
+
 def test_report_renders_without_graph():
     """기존 호출부(그래프 없음)가 그대로 동작해야 한다."""
     md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"])

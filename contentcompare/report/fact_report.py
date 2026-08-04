@@ -42,6 +42,7 @@ def render_fact_markdown(
         f"- 대상 문서: {', '.join(f'`{d}`' for d in target_docs)}",
         "",
     ]
+    lines += _budget_warning(graph)
     lines += _overview(comparisons)
     lines += _summary_table(comparisons)
     lines += _details(comparisons)
@@ -183,6 +184,33 @@ def _oneline(text: str) -> str:
 def _truncate(text: str, limit: int) -> str:
     text = str(text or "")
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _budget_warning(graph: Any) -> list[str]:
+    """개념 판정 예산이 모자라면 **맨 위에** 크게 알린다.
+
+    남은 배치가 전부 ``unknown`` → 연결 없음 → 전 항목 ``missing`` 으로 귀결되는데,
+    그대로 두면 사용자가 보는 것은 "전부 대상에 없음"과 거대한 검토 필요 표뿐이고
+    원인은 로그 warning 에만 남는다.
+    """
+    if graph is None:
+        return []
+    try:
+        pending = int((getattr(graph, "stats", None) or {}).get("budget_exhausted_pairs") or 0)
+    except (TypeError, ValueError):
+        return []
+    if pending <= 0:
+        return []
+    return [
+        f"> 🚨 **개념 판정 예산이 부족해 {pending} 쌍을 판정하지 못했습니다.**",
+        ">",
+        "> 판정하지 못한 쌍은 개념이 이어지지 않으므로, 해당 기준 항목이 실제와 무관하게",
+        "> `⚪ 대상에 없음`으로 보고됐을 수 있습니다. 아래 결과를 그대로 믿지 마세요.",
+        ">",
+        "> 조치: `fact.max_llm_calls_per_concept` 를 늘리거나 "
+        "`fact.concept_batch_pairs` 를 키운 뒤 다시 실행하세요.",
+        "",
+    ]
 
 
 def _review_section(graph: Any) -> list[str]:

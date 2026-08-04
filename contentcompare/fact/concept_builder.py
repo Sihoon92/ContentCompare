@@ -15,6 +15,7 @@ from .concept_assembler import assemble
 from .concept_models import (
     BY_CODE,
     BY_LLM,
+    BY_NONE,
     BY_ONTOLOGY,
     RELATIONS,
     SAME_AS,
@@ -168,17 +169,24 @@ def judge_pairs(
     purpose: str = "",
     ontology_summary: str = "",
     batch_size: int = 20,
-) -> list[ConceptEdge]:
+) -> tuple[list[ConceptEdge], int]:
     """남은 후보 쌍을 배치로 LLM 에 넘겨 관계를 받는다.
 
     실패·예산 초과·응답 누락은 전부 ``unknown`` 엣지로 남긴다. **쌍을 잃지 않는 것**이
     중요하다 — 판단 못 한 쌍은 리포트의 '검토 필요'로 사람에게 간다.
+
+    반환은 ``(엣지, 예산 소진으로 판정 못 한 쌍 수)``. 예산 초과는 조용히 전 항목
+    ``missing`` 으로 귀결되므로 **호출자가 드러낼 수 있게** 별도로 센다.
     """
     edges: list[ConceptEdge] = []
+    exhausted = 0
     for start in range(0, len(pairs), max(1, batch_size)):
         batch = pairs[start : start + max(1, batch_size)]
-        edges.extend(_judge_batch(runner, batch, knowledge, purpose, ontology_summary))
-    return edges
+        batch_edges, batch_exhausted = _judge_batch(
+            runner, batch, knowledge, purpose, ontology_summary)
+        edges.extend(batch_edges)
+        exhausted += batch_exhausted
+    return edges, exhausted
 
 
 def _judge_batch(
@@ -187,19 +195,21 @@ def _judge_batch(
     knowledge: str,
     purpose: str,
     ontology_summary: str,
-) -> list[ConceptEdge]:
+) -> tuple[list[ConceptEdge], int]:
     by_ids: dict[tuple[str, str], CandidatePair] = {
         (p.left.fact_id, p.right.fact_id): p for p in batch
     }
+    # 프롬프트 조립은 try 밖에서 한다 — 조립 버그가 'LLM 판정 실패'로 위장되면
+    # 전 항목 missing 이 되면서 원인 추적이 불가능해진다.
+    user = build_concept_user(batch, knowledge=knowledge, purpose=purpose,
+                              ontology_summary=ontology_summary)
     try:
-        obj = runner.complete_json(
-            CONCEPT_SYSTEM,
-            build_concept_user(batch, knowledge=knowledge, purpose=purpose,
-                               ontology_summary=ontology_summary),
-        )
+        obj = runner.complete_json(CONCEPT_SYSTEM, user)
     except Exception as e:  # noqa: BLE001 — 배치 격리(LlmBudgetExceeded·파싱실패·네트워크)
         logger.warning("[Concept] 배치 판정 실패(%s) → 보류: %s", type(e).__name__, e)
-        return [_unknown_edge(p, f"LLM 판정 실패({type(e).__name__})") for p in batch]
+        exhausted = len(batch) if isinstance(e, LlmBudgetExceeded) else 0
+        return ([_unknown_edge(p, f"LLM 판정 실패({type(e).__name__})") for p in batch],
+                exhausted)
 
     decided: dict[tuple[str, str], ConceptEdge] = {}
     for item in (obj.get("pairs") or []):
@@ -221,17 +231,23 @@ def _judge_batch(
             reason=str(item.get("reason") or ""),
             decided_by=BY_LLM, recall_score=pair.score,
         )
-    return [
+    return ([
         decided.get((p.left.fact_id, p.right.fact_id))
         or _unknown_edge(p, "LLM 응답에 이 쌍이 없었습니다")
         for p in batch
-    ]
+    ], 0)
 
 
-def _unknown_edge(pair: CandidatePair, reason: str) -> ConceptEdge:
+def _unknown_edge(pair: CandidatePair, reason: str,
+                  decided_by: str = BY_LLM) -> ConceptEdge:
+    """판정하지 못한 쌍을 ``unknown`` 으로 남긴다(버리지 않는다).
+
+    ``decided_by`` 는 **누가 판정했는지**의 계측이다. LLM 을 아예 쓰지 않아 판정하지
+    않은 쌍까지 ``llm`` 으로 기록하면 위임률 통계가 거짓이 된다.
+    """
     return ConceptEdge(
         relation=UNKNOWN, left=pair.left_ref, right=pair.right_ref,
-        reason=reason, decided_by=BY_LLM, recall_score=pair.score,
+        reason=reason, decided_by=decided_by, recall_score=pair.score,
     )
 
 
@@ -254,13 +270,15 @@ def build_concept_graph(
     known, remaining = resolve_known(pairs, ontology)
 
     llm_edges: list[ConceptEdge] = []
+    budget_exhausted = 0
     if remaining and runner is not None:
-        llm_edges = judge_pairs(
+        llm_edges, budget_exhausted = judge_pairs(
             runner, remaining, knowledge=knowledge, purpose=purpose,
             ontology_summary=ontology.summary(), batch_size=batch_size,
         )
     elif remaining:
-        llm_edges = [_unknown_edge(p, "LLM 을 쓰지 않아 판정하지 않음") for p in remaining]
+        llm_edges = [_unknown_edge(p, "LLM 을 쓰지 않아 판정하지 않음", BY_NONE)
+                     for p in remaining]
 
     members: list[ConceptMember] = []
     facts: dict[str, Fact] = {}
@@ -276,6 +294,12 @@ def build_concept_graph(
         "pairs_by_code": sum(1 for e in known if e.decided_by == BY_CODE),
         "pairs_by_llm": len(llm_edges),
         "llm_calls": getattr(runner, "calls", 0),
+        # 예산 소진으로 판정하지 못한 쌍. 0 보다 크면 리포트가 경고를 띄운다 —
+        # 그대로 두면 "전부 대상에 없음"으로만 보이고 원인이 로그에만 남는다.
+        "budget_exhausted_pairs": budget_exhausted,
     })
+    if budget_exhausted:
+        logger.warning("[Concept] 예산 소진으로 %d 쌍을 판정하지 못했습니다 "
+                       "— max_llm_calls_per_concept 를 늘리세요", budget_exhausted)
     logger.info("[Concept] 그래프 완성 %s", graph.stats)
     return graph

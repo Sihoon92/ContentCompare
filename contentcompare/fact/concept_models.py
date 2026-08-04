@@ -23,6 +23,7 @@ RELATIONS = (SAME_AS, DIFFERS_BY, UNKNOWN)
 BY_CODE = "code"          # 정규화 이름 완전일치
 BY_ONTOLOGY = "ontology"  # 사람이 knowledge/ontology.yaml 에 승격
 BY_LLM = "llm"            # 이번 실행에서 LLM 이 판단(아직 아무도 확인하지 않음)
+BY_NONE = ""              # 아무도 판정하지 않음(LLM 미사용 등) — LLM 탓으로 기록하지 않는다
 
 
 def _as_str(v: Any, default: str = "") -> str:
