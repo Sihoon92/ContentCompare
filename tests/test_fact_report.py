@@ -119,6 +119,8 @@ def test_format_source_covers_all_doc_types():
 # --------------------------------------------------------------------- #
 from contentcompare.fact.concept_models import (  # noqa: E402
     BY_LLM,
+    DIFFERS_BY,
+    SAME_AS,
     UNKNOWN as REL_UNKNOWN,
     ConceptEdge,
     ConceptGraph,
@@ -144,6 +146,33 @@ def _unknown_graph() -> ConceptGraph:
     )
 
 
+def _clean_graph() -> ConceptGraph:
+    """판정된 엣지만 있고 UNKNOWN 엣지는 없는 그래프 — 검토 필요 섹션이 나타나면 안 된다."""
+    same_members = [ConceptMember("기준.xlsx", "fact-row-1", "저장온도"),
+                    ConceptMember("규격서.docx", "fact-word-2", "저장온도")]
+    diff_members = [ConceptMember("기준.xlsx", "fact-row-3", "충전전압"),
+                    ConceptMember("규격서.docx", "fact-word-4", "전압")]
+    same_edge = ConceptEdge(
+        SAME_AS,
+        FactRef("기준.xlsx", "fact-row-1"),
+        FactRef("규격서.docx", "fact-word-2"),
+        reason="표기가 다르지만 같은 항목", decided_by="code",
+    )
+    diff_edge = ConceptEdge(
+        DIFFERS_BY,
+        FactRef("기준.xlsx", "fact-row-3"),
+        FactRef("규격서.docx", "fact-word-4"),
+        reason="단위가 다릅니다", decided_by="code",
+    )
+    return ConceptGraph(
+        nodes=[ConceptNode("c-0001", "저장온도", same_members[:1]),
+               ConceptNode("c-0002", "저장온도", same_members[1:]),
+               ConceptNode("c-0003", "충전전압", diff_members[:1]),
+               ConceptNode("c-0004", "전압", diff_members[1:])],
+        edges=[same_edge, diff_edge],
+    )
+
+
 def test_review_section_lists_unresolved_pairs():
     """판정 못 한 쌍은 사람에게 보여야 한다 — 그래야 승격으로 이어진다."""
     md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
@@ -154,9 +183,9 @@ def test_review_section_lists_unresolved_pairs():
 
 
 def test_no_review_section_when_graph_is_clean():
-    graph = ConceptGraph(nodes=[], edges=[])
+    """해결된 엣지만 있으면(SAME_AS/DIFFERS_BY) 검토 필요 섹션이 나타나지 않는다."""
     md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
-                              graph=graph)
+                              graph=_clean_graph())
     assert "검토 필요" not in md
 
 
