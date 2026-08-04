@@ -117,24 +117,23 @@ LLM 에 다시 묻지 않게 하는 **재발 방지 데이터**다.
   ],
   "edges": [
     {
-      "type": "same_as",
-      "from": "c-0003",
-      "to": "c-0014",
+      "relation": "same_as",
+      "left": {"doc": "자표준문서.xlsx", "fact_id": "fact-row-3"},
+      "right": {"doc": "자표준_규격서.docx", "fact_id": "fact-word-1"},
       "axis": "",
-      "evidence": {
-        "from_text": "배터리승인규격 ver 4.7 SEC Req. ver.4.7",
-        "to_text": "본 규격은 배터리승인규격 ver 4.7 (SEC Req. ver.4.7) 을 따른다."
-      },
+      "left_text": "배터리승인규격 ver 4.7 SEC Req. ver.4.7",
+      "right_text": "본 규격은 배터리승인규격 ver 4.7 (SEC Req. ver.4.7) 을 따른다.",
       "reason": "둘 다 SEC Req. ver.4.7 을 가리킨다.",
       "decided_by": "llm",
       "promoted": false
     },
     {
-      "type": "differs_by",
-      "from": "c-0001",
-      "to": "c-0009",
+      "relation": "differs_by",
+      "left": {"doc": "자표준문서.xlsx", "fact_id": "fact-row-20"},
+      "right": {"doc": "자표준_규격서.docx", "fact_id": "fact-word-11"},
       "axis": "측정조건",
-      "evidence": {"from_text": "-10.0, 35.0, 80.0", "to_text": "표준환경온도, 21 ~ 29 (중심 25), ℃"},
+      "left_text": "-10.0, 35.0, 80.0",
+      "right_text": "표준환경온도, 21 ~ 29 (중심 25), ℃",
       "reason": "1개월 저장 조건과 상시 환경 조건은 서로 다른 규격이다.",
       "decided_by": "llm",
       "promoted": false
@@ -148,6 +147,10 @@ LLM 에 다시 묻지 않게 하는 **재발 방지 데이터**다.
 **노드 정체성**: 노드는 fact 가 아니라 **개념**이다. 처음에는 fact 하나당 노드 하나로
 시작하고, `same_as` 가 확정되면 병합된다. `members` 가 여러 문서에 걸쳐 있는 노드가
 "두 문서가 같은 것을 말하고 있다"는 표현이다.
+
+**엣지는 개념이 아니라 fact 쌍을 가리킨다.** `concept_id` 는 병합의 *결과*라 실행마다
+바뀌지만, 엣지가 담은 근거 인용은 특정 fact 두 개에 대한 주장이다. 원인을 결과로 키잉하면
+근거 검증(§F7-4)도, 사람이 읽는 것도 어려워진다. 노드는 엣지에서 파생된다.
 
 ### 3.2 `knowledge/ontology.yaml` (사람이 관리하는 영속 온톨로지)
 
@@ -175,6 +178,10 @@ fact_id 는 실행마다 바뀌므로 쓸 수 없다. 항목명이 문서마다 
 
 승격 규칙: `concept_graph.json` 의 엣지를 사람이 검토해 이 파일로 옮긴다. v1 은 직접
 편집이며, `promoted: true` 로 표시되는 것은 로드 시점에 코드가 판단한다(파일에 있으면 승격).
+
+**알려진 한계**: 키가 정규화 항목명이므로 **이름이 같은 두 fact 를 "사실은 다른 항목"이라고
+선언할 수 없다.** 이름이 같으면 코드가 잇는다. 실측에서 이름 완전일치는 10/10 정확했으므로
+지금은 감수한다 — 실제로 문제가 관찰되면 그때 대응한다(관찰 전에 만들지 않는다).
 
 ---
 
@@ -238,11 +245,18 @@ LLM 후보에서 제외한다. 이것이 재현성과 비용을 동시에 해결
 
 - 기준 fact 가 속한 노드의 `members` 중 **해당 대상 문서**의 fact 를 후보로 반환.
 - 없으면 빈 리스트 → 기존 코드 경로 그대로 `missing`.
-- `MatchCandidate.method = "concept"`, `score` 는 recall 점수(참고용),
-  `needs_review` 는 **온톨로지 승격 여부**로 재정의한다 — 사람이 승격한 관계면 `False`,
-  이번 실행에서 LLM 이 판단한 관계면 `True`. 즉 **승격 전에는 값 판정도 LLM 이 한 번 더
-  본다.** 보수적이지만, 아직 사람이 확인하지 않은 연결 위에서 코드가 `mismatch` 를
-  단정하지 않게 하려는 의도다. 승격되면 그 비용이 사라진다.
+- `MatchCandidate.method = "concept"`, `score` 는 후보 생성 시 recall 점수(참고용),
+  `needs_review` 는 **연결의 확정 주체**로 재정의한다:
+
+  | `decided_by` | `needs_review` | 이유 |
+  |---|---|---|
+  | `code`(정규화 이름 완전일치) | `False` | 실측 10/10 정확. 현행 F5 도 exact 를 신뢰한다 |
+  | `ontology`(사람이 승격) | `False` | 사람이 확인했다 |
+  | `llm`(이번 실행에서 판단) | `True` | 아직 아무도 확인하지 않았다 |
+
+  즉 **LLM 이 새로 만든 연결 위에서는 값 판정도 LLM 이 한 번 더 본다.** 보수적이지만,
+  확인되지 않은 연결 위에서 코드가 `mismatch` 를 단정하지 않게 하려는 의도다. 승격하면
+  그 비용이 사라진다.
 
 `match_min_score` / `match_review_score` 는 비교 경로에서 사용하지 않게 되며, recall
 파라미터로 대체된다(§7 마이그레이션).
@@ -289,7 +303,11 @@ LLM 후보에서 제외한다. 이것이 재현성과 비용을 동시에 해결
 | `concept_dangling_node` — 없는 노드 참조 | error | 엣지 폐기 |
 | `concept_unknown_pair` — 관계 미정 | warn | 리포트 "검토 필요" |
 
-결과는 `validation_report.json` 에 기존 검사와 같은 형식으로 합류한다.
+그래프는 실행 단위 산출물이고 `validation_report.json` 은 문서 단위이므로, 결과는
+**같은 스키마의 별도 파일** `artifacts/<기준문서>/concept_validation.json` 으로 남긴다.
+
+근거 검증은 `same_as` 에만 적용한다. `differs_by` 는 차단 방향이라 근거가 없어도 손해가
+없다(§2.3 비대칭 권한).
 
 ---
 
@@ -317,7 +335,8 @@ fact:
 | 파일 | 역할 |
 |---|---|
 | `contentcompare/fact/concept_models.py` | `ConceptNode` / `ConceptEdge` / `ConceptGraph`(+`to_dict`/`from_dict`/`from_llm`) |
-| `contentcompare/fact/concept_builder.py` | F7-1~F7-4 오케스트레이션 |
+| `contentcompare/fact/concept_assembler.py` | F7-4 근거 검증 · `same_as` 병합 · 모순 강등(순수 코드) |
+| `contentcompare/fact/concept_builder.py` | F7-1~F7-3 오케스트레이션(후보 → 온톨로지 → LLM) |
 | `contentcompare/fact/ontology.py` | `knowledge/ontology.yaml` 로드·조회(정규화 이름 키) |
 | `contentcompare/fact/validator.py` | 그래프 검사 추가(§6) |
 | `contentcompare/fact/prompts.py` | `CONCEPT_SYSTEM` / `build_concept_user` |
@@ -338,8 +357,10 @@ fact:
 - **`ontology.yaml` 없음** → 빈 온톨로지로 시작(정상 경로).
 - **문서 처리 실패** → 기존 격리 유지. 그 문서만 비교에서 빠진다.
 
-계측은 `run_stats.json` 에 `concept` 절로 합류한다(쌍 수, 온톨로지 적중, LLM 호출,
-거부/강등 건수). **오판 추적이 목적이므로 이 계측을 제거하지 않는다.**
+계측은 `comparison_result.json` 의 `stats.concept` 절에 실린다(쌍 수, 온톨로지 적중,
+코드/LLM 확정 수, LLM 호출, 거부·강등 건수). `run_stats.json` 은 **문서 단위**인 반면
+개념 그래프는 실행 단위라 그쪽에 넣으면 문서마다 같은 값이 중복된다.
+**오판 추적이 목적이므로 이 계측을 제거하지 않는다.**
 
 ---
 
