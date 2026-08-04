@@ -61,12 +61,34 @@ def candidate_pairs(
     embedder: Any = None,
     top_k: int = 5,
     min_score: float = 0.3,
+    ontology: Optional[Ontology] = None,
 ) -> list[CandidatePair]:
-    """기준 fact × 각 대상 문서에서 검토할 후보 쌍을 만든다(recall 전용)."""
+    """기준 fact × 각 대상 문서에서 검토할 후보 쌍을 만든다(recall 전용).
+
+    ``ontology`` 를 주면 **recall 과 독립적으로** 온톨로지가 아는 쌍을 마저 채운다
+    (설계 §F7-2). 유사도가 낮아 후보가 안 만들어진 쌍은 사람이 ``same_as`` 로 적어도
+    영원히 이어지지 않는데, 승격이 가장 필요한 쌍이 바로 "유사도로는 못 잇는 진짜
+    동의어"다(설계 §3.2). ``FactMatcher.search()`` 가 이름 완전일치에서 조기 종료하는
+    것도 같은 구멍을 만든다. 이름 쌍 조회는 임베딩이 필요 없어 비용이 낮다(dict 조회).
+    """
     if not store.ready:
         return []
     ref_doc = store.reference
     pairs: list[CandidatePair] = []
+    seen: set[tuple[str, str, str, str]] = set()
+
+    def _add(target_doc: str, ref_fact: Fact, tgt_fact: Fact,
+             score: float, exact: bool) -> bool:
+        key = (ref_doc.doc_name, ref_fact.fact_id, target_doc, tgt_fact.fact_id)
+        if key in seen:
+            return False
+        seen.add(key)
+        pairs.append(CandidatePair(
+            left_doc=ref_doc.doc_name, left=ref_fact,
+            right_doc=target_doc, right=tgt_fact, score=score, exact=exact,
+        ))
+        return True
+
     for target in store.targets:
         matcher = FactMatcher(
             target.facts.facts,
@@ -77,13 +99,32 @@ def candidate_pairs(
         )
         for ref_fact in ref_doc.facts.facts:
             for cand in matcher.search(ref_fact):
-                pairs.append(CandidatePair(
-                    left_doc=ref_doc.doc_name, left=ref_fact,
-                    right_doc=target.doc_name, right=cand.fact,
-                    score=cand.score, exact=(cand.method == EXACT),
-                ))
-    logger.info("[Concept] 후보 쌍 %d 건", len(pairs))
+                _add(target.doc_name, ref_fact, cand.fact,
+                     cand.score, cand.method == EXACT)
+
+    added = _augment_with_ontology(store, ontology, _add)
+    logger.info("[Concept] 후보 쌍 %d 건(온톨로지 보강 %d 건)", len(pairs), added)
     return pairs
+
+
+def _augment_with_ontology(store: FactStore, ontology: Optional[Ontology], add: Any) -> int:
+    """온톨로지가 아는 (기준 × 대상) 쌍 중 recall 이 빠뜨린 것을 무조건 추가한다.
+
+    추가된 쌍은 ``score=0.0``/``exact=False`` 로 두고, 관계는 평소대로
+    :func:`resolve_known` 이 온톨로지에서 읽어 붙인다.
+    """
+    ref_doc = store.reference
+    if ref_doc is None or ontology is None or not len(ontology):
+        return 0
+    added = 0
+    for target in store.targets:
+        for ref_fact in ref_doc.facts.facts:
+            for tgt_fact in target.facts.facts:
+                if ontology.relation_for(ref_fact.entity_name, tgt_fact.entity_name) is None:
+                    continue
+                if add(target.doc_name, ref_fact, tgt_fact, 0.0, False):
+                    added += 1
+    return added
 
 
 def resolve_known(
@@ -208,7 +249,8 @@ def build_concept_graph(
 ) -> ConceptGraph:
     """F7 전체 — 후보 쌍 → 코드/온톨로지 확정 → LLM → 조립."""
     ontology = ontology or Ontology()
-    pairs = candidate_pairs(store, embedder=embedder, top_k=top_k, min_score=min_score)
+    pairs = candidate_pairs(store, embedder=embedder, top_k=top_k, min_score=min_score,
+                            ontology=ontology)
     known, remaining = resolve_known(pairs, ontology)
 
     llm_edges: list[ConceptEdge] = []

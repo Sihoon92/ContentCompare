@@ -14,6 +14,26 @@ class _FakeEmbedder:
         return [[1.0, 0.9] if "온도" in t else [1.0, 0.0] for t in texts]
 
 
+class _OrthogonalEmbedder:
+    """서로 다른 텍스트는 전부 직교(코사인 0) — recall 이 어떤 쌍도 만들지 못한다.
+
+    "유사도로는 이을 수 없는 진짜 동의어"를 재현하기 위한 것이다. 같은 인스턴스를
+    색인·질의에 함께 쓰므로 같은 문자열은 같은 축을 받는다.
+    """
+
+    def __init__(self) -> None:
+        self._axis: dict[str, int] = {}
+
+    def embed(self, texts, kind="passage"):
+        out = []
+        for t in texts:
+            self._axis.setdefault(t, len(self._axis))
+            vec = [0.0] * 32
+            vec[self._axis[t] % 32] = 1.0
+            out.append(vec)
+        return out
+
+
 def _fact(fact_id: str, name: str) -> Fact:
     return Fact(fact_id=fact_id, entity_name=name, search_text=name, evidence_text=name)
 
@@ -156,3 +176,59 @@ def test_unknown_pair_is_left_for_llm():
     store = _store(["1개월저장온도"], ["표준환경온도"])
     edges, remaining = resolve_known(candidate_pairs(store, embedder=_FakeEmbedder()), Ontology())
     assert edges == [] and len(remaining) == 1
+
+
+# --------------------------------------------------------------------- #
+# 온톨로지 보강 — recall 임계와 **독립적**이어야 한다(설계 §F7-2)
+# --------------------------------------------------------------------- #
+def _synonym_ontology(tmp_path) -> "object":
+    p = tmp_path / "o.yaml"
+    p.write_text('same_as:\n  - names: ["고객 표준 버전", "문서 기준 규격"]\n'
+                 '    reason: "둘 다 SEC Req. ver.4.7 을 가리킨다"\n', encoding="utf-8")
+    return load_ontology(str(p))
+
+
+def test_ontology_pair_is_a_candidate_even_when_recall_drops_it(tmp_path):
+    """사람이 승격한 관계가 유사도 임계 뒤에 갇히면 안 된다.
+
+    승격이 가장 필요한 쌍이 바로 "유사도로는 못 잇는 진짜 동의어"다(설계 §3.2).
+    직교 임베더 + 임계 0.99 로 recall 이 확실히 걸러내게 만든 뒤, 온톨로지를 넘겼을
+    때만 후보가 생기는지 본다 — 앞의 단정이 이 테스트를 load-bearing 하게 만든다.
+    """
+    store = _store(["고객 표준 버전"], ["문서 기준 규격"])
+    embedder = _OrthogonalEmbedder()
+    assert candidate_pairs(store, embedder=embedder, min_score=0.99) == []
+
+    pairs = candidate_pairs(store, embedder=embedder, min_score=0.99,
+                            ontology=_synonym_ontology(tmp_path))
+    assert len(pairs) == 1
+    assert pairs[0].score == 0.0 and pairs[0].exact is False
+    edges, remaining = resolve_known(pairs, _synonym_ontology(tmp_path))
+    assert remaining == []
+    assert edges[0].relation == SAME_AS and edges[0].decided_by == BY_ONTOLOGY
+
+
+def test_ontology_pair_survives_exact_name_early_return(tmp_path):
+    """``FactMatcher.search()`` 는 정규화 이름 완전일치가 있으면 그 하나만 돌려주고
+    끝낸다. 그래서 이름이 일치하는 fact 가 있는 기준 항목은 승격 관계를 맺을 방법이
+    아예 없었다 — 온톨로지 보강이 recall 밖에서 돌아야 하는 두 번째 이유다.
+    """
+    store = _store(["고객 표준 버전"], ["고객 표준 버전", "문서 기준 규격"])
+    recall_only = candidate_pairs(store, embedder=_FakeEmbedder())
+    assert [p.right.fact_id for p in recall_only] == ["fact-word-1"]  # 완전일치 조기 종료
+
+    pairs = candidate_pairs(store, embedder=_FakeEmbedder(),
+                            ontology=_synonym_ontology(tmp_path))
+    assert {p.right.fact_id for p in pairs} == {"fact-word-1", "fact-word-2"}
+
+
+def test_ontology_augmentation_does_not_duplicate_recall_candidates(tmp_path):
+    """이미 recall 이 만든 쌍을 온톨로지가 중복 추가하지 않는다."""
+    p = tmp_path / "o.yaml"
+    p.write_text('differs_by:\n  - names: ["1개월저장온도", "표준환경온도"]\n    axis: "측정조건"\n',
+                 encoding="utf-8")
+    store = _store(["1개월저장온도"], ["표준환경온도"])
+    onto = load_ontology(str(p))
+    assert len(candidate_pairs(store, embedder=_FakeEmbedder(), min_score=0.3)) == 1
+    assert len(candidate_pairs(store, embedder=_FakeEmbedder(), min_score=0.3,
+                               ontology=onto)) == 1

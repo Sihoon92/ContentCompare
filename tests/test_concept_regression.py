@@ -122,19 +122,59 @@ def test_promoted_ontology_blocks_them_without_llm(tmp_path):
         assert graph.partners("기준.xlsx", ref_id, "규격서.docx") == []
 
 
-def test_true_synonym_is_linked_when_promoted(tmp_path):
-    """고객 표준 버전 ↔ 문서 기준 규격 — 슬롯으로는 못 잇는 진짜 동의어."""
-    path = tmp_path / "ontology.yaml"
-    path.write_text('same_as:\n  - names: ["고객 표준 버전", "문서 기준 규격"]\n',
-                    encoding="utf-8")
+class _NeverSimilarEmbedder:
+    """모든 텍스트가 직교 — 유사도 recall 이 어떤 쌍도 만들지 못한다.
+
+    "유사도로는 못 잇는 진짜 동의어"의 최소 재현이다. 이 임베더를 쓰면 온톨로지
+    보강이 recall **밖에서** 돌지 않는 한 쌍 자체가 생기지 않는다.
+    """
+
+    def __init__(self) -> None:
+        self._axis: dict[str, int] = {}
+
+    def embed(self, texts, kind="passage"):
+        out = []
+        for t in texts:
+            self._axis.setdefault(t, len(self._axis))
+            vec = [0.0] * 32
+            vec[self._axis[t] % 32] = 1.0
+            out.append(vec)
+        return out
+
+
+def _synonym_store() -> FactStore:
     store = FactStore()
     store.add(DocFacts(doc_name="기준.xlsx", facts=FactSet(facts=[
         _fact("r9", "고객 표준 버전", "배터리승인규격 ver 4.7")])), is_reference=True)
     store.add(DocFacts(doc_name="규격서.docx", facts=FactSet(facts=[
         _fact("w9", "문서 기준 규격", "본 규격은 배터리승인규격 ver 4.7 을 따른다")])))
+    return store
 
-    graph = build_concept_graph(store, embedder=_FakeEmbedder(), runner=None,
+
+def test_true_synonym_is_linked_when_promoted(tmp_path):
+    """고객 표준 버전 ↔ 문서 기준 규격 — 슬롯으로는 못 잇는 진짜 동의어.
+
+    임베더를 직교로 두고 recall 임계까지 올려, **유사도로는 후보조차 되지 않는**
+    상황에서 승격이 작동하는지 본다. 온톨로지 조회가 recall 뒤에 있으면 실패한다.
+    """
+    path = tmp_path / "ontology.yaml"
+    path.write_text('same_as:\n  - names: ["고객 표준 버전", "문서 기준 규격"]\n',
+                    encoding="utf-8")
+
+    graph = build_concept_graph(_synonym_store(), embedder=_NeverSimilarEmbedder(),
+                                runner=None, min_score=0.99,
                                 ontology=load_ontology(str(path)))
     partners = graph.partners("기준.xlsx", "r9", "규격서.docx")
     assert [m.fact_id for m in partners] == ["w9"]
     assert graph.edges[0].relation == SAME_AS
+
+
+def test_synonym_stays_unlinked_without_promotion(tmp_path):
+    """대조군 — 온톨로지가 없으면 같은 설정에서 쌍조차 만들어지지 않는다.
+
+    위 테스트가 '보강 덕분에' 통과한 것임을 증명한다(유사도가 우연히 이어준 게 아니다).
+    """
+    graph = build_concept_graph(_synonym_store(), embedder=_NeverSimilarEmbedder(),
+                                runner=None, min_score=0.99)
+    assert graph.edges == []
+    assert graph.partners("기준.xlsx", "r9", "규격서.docx") == []
