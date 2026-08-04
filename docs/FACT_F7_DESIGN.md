@@ -426,7 +426,7 @@ fact:
    (`test_promoted_ontology_blocks_them_without_llm`). 이번 실측 문서셋은 온톨로지가
    덮지 않는 후보 쌍이 훨씬 많아(§10.3) 전체 규모 재현은 하지 않았다 — 결함이 아니라
    온톨로지의 점진적 승격 설계 그대로다.
-5. `python -m pytest` 전체 통과 — **충족**(458 passed).
+5. `python -m pytest` 전체 통과 — **충족**(최종 전체 리뷰 수정 반영 후 479 passed).
 
 **End-to-end 회귀 테스트가 찾은 결함**: 온톨로지로 승격한 `same_as` 가 근거 검증에 걸려
 100% 강등되는 버그가 있었다(`concept_builder.py`/`concept_assembler.py` 경계 — 각 Task 의
