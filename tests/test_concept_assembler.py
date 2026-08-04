@@ -150,3 +150,28 @@ def test_edge_referencing_unknown_fact_is_ignored():
     g = assemble(_members(), [edge], _facts())
     assert g.stats["rejected_evidence"] == 0
     assert len({n.concept_id for n in g.nodes}) == 3
+
+
+def test_promoted_same_as_survives_when_a_merge_must_be_sacrificed():
+    """경쟁하는 두 same_as 후보 중 하나만 살아남을 수 있을 때 승격된 쪽이 이긴다.
+
+    A=B(승격) 와 B=C(LLM) 가 경쟁하고 differs_by(A,C) 가 있어 둘 다 성립할 수는
+    없다. LLM 엣지가 입력 목록에서 먼저 와도(정렬이 없다면 먼저 처리되어 B,C 가
+    합쳐지고 승격 엣지가 희생됨) 승격 우선 정렬 덕분에 A=B 가 먼저 적용되어
+    살아남고, 뒤늦게 처리되는 B=C 가 강등되어야 한다.
+    """
+    members = _members()
+    llm_bc = _same(left=TGT_A, right=TGT_B, left_text="공칭용량, 1150, mAh",
+                    right_text="표준환경온도, 21 ~ 29, ℃", decided_by=BY_LLM)
+    promoted_ab = _same(right=TGT_A, decided_by=BY_ONTOLOGY, promoted=True)
+    blocker = ConceptEdge(DIFFERS_BY, REF_A, TGT_B, axis="측정조건")
+    # 입력 순서는 일부러 LLM 엣지가 먼저 오게 한다 — 정렬이 없으면 이 순서대로
+    # 처리되어 반대 결과(B=C 생존, A=B 희생)가 나온다.
+    g = assemble(members, [llm_bc, promoted_ab, blocker], _facts())
+
+    assert g.node_id_of("기준.xlsx", "fact-row-1") == g.node_id_of("규격서.docx", "fact-word-7")
+    assert g.node_id_of("규격서.docx", "fact-word-11") != g.node_id_of("기준.xlsx", "fact-row-1")
+
+    downgraded = [e for e in g.edges if e.rejected_by == "differs_by"]
+    assert len(downgraded) == 1
+    assert downgraded[0].pair_key == tuple(sorted((TGT_A.key, TGT_B.key)))
