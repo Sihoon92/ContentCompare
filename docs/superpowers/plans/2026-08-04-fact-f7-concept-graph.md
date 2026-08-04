@@ -2753,6 +2753,26 @@ class _FakeEmbedder:
         return [[1.0, 0.0] for _ in texts]
 
 
+class _GroupEmbedder:
+    """의도한 3쌍만 후보가 되도록 그룹별 직교 벡터를 준다.
+
+    모든 벡터를 같게 주면 3x3 전부가 후보가 되어, 온톨로지가 덮지 않는 6쌍이
+    LLM 으로 가고 chat.calls == 0 이 성립하지 않는다 — 그러면 이 테스트가
+    검증하려는 '온톨로지가 LLM 을 건너뛴다'를 증명하지 못한다.
+    """
+
+    def embed(self, texts, kind="passage"):
+        out = []
+        for t in texts:
+            if "저장" in t or "표준" in t:
+                out.append([1.0, 0.0, 0.0])
+            elif "평가" in t or "습도" in t:
+                out.append([0.0, 1.0, 0.0])
+            else:  # 충전 / 전압
+                out.append([0.0, 0.0, 1.0])
+        return out
+
+
 def _fact(fact_id, name, evidence) -> Fact:
     return Fact(fact_id=fact_id, entity_name=name, search_text=f"{name} {evidence}",
                 evidence_text=evidence,
@@ -2796,7 +2816,7 @@ def test_promoted_ontology_blocks_them_without_llm(tmp_path):
 
     chat = _RelationChat({})
     graph = build_concept_graph(
-        _store(), embedder=_FakeEmbedder(), runner=LlmRunner(chat, max_calls=10),
+        _store(), embedder=_GroupEmbedder(), runner=LlmRunner(chat, max_calls=10),
         ontology=load_ontology(str(path)),
     )
     assert chat.calls == 0

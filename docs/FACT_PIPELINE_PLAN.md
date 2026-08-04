@@ -314,8 +314,15 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
   검색은 exact → 임베딩(임계 `match_min_score`) — spike 실측대로 BM25 는 폴백으로만 둔다.
 - **Phase F6 — Report + 벤치마크 하니스** ✅ **완료(2026-08-03)** —
   `report/fact_report.py`(양측 원문+좌표 인용) + `scripts/compare_engines.py`(§1.1.1 실측).
+- **Phase F7 — 개념 그래프** ✅ **완료(2026-08-04)** ([상세 설계: `FACT_F7_DESIGN.md`](FACT_F7_DESIGN.md))
+  F5 의 유사도 임계값 매칭을 개념 그래프 조회로 대체 — 코사인 점수는 "무관함"을 표현할 수
+  없다는 실측(§F3.5 `FACT_F3_5_LIVE_REPORT.md` §9.4)에 대한 해법. 후보 쌍(임베딩/BM25) →
+  온톨로지 조회(`knowledge/ontology.yaml`) → LLM 판정(`same_as`/`differs_by`/`unknown`) →
+  근거 검증·병합 순으로 동작하며, `same_as` 로 이어지지 않으면 비교하지 않는다. 라이브
+  재검증: `FACT_F3_5_LIVE_REPORT.md` §10(2026-08-03 오매칭 3쌍이 재현되지 않음을 확인,
+  `concept_recall_min` 민감도 등 남은 한계도 §10.2 에 기록).
 
-의존 순서: F0 → F1 → F2 → F3 → **F3.5** → F4a → F5 → F6 → (F4b 보류).
+의존 순서: F0 → F1 → F2 → F3 → **F3.5** → F4a → F5 → F6 → **F7** → (F4b 보류).
 
 ---
 

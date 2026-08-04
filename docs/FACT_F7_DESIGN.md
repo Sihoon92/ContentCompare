@@ -1,7 +1,9 @@
 # Phase F7 상세 설계 — 개념 그래프 (Concept Graph)
 
 > 작성일: 2026-08-04
-> 상태: **설계** — 파일·JSON 스키마·프롬프트·테스트를 고정한다.
+> 상태: **구현 완료(2026-08-04)** — Task 1~11 종료. 실측·DoD 결과는 §11, 회귀는
+> `tests/test_concept_regression.py`, 라이브 전후 비교는
+> [`FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md) §10 참고.
 > 상위 계획: [`FACT_PIPELINE_PLAN.md`](FACT_PIPELINE_PLAN.md)
 > 선행: [`FACT_F3_DESIGN.md`](FACT_F3_DESIGN.md)(`facts.json`), F4a Validator, F5 Matcher/Comparator
 > 실측 근거: [`FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md) §6·§9.4
@@ -391,12 +393,31 @@ fact:
 
 ## 11. 완료 기준 (DoD)
 
-1. 골든셋 기준 항목 19개에서 fact 엔진 정확도가 **현행 17/19 이상**.
-2. **비교 대상이 아닌 쌍을 `match`/`mismatch` 로 보고하는 건이 0건** — 이것이 F7 의 존재 이유다.
+실측(2026-08-04, `samples/자표준문서.xlsx` ↔ `자표준_규격서.docx`/`자표준_발표.pptx`,
+`golden/자표준_골든셋.jsonl`)은 [`FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md) §10 에
+전체가 있다. 요약:
+
+1. 골든셋 기준 항목 19개에서 fact 엔진 정확도가 **현행 17/19 이상** — **충족**.
+   `concept_recall_min=0.3`/`0.45` 에서 17/19(89%), `0.6` 에서 18/19(95%) 관측.
+2. **비교 대상이 아닌 쌍을 `match`/`mismatch` 로 보고하는 건이 0건** — **충족**.
+   2026-08-03 에 실제로 잘못 이어졌던 3쌍(`1개월저장온도`/`평가환경온도`/`충전환경온도`)이
+   세 임계값 모두에서 `missing` 으로 보고됐고(더 이상 무관한 항목과 엮이지 않음), 전체
+   40건의 비교 결과를 훑어도 다른 사례가 관찰되지 않았다.
 3. `concept_recall_min` 을 0.3~0.6 사이에서 바꿔도 **골든셋 채점 결과가 변하지 않는다**
-   — 유사도가 판정에서 빠졌음을 실측으로 확인하는 항목이다(모델 종속성 제거).
-4. 재실행 시(승격 후) 개념 단계 LLM 호출이 0~1회.
-5. `python -m pytest` 전체 통과.
+   — **부분 충족**. 위 3쌍이 다시 잘못 이어지는 일은 없었지만(핵심 실패 모드는 값 무관하게
+   막힘), 골든셋 총점 자체는 0.3/0.45 에서 17/19, 0.6 에서 18/19 로 **달라졌다** — 후보 쌍
+   수가 바뀌면 LLM 배치(`concept_batch_pairs`) 구성이 달라지고, 그것이 한 쌍(`3개월저장온도`)의
+   판정에 영향을 준 것으로 보인다. 상세는 §10.2.
+4. 재실행 시(승격 후) 개념 단계 LLM 호출이 0~1회 — **단위 테스트로만 확인**
+   (`test_promoted_ontology_blocks_them_without_llm`). 이번 실측 문서셋은 온톨로지가
+   덮지 않는 후보 쌍이 훨씬 많아(§10.3) 전체 규모 재현은 하지 않았다 — 결함이 아니라
+   온톨로지의 점진적 승격 설계 그대로다.
+5. `python -m pytest` 전체 통과 — **충족**(458 passed).
+
+**End-to-end 회귀 테스트가 찾은 결함**: 온톨로지로 승격한 `same_as` 가 근거 검증에 걸려
+100% 강등되는 버그가 있었다(`concept_builder.py`/`concept_assembler.py` 경계 — 각 Task 의
+단위 테스트로는 잡히지 않았다). 커밋 `1520007` 로 수정. 상세는
+`FACT_F3_5_LIVE_REPORT.md` §10.4.
 
 ---
 
