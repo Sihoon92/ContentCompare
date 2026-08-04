@@ -353,3 +353,70 @@ def build_compare_user(reference: Any, candidates: list, *, knowledge: str = "")
         "확신이 없으면 unknown 으로 두세요."
     )
     return "\n".join(parts)
+
+
+# --------------------------------------------------------------------------- #
+# F7 개념 판정
+# --------------------------------------------------------------------------- #
+CONCEPT_SYSTEM = """\
+당신은 서로 다른 문서의 두 항목이 **같은 것을 가리키는지** 판정하는 검토자입니다.
+값이 같은지는 다른 단계가 판단합니다. 당신은 "이 둘을 비교해도 되는가"만 답합니다.
+
+판정 값:
+- "same_as": 두 항목이 같은 대상에 대한 같은 주장이다. 표기·언어·단위가 달라도 됩니다.
+- "differs_by": 서로 다른 항목이다. **무엇이 달라서 다른지 축(axis) 이름을 직접 지어**
+  쓰세요(예: 측정조건, 기간, 물리량, 산정방식, 연결범위). 정해진 목록은 없습니다 —
+  이 문서의 분야에 맞는 이름을 지으세요.
+- "unknown": 판단이 서지 않는다.
+
+원칙:
+1. **값이 다른 것은 differs_by 의 근거가 아닙니다.** "21~29 와 -10~80 은 값이 다르니
+   다른 항목"이라고 추론하지 마세요. 값의 차이는 우리가 찾으려는 결과이지 판단 재료가
+   아닙니다. 항목이 **무엇에 대한 것인지**만 보세요.
+2. "same_as" 를 쓰려면 양쪽에서 **원문을 그대로 인용**해야 합니다(left_text/right_text).
+   인용할 원문이 없으면 same_as 를 쓸 수 없습니다.
+3. 확신이 없으면 "unknown" 을 쓰세요. 틀린 연결은 사람을 잘못된 수정으로 유도하지만,
+   놓친 연결은 검토 목록에 남아 확인됩니다.
+4. 주어진 쌍마다 정확히 하나의 판정을 내고, 쌍의 id 를 그대로 옮기세요.
+
+반드시 아래 JSON 만 출력하세요(설명·마크다운 금지):
+{
+  "pairs": [
+    {
+      "left_fact_id": "<주어진 id>",
+      "right_fact_id": "<주어진 id>",
+      "relation": "same_as|differs_by|unknown",
+      "axis": "<differs_by 일 때 무엇이 다른지>",
+      "left_text": "<same_as 일 때 왼쪽 원문 인용>",
+      "right_text": "<same_as 일 때 오른쪽 원문 인용>",
+      "reason": "<한국어 한 문장>"
+    }
+  ]
+}"""
+
+
+def build_concept_user(
+    pairs: list,
+    *,
+    knowledge: str = "",
+    purpose: str = "",
+    ontology_summary: str = "",
+) -> str:
+    """개념 판정 프롬프트의 user 파트. ``pairs`` 는 ``CandidatePair`` 리스트."""
+    blocks: list[str] = []
+    if purpose:
+        blocks.append(f"[문서 분야]\n{purpose}")
+    if knowledge:
+        blocks.append(f"[참고자료 — 도메인 지식]\n{knowledge}")
+    if ontology_summary:
+        blocks.append(f"[이미 확정된 관계 — 일관되게 판단하세요]\n{ontology_summary}")
+
+    for i, pair in enumerate(pairs, start=1):
+        blocks.append(
+            f"[쌍 {i}]\n"
+            f"left_fact_id: {pair.left.fact_id} (문서: {pair.left_doc})\n"
+            f"{_render_fact(pair.left, prefix='  ')}\n"
+            f"right_fact_id: {pair.right.fact_id} (문서: {pair.right_doc})\n"
+            f"{_render_fact(pair.right, prefix='  ')}"
+        )
+    return "\n\n".join(blocks)
