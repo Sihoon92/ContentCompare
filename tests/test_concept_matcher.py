@@ -58,7 +58,14 @@ def test_code_decided_link_does_not_need_review():
 
 
 def test_promoted_link_does_not_need_review():
+    """온톨로지 경로 검증 — 온톨로지 확정된 연결은 신뢰한다."""
     cands = _matcher(_graph(decided_by=BY_ONTOLOGY, promoted=True)).search(REF)
+    assert cands[0].needs_review is False
+
+
+def test_promoted_llm_link_does_not_need_review():
+    """promoted 플래그 고립 검증 — LLM 이 만든 연결이라도 인간이 승격하면 신뢰한다."""
+    cands = _matcher(_graph(decided_by=BY_LLM, promoted=True)).search(REF)
     assert cands[0].needs_review is False
 
 
