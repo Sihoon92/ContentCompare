@@ -171,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
 
     strategies = matcher.strategies()
     score = {s: {"hit1": 0, "hit3": 0, "fp": 0} for s in strategies}
+    # 임계값 캘리브레이션용: 정답 top1 점수 vs 오매칭 top1 점수의 분포.
+    # 이 두 분포가 갈리는 지점이 F5 의 match_min_score 다(missing 판정의 근거).
+    calib = {s: {"hit": [], "fp": []} for s in strategies}
     rows, exact_n, judged, missing_total = [], 0, 0, 0
     for ref in refs:
         exact, ranked_by = matcher.match(ref)
@@ -191,7 +194,9 @@ def main(argv: list[str] | None = None) -> int:
                 # 대상에 없는 항목인데 후보를 붙였으면 오매칭(F5 의 false match 위험).
                 if idxs:
                     score[s]["fp"] += 1
-                    verdicts[s] = "⚠ 오매칭"
+                    if not exact:
+                        calib[s]["fp"].append(ranked[0][1])
+                    verdicts[s] = f"⚠ 오매칭({ranked[0][1]:.3f})"
                 else:
                     verdicts[s] = "✅ 후보없음"
             elif gold["index"] is None:
@@ -199,7 +204,9 @@ def main(argv: list[str] | None = None) -> int:
             elif idxs and idxs[0] == gold["index"]:
                 score[s]["hit1"] += 1
                 score[s]["hit3"] += 1
-                verdicts[s] = "✅ top1"
+                if not exact:
+                    calib[s]["hit"].append(ranked[0][1])
+                verdicts[s] = f"✅ top1({ranked[0][1]:.3f})"
             elif gold["index"] in idxs:
                 score[s]["hit3"] += 1
                 verdicts[s] = f"△ top{idxs.index(gold['index']) + 1}"
@@ -228,8 +235,33 @@ def main(argv: list[str] | None = None) -> int:
         if missing_total:
             line += f" · 대상없음 {missing_total}건 중 오매칭 {score[s]['fp']}건"
         print(line)
+        _print_calibration(s, calib[s])
     print(f"  상세: {args.out}")
     return 0
+
+
+def _print_calibration(strategy: str, data: dict) -> None:
+    """정답 top1 점수와 오매칭 top1 점수의 분포를 보여준다(임계값 결정용).
+
+    exact 확정분은 점수가 1.0 고정이라 분포를 왜곡하므로 애초에 수집하지 않는다
+    (BM25 는 점수가 1.0 을 넘으므로 점수로 걸러낼 수 없다).
+    """
+    hits = sorted(data["hit"])
+    fps = sorted(data["fp"])
+    if not hits and not fps:
+        return
+    parts = []
+    if hits:
+        parts.append(f"정답 {len(hits)}건 min={hits[0]:.3f} max={hits[-1]:.3f}")
+    if fps:
+        parts.append(f"오매칭 {len(fps)}건 min={fps[0]:.3f} max={fps[-1]:.3f}")
+    line = f"          점수분포: {' · '.join(parts)}"
+    if hits and fps:
+        if hits[0] > fps[-1]:
+            line += f"  → 분리 가능, 임계값 후보 {(hits[0] + fps[-1]) / 2:.3f}"
+        else:
+            line += "  → 겹침(단일 임계값으로 분리 불가)"
+    print(line)
 
 
 def _guess_target_doc(path: str) -> str:
