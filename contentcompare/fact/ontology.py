@@ -64,6 +64,11 @@ def load_ontology(path: str = DEFAULT_ONTOLOGY_PATH) -> Ontology:
         logger.warning("[Ontology] %s 를 읽지 못했습니다: %s", path, e)
         return onto
 
+    # YAML 이 파싱은 되지만 상위가 mapping 이 아닌 경우(리스트, scalar) 처리
+    if not isinstance(data, dict):
+        logger.warning("[Ontology] %s 상위가 mapping 이 아닙니다(type: %s)", path, type(data).__name__)
+        return onto
+
     # same_as 를 먼저 넣고 differs_by 로 덮는다 — 차단이 연결을 이긴다(설계 §2.3).
     _load_section(onto, data.get("same_as"), SAME_AS)
     _load_section(onto, data.get("differs_by"), DIFFERS_BY)

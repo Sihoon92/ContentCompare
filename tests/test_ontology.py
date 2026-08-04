@@ -86,3 +86,19 @@ def test_summary_lists_pairs_for_prompt(tmp_path):
 
 def test_empty_ontology_summary_is_empty_string():
     assert Ontology().summary() == ""
+
+
+def test_non_mapping_yaml_list_yields_empty_ontology(tmp_path):
+    """상위가 mapping 이 아닌 리스트면 빈 온톨로지를 반환한다."""
+    text = "- foo\n- bar\n"
+    onto = load_ontology(_write(tmp_path, text))
+    assert len(onto) == 0
+    assert onto.relation_for("가", "나") is None
+
+
+def test_non_mapping_yaml_scalar_yields_empty_ontology(tmp_path):
+    """상위가 bare scalar 면 빈 온톨로지를 반환한다."""
+    text = "just a string"
+    onto = load_ontology(_write(tmp_path, text))
+    assert len(onto) == 0
+    assert onto.relation_for("가", "나") is None
