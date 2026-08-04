@@ -18,6 +18,16 @@ def _fact(fact_id: str, name: str) -> Fact:
     return Fact(fact_id=fact_id, entity_name=name, search_text=name, evidence_text=name)
 
 
+def _bm25_fact(fact_id: str, entity_name: str, search_text: str) -> Fact:
+    """이름은 다르되 본문 토큰이 겹치게(또는 안 겹치게) 만들 수 있는 fact.
+
+    BM25 폴백을 실제로 태우려면 완전일치(``entity_name`` 정규화 일치)를 피하면서도
+    ``search_text`` 토큰이 겹쳐야 점수(기본 ``bm25_min_score=3.0``)를 넘는다.
+    """
+    return Fact(fact_id=fact_id, entity_name=entity_name, search_text=search_text,
+                evidence_text=search_text)
+
+
 def _store(ref_names, target_names) -> FactStore:
     store = FactStore()
     store.add(DocFacts(
@@ -63,9 +73,40 @@ def test_pairs_are_generated_per_target_document():
 
 
 def test_works_without_embedder_via_bm25():
-    """임베더가 없어도(오프라인) 후보 생성은 동작해야 한다."""
-    store = _store(["공칭용량"], ["공칭용량"])
-    assert candidate_pairs(store, embedder=None)
+    """임베더가 없어도(오프라인) BM25 로 실제 매칭이 되어야 한다.
+
+    이름을 일부러 다르게 해 완전일치 경로(``FactMatcher.search`` 의 이름 조회)를
+    피하고, ``search_text`` 토큰을 겹치게 해 BM25 점수가 기본 컷오프
+    (``bm25_min_score=3.0``)를 넘도록 만든다 — 그래야 이 테스트가 "이름이 같아서
+    사실은 완전일치로 통과했다"는 함정 없이 BM25 분기를 실제로 검증한다.
+    """
+    store = FactStore()
+    store.add(DocFacts(doc_name="기준.xlsx", facts=FactSet(facts=[
+        _bm25_fact("fact-row-1", "공칭용량", "공칭용량 1150 mAh 정격 충전 조건에서 측정한 값 기준"),
+    ])), is_reference=True)
+    store.add(DocFacts(doc_name="규격서.docx", facts=FactSet(facts=[
+        _bm25_fact("fact-word-1", "정격용량", "정격용량 1150 mAh 정격 충전 조건에서 측정한 값 기준"),
+    ])))
+    pairs = candidate_pairs(store, embedder=None)
+    assert len(pairs) == 1
+    assert pairs[0].exact is False  # 완전일치가 아니라 BM25 로 왔음을 증명
+    assert pairs[0].score > 0
+
+
+def test_bm25_fallback_drops_pair_with_no_token_overlap():
+    """BM25 검증의 대조군: 토큰이 전혀 안 겹치면 후보가 0건이어야 한다.
+
+    위 테스트가 우연히(BM25 가 고장나도) 통과하는 게 아님을 증명한다 — 본문을
+    무관한 내용으로 바꾸면 같은 설정에서 후보가 사라져야 한다.
+    """
+    store = FactStore()
+    store.add(DocFacts(doc_name="기준.xlsx", facts=FactSet(facts=[
+        _bm25_fact("fact-row-1", "공칭용량", "공칭용량 1150 mAh 정격 충전 조건에서 측정한 값 기준"),
+    ])), is_reference=True)
+    store.add(DocFacts(doc_name="규격서.docx", facts=FactSet(facts=[
+        _bm25_fact("fact-word-1", "무관항목", "완전히 다른 내용의 문서 조각 텍스트입니다"),
+    ])))
+    assert candidate_pairs(store, embedder=None) == []
 
 
 # --------------------------------------------------------------------- #
