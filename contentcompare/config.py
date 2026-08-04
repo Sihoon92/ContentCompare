@@ -262,6 +262,29 @@ class FactConfig:
     max_llm_calls_per_compare: int = 100
     """비교 단계 전체의 LLM 호출 예산(문서 처리 예산과 별도)."""
 
+    # --- F7 개념 그래프 ------------------------------------------------- #
+    use_concept_graph: bool = True
+    """False 면 F5 가 기존 유사도 매칭으로 동작한다(롤백 스위치)."""
+
+    concept_recall_top_k: int = 5
+    """기준 fact 당 개념 판정에 올릴 후보 수."""
+
+    concept_recall_min: float = 0.3
+    """후보 생성 최소 유사도. **판정이 아니라 계산량 제한**이라 느슨해도 안전하다.
+
+    개념 그래프가 판정을 맡으므로 이 값이 틀려도 손해가 작다 — 낮으면 LLM 호출이 늘고,
+    높으면 후보가 안 만들어져 ``missing`` 이 된다(설계 §2.4).
+    """
+
+    concept_batch_pairs: int = 20
+    """한 LLM 호출당 판정할 쌍 수."""
+
+    max_llm_calls_per_concept: int = 30
+    """개념 단계 LLM 호출 예산(문서 처리·비교 예산과 별도)."""
+
+    ontology_path: str = "knowledge/ontology.yaml"
+    """사람이 승격한 개념 관계 파일. 없으면 빈 온톨로지로 시작한다."""
+
 
 @dataclass
 class AppConfig:

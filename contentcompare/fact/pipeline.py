@@ -57,6 +57,8 @@ class FactRunResult:
     comparisons: list[FactComparison] = field(default_factory=list)
     markdown: str = ""
     compare_stats: dict = field(default_factory=dict)
+    concept_graph: Any = None
+    """F7 개념 그래프(사용 안 하면 None)."""
 
     @property
     def failed_docs(self) -> list[dict]:
@@ -147,10 +149,23 @@ class FactPipeline:
         targets: list[str],
         result: FactRunResult,
     ) -> None:
+        merged = self._compare_from_store(store, reference, targets)
+        result.comparisons = merged.comparisons
+        result.compare_stats = merged.compare_stats
+        result.markdown = merged.markdown
+        result.concept_graph = merged.concept_graph
+
+    def _compare_from_store(
+        self, store: FactStore, reference: str, targets: list[str]
+    ) -> FactRunResult:
+        """fact 가 모인 상태에서 개념 그래프 → 비교 → 리포트까지 한다."""
+        result = FactRunResult()
         if not store.ready:
             logger.warning("[Fact] 비교 생략 — 기준/대상 fact 가 부족합니다: %s", store.summary())
-            result.markdown = ""
-            return
+            return result
+
+        graph = self._build_graph(store)
+        result.concept_graph = graph
 
         runner = LlmRunner(
             self._chat_client(), max_calls=self.fact.max_llm_calls_per_compare
@@ -164,13 +179,7 @@ class FactPipeline:
         assert ref_doc is not None  # store.ready 가 보장
 
         for target in store.targets:
-            matcher = FactMatcher(
-                target.facts.facts,
-                embedder=self._embed_client(),
-                top_k=self.fact.match_top_k,
-                min_score=self.fact.match_min_score,
-                review_score=self.fact.match_review_score,
-            )
+            matcher = self._matcher_for(graph, ref_doc, target)
             for ref_fact in ref_doc.facts.facts:
                 result.comparisons.append(comparator.compare(
                     ref_fact,
@@ -184,6 +193,7 @@ class FactPipeline:
             "decided_by_llm": sum(1 for c in result.comparisons if c.decided_by == "llm"),
             "llm_calls": comparator.llm_calls,
             "llm_failures": comparator.llm_failures,
+            "concept": dict(graph.stats) if graph is not None else {},
         }
         self._save_comparison(ref_doc, result)
         # 지연 import — report 패키지가 fact 결과 모델을 참조하므로 모듈 최상단에서
@@ -197,6 +207,53 @@ class FactPipeline:
             stats=result.compare_stats,
         )
         logger.info("[Fact] 비교 %s", result.compare_stats)
+        return result
+
+    def _build_graph(self, store: FactStore):
+        """F7 개념 그래프를 만들고 artifacts 에 남긴다(끄면 None)."""
+        if not self.fact.use_concept_graph:
+            return None
+        from .concept_builder import build_concept_graph
+        from .ontology import load_ontology
+        from .validator import validate_graph
+
+        runner = LlmRunner(
+            self._chat_client(), max_calls=self.fact.max_llm_calls_per_concept
+        )
+        graph = build_concept_graph(
+            store,
+            embedder=self._embed_client(),
+            runner=runner,
+            ontology=load_ontology(self.fact.ontology_path),
+            knowledge=load_knowledge(),
+            top_k=self.fact.concept_recall_top_k,
+            min_score=self.fact.concept_recall_min,
+            batch_size=self.fact.concept_batch_pairs,
+        )
+        ref_doc = store.reference
+        if ref_doc is not None:
+            artifacts = ArtifactStore(
+                self.fact.artifacts_dir, ref_doc.doc_name,
+                enabled=self.fact.save_artifacts, cache=False,
+            )
+            artifacts.save("concept_graph", graph.to_dict())
+            artifacts.save("concept_validation", validate_graph(graph).to_dict())
+        return graph
+
+    def _matcher_for(self, graph, ref_doc: DocFacts, target: DocFacts):
+        """개념 그래프가 있으면 그래프 조회, 없으면 기존 유사도 매칭."""
+        if graph is not None:
+            from .fact_matcher import ConceptMatcher
+
+            return ConceptMatcher(graph, ref_doc.doc_name, target.doc_name,
+                                  target.facts.facts)
+        return FactMatcher(
+            target.facts.facts,
+            embedder=self._embed_client(),
+            top_k=self.fact.match_top_k,
+            min_score=self.fact.match_min_score,
+            review_score=self.fact.match_review_score,
+        )
 
     def _save_comparison(self, ref_doc: DocFacts, result: FactRunResult) -> None:
         """``comparison_result.json`` 저장 — 기준 문서의 artifacts 폴더에 남긴다(§7)."""

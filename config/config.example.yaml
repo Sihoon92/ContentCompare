@@ -87,3 +87,11 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
   match_review_score: 0.75         # 이 미만이면 코드 단독 판정을 믿지 않고 LLM 에 위임
   compare_use_llm: true            # false 면 코드 판정만(애매한 건 전부 판단보류)
   max_llm_calls_per_compare: 100   # 비교 단계 LLM 호출 예산(문서 처리 예산과 별도)
+  # --- 개념 그래프(F7) ---
+  use_concept_graph: true          # false 면 예전 유사도 매칭으로 롤백
+  concept_recall_top_k: 5          # 기준 fact 당 개념 판정에 올릴 후보 수
+  concept_recall_min: 0.3          # 후보 생성 최소 유사도(판정 아님 — 계산량 제한)
+  concept_batch_pairs: 20          # 한 LLM 호출당 판정할 쌍 수
+  max_llm_calls_per_concept: 30    # 개념 단계 LLM 호출 예산
+  ontology_path: knowledge/ontology.yaml   # 사람이 승격한 개념 관계
+  # ※ use_concept_graph: true 면 match_min_score / match_review_score 는 사용되지 않는다.
