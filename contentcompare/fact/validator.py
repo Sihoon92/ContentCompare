@@ -182,6 +182,18 @@ def _check_attributes(fact: Fact) -> list[CheckResult]:
     )]
 
 
+def evidence_coverage(claim: str, source_tokens: set[str]) -> float:
+    """``claim`` 의 토큰 중 원문에 실재하는 비율(0.0~1.0).
+
+    문자열 부분일치는 쓰지 않는다 — LLM 이 공백·개행·셀 구분자를 바꿔 옮기는 경향이
+    있어 실재하는 근거도 실패로 뜬다. F7 개념 그래프의 인용 검증도 이 함수를 쓴다.
+    """
+    tokens = set(tokenize(claim))
+    if not tokens:
+        return 0.0
+    return len(tokens & source_tokens) / len(tokens)
+
+
 def _check_evidence(fact: Fact, doc_tokens: set[str]) -> list[CheckResult]:
     """``evidence_text`` 가 원문에 실재하는가(토큰 포함률 기준).
 
@@ -200,7 +212,7 @@ def _check_evidence(fact: Fact, doc_tokens: set[str]) -> list[CheckResult]:
         )]
     if not tokens:
         return []
-    coverage = len(tokens & doc_tokens) / len(tokens)
+    coverage = evidence_coverage(fact.evidence_text, doc_tokens)
     if coverage >= EVIDENCE_MIN_COVERAGE:
         return []
     unseen = sorted(tokens - doc_tokens)[:5]
