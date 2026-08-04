@@ -1,9 +1,9 @@
 # Fact 기반 비교 파이프라인 구현 계획 (Fact Pipeline Plan)
 
 > 작성일: 2026-06-28 · 보완: 2026-07-02 (설계 검토 반영 — §5 F4a/F4b 분할, §6.2 `unknown` 추가, §9 Phase F3.5 신설, 결정 #7)
->            · 2026-08-03 (F3 라이브 검증·F3.5 완료 반영 — §9)
-> 상태: **진행 중** — F0~F3.5 완료(§9), 다음은 **F4a**. 본 문서는 "무엇을 만들지"를 고정하는 로드맵이다.
-> F4a/F4b/F5 는 이제 실측 근거가 있다 → [`FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md) §7 참조.
+>            · 2026-08-03 (F3 라이브 검증·F3.5 완료 — §9) · 2026-08-03 (F4a/F5/F6 완료 + §1 비교표 실측 반영)
+> 상태: **end-to-end 동작** — F0~F6 완료(F4b 보류, §9). `--engine fact` 가 리포트까지 만든다.
+> 실측 근거: [`FACT_F3_5_LIVE_REPORT.md`](FACT_F3_5_LIVE_REPORT.md)(추출) · §1.1.1(엔진 비교).
 > 선행 설계 문서: [`DESIGN.md`](DESIGN.md), [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
 > (위 두 문서는 **현행(구) 방식**을 다루며 Phase 1~5 완료 상태다. 본 문서는 그와 **별개의 신규 방식**이다.)
 
@@ -43,12 +43,36 @@
 | 정보 분산 | 여러 문장/표에 흩어지면 top-k 청크 하나로 부족 | fact가 여러 shape/block을 **병합**(예: PPT 본문+주석) |
 | 비교 방향 | **비대칭** (엑셀=기준 query, 나머지=코퍼스) | **대칭** (모든 문서가 fact화 → 교차 비교) |
 | 추적성 | `source_label`(행/단락) | `source` + `evidence_text` + **중간 JSON 전부** 보존 |
-| 검증 | JSON 파싱 실패 시 1회 재요청 | **rule validator + repair loop** |
-| LLM 호출 수 | ≈ 기준 행 수 × 1 | 문서당 다단계(profiler/schema/record/fact/repair) → **대폭 증가** |
-| 비용 / 속도 | 낮음 / 빠름 | 높음 / 느림 |
-| 중간 산출물 | 없음(리포트만) | 9종 JSON(§7) — 디버깅·개선 가능 |
-| 구현 난이도 | **완료** | 높음(다단계 + 검증 루프) |
+| 검증 | JSON 파싱 실패 시 1회 재요청 | **rule validator**(F4a) + repair loop(F4b 미구현) |
+| LLM 호출 수 | ≈ 기준 행 수 × 1 | 문서당 다단계 + 비교 위임분 |
+| 중간 산출물 | 없음(리포트만) | 10종 JSON(§7) — 디버깅·개선 가능 |
+| 구현 난이도 | **완료** | 높음(다단계 + 검증) — F4b 제외 완료 |
 | 적합 상황 | 빠른 1:N 항목 존재 확인, 비용 민감 | 양식 상이 문서의 **정밀 정합성 검증**, 추적성 요구 |
+
+### 1.1.1 실측 결과 (2026-08-03, `scripts/compare_engines.py`)
+
+같은 입력(`자표준문서.xlsx` 20행 ↔ 합성 docx/pptx)에 두 엔진을 돌려 골든셋 27항목을
+기준 항목 19개로 접어 채점했다. 모델은 ollama `gemma4:12b` + `bge-m3`.
+
+| 항목 | rag | fact |
+|---|---|---|
+| 정확도(mismatch-first 채점) | 10/19 (**53%**) | 17/19 (**89%**) |
+| 정확도(match-first 채점) | 9/19 (47%) | 18/19 (95%) |
+| 소요 시간 | 297~462초 | **298초**(캐시 없음) / 62초(재실행) |
+| LLM 호출 | 21회 | **18회**(캐시 없음) / 11~12회(재실행) |
+| 판정 건수 | 20 (기준 행 × 1) | 40 (기준 행 × 대상 문서) |
+| 판정 주체 | 전부 LLM | 코드 28 / LLM 12 (**LLM 위임률 30%**) |
+
+**설계 예상과 달랐던 점**: 계획은 fact 방식이 "비용 높음 / 느림"이 될 것으로 봤으나
+실측은 **오히려 더 싸고 빨랐다**. 이유는 호출 단위가 다르기 때문이다 — RAG 는 기준 행마다
+1회 호출하는 반면(20행 = 20회), fact 는 문서당 배치로 3회 정도만 쓰고 비교는 **코드가 70%를
+처리**한다. 문서가 커질수록(행 수 증가) 이 격차는 벌어진다.
+
+RAG 의 오답은 대부분 `missing` 오판(내용이 있는데 못 찾음)과 `mismatch` 오판이었다 —
+양식이 다른 문서에서 임베딩 top-k 가 대응 내용을 놓치는 구조적 한계다.
+
+> ⚠️ 표본은 합성 대상 문서 기반 27항목이다. 실무 문서(스캔 표·병합 셀·각주)에서는
+> 다시 재보아야 한다.
 
 ### 1.2 같은 예시로 본 차이
 
@@ -81,26 +105,25 @@ PPT  : 충전환경온도: -5~55℃, 중심치 25℃  (+ 주석: 0.1C, 4.55V 조
 physical_raw.json
    ↓ Raw Compactor                            🟡 Excel/Word 완료, PPT 신규
 compact_raw.json
-   ↓ Document Profiler (LLM)                   ❌ 신규
+   ↓ Document Profiler (LLM)                   ✅ F1
 document_profile.json
-   ↓ Schema Inducer (LLM)                      🟡 헤더행 추정만 존재, 나머지 신규
+   ↓ Schema Inducer (LLM)                      ✅ F1
 table_profile.json + column_schema.json
-   ↓ Record Normalizer (LLM)                   ❌ 신규
+   ↓ Record Normalizer (LLM)                   ✅ F2 (Excel)
 records.json
-   ↓ Fact Extractor (LLM)                      ❌ 신규 (핵심)
+   ↓ Fact Extractor (Excel 코드 / Word·PPT LLM) ✅ F3 (핵심)
 facts.json
-   ↓ Rule Validator (코드)                     ❌ 신규
+   ↓ Rule Validator (코드)                     ✅ F4a
 validation_report.json
-   ↓ Repair Loop (LLM)                         ❌ 신규
+   ↓ Repair Loop (LLM)                         ⏸ F4b 보류
 (facts.json 교정)
-   ↓ Fact Store                               ❌ 신규
-   ↓ Comparator (fact↔fact)                   🟡 다른 방식 존재, fact용 신규
+   ↓ Fact Store → Matcher → Comparator         ✅ F5 (코드 우선 + LLM 위임)
 comparison_result.json
-   ↓ Report Generator                          ✅ 부분 재사용
-[Output] 검토 리포트
+   ↓ Report Generator (fact 전용 렌더)          ✅ F6
+[Output] 검토 리포트 (--out / reports/)
 ```
 
-상태 범례: ✅ 있음(재사용) · 🟡 부분 구현 · ❌ 신규.
+상태 범례: ✅ 구현 완료 · ⏸ 보류.
 
 ---
 
@@ -232,8 +255,9 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
 | `column_schema.json` | Schema Inducer | 컬럼 semantic_role |
 | `records.json` | Record Normalizer | 행 정규화 |
 | `facts.json` | Fact Extractor | 비교 단위 |
-| `validation_report.json` | Validator | 검증 결과 |
-| `comparison_result.json` | Comparator | 최종 비교 |
+| `validation_report.json` | Validator(F4a) | 검사별 pass/fail |
+| `comparison_result.json` | Comparator(F5) | 최종 비교(양측 evidence 포함) |
+| `run_stats.json` | 파이프라인 | 문서별 계측(호출/드롭/커버리지) |
 
 저장 위치 제안: `artifacts/<문서명>/<단계>.json` (설정으로 on/off).
 
@@ -279,13 +303,19 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
   - **F2/F3 라이브 검증 완료**: `자표준문서.xlsx`(20행) + 합성 대상 docx/pptx 로 3경로 전부 성공. 블로커였던 **Ollama 컨텍스트 소진 → 빈 응답**은 `llm.ollama.num_ctx`/`think` + 원인 설명 에러로 해결.
   - **골든셋 27항목**(match 17/mismatch 3/missing 6/unknown 1) — `golden/자표준_골든셋.jsonl`. 대상 문서와 정답을 `scripts/make_synthetic_targets.py` 의 **같은 CASES 테이블**에서 생성해 드리프트를 차단. F6 벤치마크에 그대로 재사용.
   - **F5 매칭 spike 실측**(`scripts/spike_fact_match.py`): entity_name 완전일치 Word 50%/PPT 15%, BM25 recall@1 100%/80%, **임베딩 100%/100%**, RRF 단순융합은 이득 없음, 대상에 없는 항목은 **3/3 오매칭**. → F5 는 **임베딩 필수 + 점수 임계값 필수**로 확정(리포트 §6).
-- **Phase F4 — Validator + Repair Loop** — **F4a/F4b 로 분할** (§5).
-  - F4a: 결정적 validator(정량 불변식·단위 정합·evidence/source 실재) → 라이브 facts 실패 분포 리포트.
-  - F4b: Repair Loop — F4a 실패 분포 기반으로 프롬프트 설계(사변 설계 금지).
-- **Phase F5 — Fact Store + Fact Comparator** → `comparison_result.json` (match/mismatch/missing/**unknown**, §6.2). 기준(Excel)↔대상 비대칭 구분을 파이프라인 summaries 에 반영.
-- **Phase F6 — Report + 벤치마크 하니스** (fact 결과 렌더 + `compare_engines.py` 실측 — F3.5 골든셋 재사용).
+- **Phase F4a — Rule Validator** ✅ **완료(2026-08-03)** — `fact/validator.py`.
+  검사 6종(`quant_bounds`/`unit_missing`/`evidence_missing`/`source_unresolvable`/`no_attributes`/`role_duplicated`),
+  `error` 는 버리지 않고 `low_confidence` 로 표시해 F5 의 `unknown` 근거로 넘긴다.
+  실측: 기준 문서 20 fact 에 error 0 · warn 20(단위 없음 16, 속성 없음 3, 역할 중복 1).
+- **Phase F4b — Repair Loop** ⏸ **보류** — F3.5·F4a 실측에서 JSON 준수도가 양호해(`parse_failures=0`)
+  교정 루프의 우선순위가 낮다. 착수 여부는 §1.1.1 의 오답 유형을 보고 판단한다(§7 참고).
+- **Phase F5 — Fact Store + Matcher + Comparator** ✅ **완료(2026-08-03)** → `comparison_result.json`.
+  **하이브리드 판정**: 코드가 값·단위를 결정적으로 대조하고 애매한 것만 LLM 에 위임(실측 위임률 30%).
+  검색은 exact → 임베딩(임계 `match_min_score`) — spike 실측대로 BM25 는 폴백으로만 둔다.
+- **Phase F6 — Report + 벤치마크 하니스** ✅ **완료(2026-08-03)** —
+  `report/fact_report.py`(양측 원문+좌표 인용) + `scripts/compare_engines.py`(§1.1.1 실측).
 
-의존 순서: F0 → F1 → F2 → F3 → **F3.5** → F4a → F4b → F5 → F6.
+의존 순서: F0 → F1 → F2 → F3 → **F3.5** → F4a → F5 → F6 → (F4b 보류).
 
 ---
 
