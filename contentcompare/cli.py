@@ -53,6 +53,12 @@ def _fact_progress(i: int, total: int, path: str) -> None:
     log_print(f"[{i}/{total}] artifacts 저장: {path}")
 
 
+def _ensure_out_dir(out_path: str) -> None:
+    """``--out`` 의 상위 폴더를 미리 만든다(``report.md`` 처럼 폴더가 없으면 무시)."""
+    parent = os.path.dirname(os.path.abspath(out_path))
+    os.makedirs(parent, exist_ok=True)
+
+
 def _print_fact_summaries(summaries: list[dict]) -> int:
     """문서별 성공/실패와 계측값을 출력하고 실패 건수를 반환한다(F3.5).
 
@@ -108,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args.reference or not args.targets:
         log_print("오류: --reference 와 --targets 가 필요합니다 (또는 --check 로 연결만 점검).")
         return 2
+
+    # 출력 폴더는 **실행 전에** 만든다. 마지막 쓰기 시점에 만들면 수 분짜리 실행이
+    # 끝난 뒤 FileNotFoundError 로 결과를 통째로 잃는다(out/ 은 .gitignore 대상이라
+    # 새로 clone/pull 한 환경에는 존재하지 않는다).
+    _ensure_out_dir(args.out)
 
     pipeline = make_pipeline(config, args.engine)
 
