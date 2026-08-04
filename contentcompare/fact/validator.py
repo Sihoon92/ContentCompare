@@ -333,3 +333,61 @@ def _source_locators(compact: dict) -> dict[str, set]:
             if shape.get("id"):
                 out["ppt_shapes"].add(shape["id"])
     return out
+
+
+# --------------------------------------------------------------------------- #
+# F7 개념 그래프 검증
+# --------------------------------------------------------------------------- #
+_REJECT_CHECKS = {
+    "evidence": ("concept_evidence_missing", "인용한 근거가 원문에 없어 연결을 거부했습니다"),
+    "differs_by": ("concept_merge_violation", "differs_by 제약을 위반해 병합을 거부했습니다"),
+}
+
+
+def validate_graph(graph: Any) -> ValidationReport:
+    """개념 그래프의 무결성을 검사한다(LLM 미사용).
+
+    코드는 **위상만** 본다 — ``axis`` 문자열의 의미는 검사하지 않는다(설계 §2.1).
+    """
+    from .concept_models import DIFFERS_BY, SAME_AS, UNKNOWN as REL_UNKNOWN
+
+    report = ValidationReport(location="concept_graph", facts=len(graph.nodes))
+    known = {(m.doc, m.fact_id) for n in graph.nodes for m in n.members}
+
+    seen: dict[tuple[str, str], set[str]] = {}
+    for edge in graph.edges:
+        pair = edge.pair_key
+        label = f"{pair[0]} ↔ {pair[1]}"
+
+        for ref in (edge.left, edge.right):
+            if (ref.doc, ref.fact_id) not in known:
+                report.checks.append(CheckResult(
+                    check="concept_dangling_node", severity=ERROR, fact_id=label,
+                    reason=f"그래프에 없는 fact 를 가리킵니다: {ref.key}",
+                    suggestion="엣지를 버리거나 해당 fact 를 멤버에 넣으세요.",
+                ))
+
+        if edge.rejected_by in _REJECT_CHECKS:
+            check, reason = _REJECT_CHECKS[edge.rejected_by]
+            report.checks.append(CheckResult(
+                check=check, severity=ERROR, fact_id=label, reason=reason,
+                suggestion="사람이 확인해 knowledge/ontology.yaml 로 승격하세요.",
+            ))
+        elif edge.relation == REL_UNKNOWN:
+            report.checks.append(CheckResult(
+                check="concept_unknown_pair", severity=WARN, fact_id=label,
+                reason=edge.reason or "관계를 판정하지 못했습니다",
+                suggestion="리포트의 '검토 필요' 목록에서 확인하세요.",
+            ))
+
+        seen.setdefault(pair, set()).add(edge.relation)
+
+    for pair, relations in seen.items():
+        if SAME_AS in relations and DIFFERS_BY in relations:
+            report.checks.append(CheckResult(
+                check="concept_contradiction", severity=ERROR,
+                fact_id=f"{pair[0]} ↔ {pair[1]}",
+                reason="같은 쌍에 same_as 와 differs_by 가 함께 있습니다",
+                suggestion="knowledge/ontology.yaml 로 어느 쪽이 맞는지 확정하세요.",
+            ))
+    return report
