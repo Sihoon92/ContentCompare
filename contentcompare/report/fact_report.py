@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from ..fact.fact_comparator import MATCH, MISMATCH, MISSING, UNKNOWN, FactComparison
 from ..fact.fact_models import Fact
@@ -32,6 +32,7 @@ def render_fact_markdown(
     reference_doc: str,
     target_docs: list[str],
     stats: Optional[dict] = None,
+    graph: Any = None,
 ) -> str:
     lines: list[str] = [
         "# 문서 비교 리포트 (fact 엔진)",
@@ -46,6 +47,7 @@ def render_fact_markdown(
     lines += _details(comparisons)
     if stats:
         lines += _run_stats(stats)
+    lines += _review_section(graph)
     return "\n".join(lines)
 
 
@@ -181,3 +183,32 @@ def _oneline(text: str) -> str:
 def _truncate(text: str, limit: int) -> str:
     text = str(text or "")
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _review_section(graph: Any) -> list[str]:
+    """관계를 판정하지 못한 쌍 — 사람이 확인해 온톨로지로 승격하면 영구히 해결된다."""
+    from ..fact.concept_models import UNKNOWN as REL_UNKNOWN
+
+    if graph is None:
+        return []
+    pending = [e for e in graph.edges if e.relation == REL_UNKNOWN]
+    if not pending:
+        return []
+
+    labels = {(m.doc, m.fact_id): m.entity_name
+              for n in graph.nodes for m in n.members}
+    lines = [
+        "",
+        "## ⚠ 검토 필요 — 같은 항목인지 판정하지 못한 쌍",
+        "",
+        "확인 후 `knowledge/ontology.yaml` 에 `same_as` 또는 `differs_by` 로 적어두면",
+        "다음 실행부터 이 쌍은 다시 묻지 않습니다.",
+        "",
+        "| 기준 항목 | 대상 항목 | 사유 |",
+        "|---|---|---|",
+    ]
+    for edge in pending:
+        left = labels.get((edge.left.doc, edge.left.fact_id), edge.left.fact_id)
+        right = labels.get((edge.right.doc, edge.right.fact_id), edge.right.fact_id)
+        lines.append(f"| {left} | {right} | {edge.reason or '판정 보류'} |")
+    return lines

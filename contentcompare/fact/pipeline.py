@@ -205,6 +205,7 @@ class FactPipeline:
             reference_doc=reference,
             target_docs=targets,
             stats=result.compare_stats,
+            graph=result.concept_graph,
         )
         logger.info("[Fact] 비교 %s", result.compare_stats)
         return result

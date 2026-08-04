@@ -112,3 +112,55 @@ def test_format_source_covers_all_doc_types():
     assert format_source({"doc_type": "excel", "sheet": "S", "row": 5}) == "S!행 5"
     assert format_source({"doc_type": "word", "block_ids": ["w_b005"]}) == "블록 w_b005"
     assert format_source({}) == "-"
+
+
+# --------------------------------------------------------------------- #
+# F7 개념 그래프 표시
+# --------------------------------------------------------------------- #
+from contentcompare.fact.concept_models import (  # noqa: E402
+    BY_LLM,
+    UNKNOWN as REL_UNKNOWN,
+    ConceptEdge,
+    ConceptGraph,
+    ConceptMember,
+    ConceptNode,
+    FactRef,
+)
+
+
+def _unknown_graph() -> ConceptGraph:
+    members = [ConceptMember("기준.xlsx", "fact-row-20", "1개월저장온도"),
+               ConceptMember("규격서.docx", "fact-word-11", "표준환경온도")]
+    edge = ConceptEdge(
+        REL_UNKNOWN,
+        FactRef("기준.xlsx", "fact-row-20"),
+        FactRef("규격서.docx", "fact-word-11"),
+        reason="LLM 이 판단하지 못했습니다", decided_by=BY_LLM,
+    )
+    return ConceptGraph(
+        nodes=[ConceptNode("c-0001", "1개월저장온도", members[:1]),
+               ConceptNode("c-0002", "표준환경온도", members[1:])],
+        edges=[edge],
+    )
+
+
+def test_review_section_lists_unresolved_pairs():
+    """판정 못 한 쌍은 사람에게 보여야 한다 — 그래야 승격으로 이어진다."""
+    md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+                              graph=_unknown_graph())
+    assert "검토 필요" in md
+    assert "1개월저장온도" in md and "표준환경온도" in md
+    assert "knowledge/ontology.yaml" in md
+
+
+def test_no_review_section_when_graph_is_clean():
+    graph = ConceptGraph(nodes=[], edges=[])
+    md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+                              graph=graph)
+    assert "검토 필요" not in md
+
+
+def test_report_renders_without_graph():
+    """기존 호출부(그래프 없음)가 그대로 동작해야 한다."""
+    md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"])
+    assert "기준.xlsx" in md
