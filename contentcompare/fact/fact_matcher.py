@@ -36,6 +36,7 @@ EXACT = "exact"
 EMBED = "embed"
 BM25_METHOD = "bm25"
 NONE = "none"
+CONCEPT = "concept"
 
 
 def norm_name(name: str) -> str:
@@ -136,3 +137,47 @@ def _normalize(vec: list[float]) -> list[float]:
 
 def _dot(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
+
+
+class ConceptMatcher:
+    """개념 그래프에서 후보를 가져온다 — 유사도도, 임계값도 쓰지 않는다(F7).
+
+    ``FactMatcher`` 는 F7 에서 **후보 쌍 생성(recall)** 전용으로 남고, 비교에 쓰는
+    후보는 이 클래스가 만든다. 연결이 없으면 빈 리스트를 돌려주고, 그것이 곧
+    ``missing`` 판정의 근거가 된다.
+    """
+
+    def __init__(
+        self,
+        graph: Any,
+        reference_doc: str,
+        target_doc: str,
+        target_facts: list[Fact],
+    ) -> None:
+        self.graph = graph
+        self.reference_doc = reference_doc
+        self.target_doc = target_doc
+        self._by_id = {f.fact_id: f for f in target_facts}
+
+    def search(self, ref: Fact) -> list[MatchCandidate]:
+        from .concept_models import BY_CODE, BY_ONTOLOGY, FactRef
+
+        out: list[MatchCandidate] = []
+        for member in self.graph.partners(self.reference_doc, ref.fact_id, self.target_doc):
+            fact = self._by_id.get(member.fact_id)
+            if fact is None:
+                continue
+            edge = self.graph.edge_of(
+                FactRef(self.reference_doc, ref.fact_id),
+                FactRef(self.target_doc, member.fact_id),
+            )
+            confirmed = bool(edge) and (
+                edge.promoted or edge.decided_by in (BY_CODE, BY_ONTOLOGY)
+            )
+            out.append(MatchCandidate(
+                fact=fact,
+                score=edge.recall_score if edge else 0.0,
+                method=CONCEPT,
+                needs_review=not confirmed,
+            ))
+        return out
