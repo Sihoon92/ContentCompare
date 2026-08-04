@@ -35,16 +35,50 @@ logger = logging.getLogger(__name__)
 EVIDENCE_MIN_COVERAGE = 0.8
 """F4a 와 같은 기준. 인용 토큰의 80% 가 원문에 있어야 실재하는 근거로 본다."""
 
+EVIDENCE_MIN_TOKENS = 3
+"""인용이 이보다 짧으면 근거로 인정하지 않는다.
+
+원문 토큰 집합에는 ``entity_name`` 까지 들어가므로 한 토큰짜리 인용("온도")은
+커버리지 100% 로 통과한다 — 커버리지만으로는 "실재하는 아무 단어나 인용"을 거를 수
+없다. 3 은 "값 하나만 던지는 인용"(예: ``1150``)을 막으면서 실측의 정상 인용
+(``-10.0, 35.0, 80.0`` = 3 토큰)은 통과시키는 최소값이다.
+
+한글 3글자 이상 토큰은 :func:`tokenize` 가 bigram 으로 부풀리므로 이 하한은
+**퇴화한 인용을 막는 바닥**이지 강한 검사가 아니다(설계 §2.3 참고).
+"""
+
+# 강등 사유 → 사람이 읽을 라벨. 리포트 표와 엣지 사유에 같은 문구가 실린다.
+REJECT_NOTES = {
+    "evidence": "근거 인용이 원문에 없음",
+    "differs_by": "differs_by 제약 위반",
+}
+
 
 def verify_evidence(edge: ConceptEdge, left: Fact, right: Fact) -> bool:
     """``same_as`` 의 양쪽 인용이 각 fact 원문에 실재하는가."""
     for claim, fact in ((edge.left_text, left), (edge.right_text, right)):
         if not (claim or "").strip():
             return False
+        if len(set(tokenize(claim))) < EVIDENCE_MIN_TOKENS:
+            return False
         source = set(tokenize(f"{fact.evidence_text} {fact.search_text} {fact.entity_name}"))
         if evidence_coverage(claim, source) < EVIDENCE_MIN_COVERAGE:
             return False
     return True
+
+
+def _demote(edge: ConceptEdge, rejected_by: str) -> None:
+    """엣지를 ``unknown`` 으로 강등하고 **거부 사실을 사유 앞에 남긴다**.
+
+    LLM 이 쓴 사유("둘 다 SEC Req. ver.4.7 을 가리킨다")를 그대로 두면 리포트의
+    '검토 필요' 표에 "이 둘은 같은 항목이다"라는 문장이 실린다. 사람이 그것을 믿고
+    ``same_as`` 로 승격하면 게이트가 막았던 잘못된 연결이 영구화된다 — 게이트를
+    사람 손으로 우회시키는 셈이다. 원문 사유는 검수를 위해 보존한다.
+    """
+    edge.relation = UNKNOWN
+    edge.rejected_by = rejected_by
+    note = f"[거부됨: {REJECT_NOTES.get(rejected_by, rejected_by)}]"
+    edge.reason = f"{note} 거부된 주장: {edge.reason}" if edge.reason.strip() else note
 
 
 def assemble(
@@ -74,8 +108,7 @@ def assemble(
         if edge.relation != SAME_AS or edge.decided_by != BY_LLM:
             continue
         if not verify_evidence(edge, facts[edge.left.key], facts[edge.right.key]):
-            edge.relation = UNKNOWN
-            edge.rejected_by = "evidence"
+            _demote(edge, "evidence")
             stats["rejected_evidence"] += 1
             logger.info("[Concept] 근거 미실재로 연결 거부: %s", edge.pair_key)
 
@@ -105,8 +138,7 @@ def assemble(
             stats["same_as"] += 1
             continue
         if blocked(a, b):
-            edge.relation = UNKNOWN
-            edge.rejected_by = "differs_by"
+            _demote(edge, "differs_by")
             stats["rejected_differs_by"] += 1
             logger.info("[Concept] differs_by 제약으로 병합 거부: %s", edge.pair_key)
             continue

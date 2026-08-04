@@ -186,7 +186,13 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def _review_section(graph: Any) -> list[str]:
-    """관계를 판정하지 못한 쌍 — 사람이 확인해 온톨로지로 승격하면 영구히 해결된다."""
+    """관계를 판정하지 못한 쌍 — 사람이 확인해 온톨로지로 승격하면 영구히 해결된다.
+
+    **거부 사유 열이 중요하다.** 검증에 실패해 강등된 엣지는 LLM 이 쓴 "이 둘은 같은
+    항목이다"라는 사유를 달고 있다. 표만 보고도 "이건 거부된 주장"임을 알 수 없으면
+    사람이 그것을 믿고 승격해 게이트를 우회시킨다.
+    """
+    from ..fact.concept_assembler import REJECT_NOTES
     from ..fact.concept_models import UNKNOWN as REL_UNKNOWN
 
     if graph is None:
@@ -204,11 +210,13 @@ def _review_section(graph: Any) -> list[str]:
         "확인 후 `knowledge/ontology.yaml` 에 `same_as` 또는 `differs_by` 로 적어두면",
         "다음 실행부터 이 쌍은 다시 묻지 않습니다.",
         "",
-        "| 기준 항목 | 대상 항목 | 사유 |",
-        "|---|---|---|",
+        "| 기준 항목 | 대상 항목 | 거부 사유 | 사유 |",
+        "|---|---|---|---|",
     ]
     for edge in pending:
         left = labels.get((edge.left.doc, edge.left.fact_id), edge.left.fact_id)
         right = labels.get((edge.right.doc, edge.right.fact_id), edge.right.fact_id)
-        lines.append(f"| {left} | {right} | {edge.reason or '판정 보류'} |")
+        rejected = REJECT_NOTES.get(edge.rejected_by, edge.rejected_by) or "-"
+        reason = _truncate(_oneline(edge.reason), 80) or "판정 보류"
+        lines.append(f"| {_oneline(left)} | {_oneline(right)} | {rejected} | {reason} |")
     return lines

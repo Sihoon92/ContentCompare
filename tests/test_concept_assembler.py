@@ -41,7 +41,8 @@ def _members() -> list[ConceptMember]:
 
 
 def _same(left=REF_A, right=TGT_A, **kw) -> ConceptEdge:
-    kw.setdefault("left_text", "1150")
+    # 인용은 최소 길이(EVIDENCE_MIN_TOKENS) 이상이어야 근거로 인정된다.
+    kw.setdefault("left_text", "공칭용량 1150")
     kw.setdefault("right_text", "공칭용량, 1150, mAh")
     return ConceptEdge(SAME_AS, left, right, **kw)
 
@@ -72,6 +73,40 @@ def test_separator_difference_still_passes():
     facts = _facts()
     edge = _same(right_text="공칭용량 1150 mAh")
     assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is True
+
+
+def test_one_token_quote_is_rejected_even_though_it_exists():
+    """실재하는 단어 하나만 인용하는 것은 근거가 아니다.
+
+    원문 토큰 집합에는 ``entity_name`` 까지 들어가므로, 한 토큰짜리 인용은 커버리지
+    100% 로 통과해 게이트를 무의미하게 만든다 — 그래서 최소 토큰 수 하한을 둔다.
+    """
+    facts = _facts()
+    edge = _same(left_text="1150", right_text="공칭용량, 1150, mAh")
+    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is False
+
+
+def test_normal_length_quote_still_passes():
+    """대조군 — 하한이 정상 길이 인용까지 막지는 않는다."""
+    facts = _facts()
+    edge = _same(left_text="공칭용량 1150", right_text="공칭용량, 1150, mAh")
+    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is True
+
+
+def test_demoted_edge_reason_marks_the_rejection():
+    """강등된 엣지가 LLM 이 쓴 원래 사유를 그대로 리포트에 노출하면 안 된다.
+
+    "둘 다 같은 규격을 가리킨다" 같은 문장이 '판정하지 못한 쌍' 표에 실리면 사람이
+    그것을 믿고 `same_as` 로 승격한다 — 근거 검증 게이트를 사람 손으로 우회시키는
+    셈이다. 원문 사유는 보존하되 거부 사실이 앞에 와야 한다.
+    """
+    edge = _same(left_text="지어낸 문구입니다", right_text="이것도 지어냈습니다",
+                 reason="둘 다 SEC Req. ver.4.7 을 가리킨다", decided_by=BY_LLM)
+    g = assemble(_members(), [edge], _facts())
+    assert g.edges[0].relation == UNKNOWN
+    assert g.edges[0].rejected_by == "evidence"
+    assert g.edges[0].reason.startswith("[거부됨")
+    assert "SEC Req. ver.4.7" in g.edges[0].reason  # 원문 사유는 보존
 
 
 # --------------------------------------------------------------------- #
@@ -132,6 +167,7 @@ def test_differs_by_blocks_merge_of_same_pair():
     assert g.node_id_of("기준.xlsx", "fact-row-1") != g.node_id_of("규격서.docx", "fact-word-11")
     downgraded = [e for e in g.edges if e.rejected_by == "differs_by"]
     assert len(downgraded) == 1 and downgraded[0].relation == UNKNOWN
+    assert downgraded[0].reason.startswith("[거부됨")
 
 
 def test_differs_by_blocks_transitive_merge():

@@ -182,6 +182,31 @@ def test_review_section_lists_unresolved_pairs():
     assert "knowledge/ontology.yaml" in md
 
 
+def test_review_section_flags_rejected_edges():
+    """강등된 엣지는 '검증에 실패해 거부된 주장'임이 표에서 보여야 한다.
+
+    사유만 보이면 사람이 LLM 의 "같은 항목이다"를 믿고 승격해, 게이트가 막았던
+    잘못된 연결을 영구화한다.
+    """
+    graph = _unknown_graph()
+    graph.edges[0].rejected_by = "evidence"
+    graph.edges[0].reason = "[거부됨: 근거 인용이 원문에 없음] 거부된 주장: 둘 다 같은 규격"
+    md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+                              graph=graph)
+    assert "거부 사유" in md
+    assert "근거 인용이 원문에 없음" in md
+
+
+def test_review_section_flattens_multiline_reasons():
+    """LLM 사유에 개행이 들어가도 표가 깨지지 않아야 한다."""
+    graph = _unknown_graph()
+    graph.edges[0].reason = "첫 줄\n둘째 줄"
+    md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+                              graph=graph)
+    row = [ln for ln in md.splitlines() if "첫 줄" in ln]
+    assert len(row) == 1 and "둘째 줄" in row[0]
+
+
 def test_no_review_section_when_graph_is_clean():
     """해결된 엣지만 있으면(SAME_AS/DIFFERS_BY) 검토 필요 섹션이 나타나지 않는다."""
     md = render_fact_markdown([], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
