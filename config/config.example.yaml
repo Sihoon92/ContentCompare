@@ -79,4 +79,11 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
   max_llm_calls_per_doc: 50        # 문서당 LLM 호출 예산
   record_batch_rows: 30            # F2: 한 LLM 호출당 정규화할 데이터 행 수
   fact_batch_blocks: 20            # F3: 한 LLM 호출당 처리할 Word/PPT 블록/도형 수
-  max_repair_iters: 2              # Repair Loop 최대 반복(F4)
+  max_repair_iters: 2              # Repair Loop 최대 반복(F4b, 미구현)
+  # --- 비교 단계(F5) ---
+  match_top_k: 3                   # 기준 fact 하나당 검토할 대상 후보 수
+  match_min_score: 0.65            # 후보 인정 최소 임베딩 코사인(미만이면 '대상에 없음')
+                                   # 실측 근거: 정답 0.697~0.808 vs 오매칭 0.449~0.700
+  match_review_score: 0.75         # 이 미만이면 코드 단독 판정을 믿지 않고 LLM 에 위임
+  compare_use_llm: true            # false 면 코드 판정만(애매한 건 전부 판단보류)
+  max_llm_calls_per_compare: 100   # 비교 단계 LLM 호출 예산(문서 처리 예산과 별도)

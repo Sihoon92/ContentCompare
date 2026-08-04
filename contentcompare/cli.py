@@ -111,18 +111,20 @@ def main(argv: list[str] | None = None) -> int:
 
     pipeline = make_pipeline(config, args.engine)
 
-    # 신규 fact 엔진(Phase F0~F3): raw/compact/profile/schema/records/facts artifacts 저장까지 동작한다.
-    # 비교/리포트(F4~F6)는 아직 없으므로 미구현 신호를 잡아 안내하고 종료.
+    # 신규 fact 엔진: 문서를 fact 로 정규화·검증한 뒤 fact 끼리 비교해 리포트를 만든다.
     if args.engine == "fact":
-        summaries: list[dict] = []
-        try:
-            summaries = pipeline.run(args.reference, args.targets, progress=_fact_progress)
-        except NotImplementedError as e:
-            summaries = getattr(e, "summaries", [])
-            log_print(f"[fact 엔진] {e}")
-        failed = _print_fact_summaries(summaries)
+        result = pipeline.run(args.reference, args.targets, progress=_fact_progress)
+        failed = _print_fact_summaries(result.summaries)
+        if not result.markdown:
+            log_print("\n비교할 fact 가 부족해 리포트를 만들지 못했습니다(위 오류를 확인하세요).")
+            return 1
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(result.markdown)
+        saved = save_report(result.markdown)
+        stats = result.compare_stats
         log_print(
-            "\nartifacts 저장 완료. fact 비교/리포트는 Phase F4~F6 에서 제공됩니다."
+            f"\n완료: {stats.get('comparisons', 0)}건 판정 "
+            f"(LLM 위임 {stats.get('decided_by_llm', 0)}건) → {args.out} (사본: {saved})"
         )
         return 1 if failed else 0
 

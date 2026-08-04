@@ -289,3 +289,67 @@ def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
         "위에서 비교 가능한 사실을 facts 배열의 fact 로 추출하세요. 흩어진 서술이 같은 "
         "대상이면 하나로 병합하고, source_ids 에는 근거가 된 [id] 만 넣으세요."
     )
+
+
+# --------------------------------------------------------------------------- #
+# F5 Fact Comparator — 코드가 단정하지 못한 건만 LLM 에 넘긴다
+# --------------------------------------------------------------------------- #
+COMPARE_VERSION = "compare-v1"
+
+COMPARE_SYSTEM = """\
+당신은 두 문서의 사실(fact)이 서로 일치하는지 판정하는 검토자입니다. 기준 fact 하나와
+대상 문서의 후보 fact 들이 주어집니다. 코드가 이미 명백한 경우는 처리했고, 당신에게는
+**애매한 건만** 옵니다(단위 등가 불명, 속성 이름 불일치, 유사도 경계 등).
+
+판정 값:
+- "match": 같은 대상에 대한 같은 내용(표기·단위·언어가 달라도 실질이 같으면 match)
+- "mismatch": 같은 대상인데 값이 다름 → mismatch_attributes 에 어긋난 속성 이름
+- "missing": 후보 중 기준과 같은 대상을 다루는 것이 없음
+- "unknown": 관련은 있어 보이나 같/다름을 **확신할 수 없음**(단위 불명·정보 부족)
+
+원칙:
+1. 확신이 없으면 match/mismatch 로 단정하지 말고 **unknown** 을 쓰고, reason 에 무엇이
+   불확실한지 설명하세요. 틀린 단정보다 보류가 낫습니다.
+2. 후보에 실제로 적혀 있지 않은 내용을 지어내지 마세요. 근거가 없으면 missing/unknown.
+3. 기준의 단위가 비어 있으면 대상 단위를 근거로 단위를 **추측하지 마세요**. 값이 같으면
+   match, 값이 배수 관계라 단위에 따라 달라진다면 unknown 입니다.
+4. target_fact_id 는 후보로 제시된 id 중 하나만 쓰세요.
+
+반드시 아래 JSON 만 출력하세요(설명·마크다운 금지):
+{
+  "result": "match|mismatch|missing|unknown",
+  "target_fact_id": "<가장 대응하는 후보 id 또는 빈 문자열>",
+  "mismatch_attributes": ["<어긋난 속성 이름>"],
+  "reason": "<한국어로 판단 근거 한두 문장>"
+}"""
+
+
+def _render_fact(fact: Any, *, prefix: str = "") -> str:
+    attrs = ", ".join(
+        f"{k}={a.value}{(' ' + a.unit) if a.unit else ''}"
+        for k, a in (fact.attributes or {}).items()
+    ) or "(속성 없음)"
+    lines = [f"{prefix}항목: {fact.entity_name}", f"{prefix}속성: {attrs}"]
+    if fact.evidence_text:
+        lines.append(f"{prefix}근거 원문: {fact.evidence_text}")
+    return "\n".join(lines)
+
+
+def build_compare_user(reference: Any, candidates: list, *, knowledge: str = "") -> str:
+    """기준 fact + 후보 fact 들 → 비교 프롬프트.
+
+    후보에는 ``[id]`` 를 붙여 LLM 이 고른 대상을 코드가 검증할 수 있게 한다.
+    도메인 지식(knowledge/*.md)은 용어·동의어·표기 규칙 판단에 쓰이도록 앞에 붙인다.
+    """
+    parts = []
+    if knowledge.strip():
+        parts.append(f"[참고 자료 — 도메인 지식]\n{knowledge.strip()}\n")
+    parts.append("[기준 문서의 항목]\n" + _render_fact(reference))
+    parts.append("\n[대상 문서의 후보]")
+    for c in candidates:
+        parts.append(f"[{c.fact_id}]\n" + _render_fact(c, prefix="  "))
+    parts.append(
+        "\n위 후보 중 기준 항목과 같은 대상을 다루는 것이 있는지 보고 판정하세요. "
+        "확신이 없으면 unknown 으로 두세요."
+    )
+    return "\n".join(parts)

@@ -239,7 +239,28 @@ class FactConfig:
     """F3 Fact Extractor 의 Word/PPT 블록/도형 배치 크기(한 LLM 호출당 처리 블록 수)."""
 
     max_repair_iters: int = 2
-    """Repair Loop 최대 반복(F4 에서 사용)."""
+    """Repair Loop 최대 반복(F4b — 미구현)."""
+
+    # --- F5 비교 단계 --------------------------------------------------- #
+    match_top_k: int = 3
+    """기준 fact 하나당 검토할 대상 후보 수."""
+
+    match_min_score: float = 0.65
+    """후보로 인정할 최소 임베딩 코사인 점수. 미만이면 후보 없음 → ``missing``.
+
+    F3.5 spike 실측으로 정했다: 정답 매칭 0.697~0.808 vs 오매칭 0.449~0.700.
+    두 분포가 0.697/0.700 에서 겹치므로 **점수만으로는 완전히 가를 수 없다** —
+    명백히 무관한 것만 자르고 나머지는 속성 대조/LLM 이 판단한다.
+    """
+
+    match_review_score: float = 0.75
+    """이 점수 미만이면 코드 단독 판정을 신뢰하지 않고 LLM 에 넘긴다(경계 구간)."""
+
+    compare_use_llm: bool = True
+    """False 면 코드 결정적 판정만 한다(애매한 건 전부 ``unknown``). 재현성·비용 우선일 때."""
+
+    max_llm_calls_per_compare: int = 100
+    """비교 단계 전체의 LLM 호출 예산(문서 처리 예산과 별도)."""
 
 
 @dataclass
