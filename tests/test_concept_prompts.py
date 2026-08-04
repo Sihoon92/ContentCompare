@@ -18,10 +18,17 @@ def _pair() -> CandidatePair:
 
 def test_system_prompt_forbids_value_based_reasoning():
     """값이 다른 것은 differs_by 의 근거가 아니다 — 이게 빠지면 개념 층이
-    정상적인 불일치를 삼켜버린다(설계 §5)."""
-    assert "값" in CONCEPT_SYSTEM
-    assert "same_as" in CONCEPT_SYSTEM and "differs_by" in CONCEPT_SYSTEM
-    assert "unknown" in CONCEPT_SYSTEM
+    정상적인 불일치를 삼켜버린다(설계 §5).
+
+    이 테스트는 원칙 1 문단 자체에만 있는 구체 표현들을 요구한다.
+    원칙 1 문단을 지우면 반드시 실패해야 한다."""
+    # 원칙 1 의 핵심 문장 — 이 두 구절이 함께 있어야 함
+    assert "값이 다른 것은" in CONCEPT_SYSTEM
+    assert "근거가 아닙니다" in CONCEPT_SYSTEM
+    # 원칙 1 의 구체 예시 — 이 숫자들은 원칙 1 문단에만 있음
+    assert "21~29" in CONCEPT_SYSTEM and "-10~80" in CONCEPT_SYSTEM
+    # 원칙 1 고유 표현 — "판단 재료"는 원칙 1 문단에만 있음
+    assert "판단 재료가" in CONCEPT_SYSTEM
 
 
 def test_system_prompt_requires_quotes_for_same_as():
