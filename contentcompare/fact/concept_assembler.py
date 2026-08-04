@@ -4,8 +4,12 @@
 도메인에 맞게 짓는 이름이며 여기서 해석하지 않는다. 그래서 도메인이 바뀌어도 이 모듈은
 그대로다(설계 §2.1).
 
-근거 검증은 ``same_as`` 에만 적용한다. 차단(``differs_by``)은 근거가 없어도 손해가 없고,
-연결만 검증을 요구하는 것이 비대칭 권한 원칙이다(설계 §2.3).
+근거 검증은 **LLM 이 제안한 ``same_as``(``decided_by == BY_LLM``)에만** 적용한다.
+사람이 온톨로지로 승격했거나(``BY_ONTOLOGY``) 코드가 정규화 이름 완전일치로 확정한
+(``BY_CODE``) 연결은 LLM 의 주장이 아니라 지어낼 수 없으므로 검증 대상이 아니다 —
+게다가 온톨로지 확정은 애초에 인용문을 채우지 않는다(사람은 항목명 쌍만 적는다).
+차단(``differs_by``)은 근거가 없어도 손해가 없고, 연결만 검증을 요구하는 것이
+비대칭 권한 원칙이다(설계 §2.3).
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import logging
 
 from ..similarity.tokenize import tokenize
 from .concept_models import (
+    BY_LLM,
     DIFFERS_BY,
     SAME_AS,
     UNKNOWN,
@@ -51,6 +56,9 @@ def assemble(
 
     ``facts`` 는 ``FactRef.key -> Fact``. 엣지가 모르는 fact 를 가리키면 조용히 버린다
     (LLM 이 없는 id 를 지목하는 경우 — 현행 Comparator 의 ``_pick_target`` 과 같은 방어).
+
+    근거 검증은 LLM 이 제안한 ``same_as``(``decided_by == BY_LLM``)에만 적용한다.
+    사람·코드가 확정한 연결은 지어낼 수 없으므로 인용문이 비어 있어도 병합한다.
     """
     known = {(m.doc, m.fact_id) for m in members}
     valid = [e for e in edges
@@ -60,9 +68,10 @@ def assemble(
     stats = {"same_as": 0, "differs_by": 0, "unknown": 0,
              "rejected_evidence": 0, "rejected_differs_by": 0}
 
-    # 1) 근거 검증 — 통과 못 한 same_as 는 unknown 으로 강등한다(버리지 않는다).
+    # 1) 근거 검증 — LLM 이 제안한 same_as 만 대상이다. 통과 못 하면 unknown 으로
+    #    강등한다(버리지 않는다). 온톨로지/코드 확정은 LLM 의 주장이 아니므로 건너뛴다.
     for edge in valid:
-        if edge.relation != SAME_AS:
+        if edge.relation != SAME_AS or edge.decided_by != BY_LLM:
             continue
         if not verify_evidence(edge, facts[edge.left.key], facts[edge.right.key]):
             edge.relation = UNKNOWN

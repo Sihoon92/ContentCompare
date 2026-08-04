@@ -2,6 +2,7 @@
 
 from contentcompare.fact.concept_assembler import assemble, verify_evidence
 from contentcompare.fact.concept_models import (
+    BY_CODE,
     BY_LLM,
     BY_ONTOLOGY,
     DIFFERS_BY,
@@ -89,12 +90,36 @@ def test_unmerged_facts_stay_in_their_own_nodes():
 
 
 def test_rejected_evidence_prevents_merge():
-    edge = _same(left_text="지어낸 문구", right_text="지어낸 문구")
+    """LLM 이 제안한 same_as 는 지어낸 인용문이면 강등된다(decided_by 기본값 = BY_LLM)."""
+    edge = _same(left_text="지어낸 문구", right_text="지어낸 문구", decided_by=BY_LLM)
     g = assemble(_members(), [edge], _facts())
     assert g.node_id_of("기준.xlsx", "fact-row-1") != g.node_id_of("규격서.docx", "fact-word-7")
     assert g.edges[0].relation == UNKNOWN
     assert g.edges[0].rejected_by == "evidence"
     assert g.stats["rejected_evidence"] == 1
+
+
+def test_ontology_promoted_same_as_merges_without_evidence():
+    """온톨로지로 승격된 연결은 인용문이 없어도 병합된다(설계 §2.3 — LLM 주장이 아니므로).
+
+    concept_builder.resolve_known() 은 BY_ONTOLOGY 엣지의 left_text/right_text 를
+    채우지 않는다(사람은 항목명 쌍만 적을 뿐 인용문을 쓰지 않는다). 근거 검증을
+    decided_by 와 무관하게 적용하면 이 연결이 100% 강등되어 승격 메커니즘이 죽는다.
+    """
+    edge = ConceptEdge(SAME_AS, REF_A, TGT_A, decided_by=BY_ONTOLOGY, promoted=True,
+                        left_text="", right_text="")
+    g = assemble(_members(), [edge], _facts())
+    assert g.node_id_of("기준.xlsx", "fact-row-1") == g.node_id_of("규격서.docx", "fact-word-7")
+    assert g.stats["rejected_evidence"] == 0
+    assert g.stats["same_as"] == 1
+
+
+def test_code_confirmed_same_as_merges_without_evidence():
+    """코드가 정규화 이름 완전일치로 확정한 연결도 인용문 없이 병합된다."""
+    edge = ConceptEdge(SAME_AS, REF_A, TGT_A, decided_by=BY_CODE, left_text="", right_text="")
+    g = assemble(_members(), [edge], _facts())
+    assert g.node_id_of("기준.xlsx", "fact-row-1") == g.node_id_of("규격서.docx", "fact-word-7")
+    assert g.stats["rejected_evidence"] == 0
 
 
 def test_differs_by_blocks_merge_of_same_pair():
