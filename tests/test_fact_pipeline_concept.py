@@ -91,6 +91,38 @@ def test_use_concept_graph_false_falls_back_to_similarity(tmp_path):
     assert result.comparisons and result.comparisons[0].match_method == "embed"
 
 
+def test_missing_reason_points_at_the_concept_not_the_threshold(tmp_path):
+    """개념 경로의 ``missing`` 사유가 '유사도 임계 미달'이라고 말하면 안 된다.
+
+    라이브에서 ``1개월저장온도`` 가 ``missing`` 이 된 실제 이유는 임계값이 아니라
+    개념 차단이었다. 문구가 틀리면 사용자는 F7 에서 쓰이지도 않는
+    ``match_min_score`` 를 조정하러 간다.
+    """
+    cfg = _config(tmp_path, ontology_path=str(tmp_path / "없음.yaml"))
+    pipe = FactPipeline(cfg, chat=_ScriptedChat([_reply()]), embedder=_FakeEmbedder())
+    result = pipe._compare_from_store(_store(), "기준.xlsx", ["규격서.docx"])
+    reason = result.comparisons[0].reason
+    assert "유사도 임계" not in reason
+    assert "개념" in reason
+    assert "측정조건" in reason  # 차단한 differs_by 의 축이 실린다
+
+
+def test_rollback_path_keeps_the_similarity_wording(tmp_path):
+    """``use_concept_graph: false`` 는 예전 문구를 그대로 유지한다(그 경로에선 사실이다)."""
+    cfg = _config(tmp_path, use_concept_graph=False, compare_use_llm=False,
+                  match_min_score=0.99)
+    # 대상 이름에 '온도'가 없어야 _FakeEmbedder 가 낮은 코사인을 준다(→ 임계 미달).
+    store = FactStore()
+    store.add(DocFacts(doc_name="기준.xlsx", facts=FactSet(facts=[
+        _fact("fact-row-20", "1개월저장온도", "-10.0, 35.0, 80.0")])), is_reference=True)
+    store.add(DocFacts(doc_name="규격서.docx", facts=FactSet(facts=[
+        _fact("fact-word-3", "정격전압", "정격전압, 4.55, V")])))
+    pipe = FactPipeline(cfg, chat=_ScriptedChat([]), embedder=_FakeEmbedder())
+    result = pipe._compare_from_store(store, "기준.xlsx", ["규격서.docx"])
+    assert result.comparisons[0].result == "missing"
+    assert "유사도 임계 미달" in result.comparisons[0].reason
+
+
 def test_compare_stats_include_concept_counters(tmp_path):
     cfg = _config(tmp_path, ontology_path=str(tmp_path / "없음.yaml"))
     pipe = FactPipeline(cfg, chat=_ScriptedChat([_reply()]), embedder=_FakeEmbedder())

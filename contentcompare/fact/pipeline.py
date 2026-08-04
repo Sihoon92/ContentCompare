@@ -180,12 +180,18 @@ class FactPipeline:
 
         for target in store.targets:
             matcher = self._matcher_for(graph, ref_doc, target)
+            # 후보가 없을 때의 사유는 매칭 전략이 안다(개념 경로 = '연결 없음').
+            explain = getattr(matcher, "explain_missing", None)
             for ref_fact in ref_doc.facts.facts:
+                candidates = matcher.search(ref_fact)
                 result.comparisons.append(comparator.compare(
                     ref_fact,
-                    matcher.search(ref_fact),
+                    candidates,
                     target,
                     ref_low_confidence=ref_doc.is_low_confidence(ref_fact),
+                    missing_reason=(
+                        "" if candidates or explain is None else explain(ref_fact)
+                    ),
                 ))
 
         result.compare_stats = {

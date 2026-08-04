@@ -55,7 +55,16 @@ class MatchCandidate:
     score: float
     method: str
     needs_review: bool = False
-    """점수가 경계 구간이라 코드 단독 판정을 신뢰하면 안 되는 후보."""
+    """코드 단독 판정을 신뢰하면 안 되는 후보. **생산자에 따라 의미가 다르다.**
+
+    - :class:`FactMatcher`(유사도 경로): 점수가 경계 구간(``review_score`` 미만)이다.
+    - :class:`ConceptMatcher`(F7 개념 경로): **연결의 확정 주체**가 LLM 이다. 즉
+      아직 아무도 확인하지 않은 연결 위에서는 값 판정도 LLM 이 한 번 더 본다
+      (설계 §F5 Matcher 변경 표). 코드/온톨로지 확정 연결은 ``False``.
+
+    개념 경로에서 ``score`` 는 진단용 recall 점수일 뿐이므로 이 필드를
+    ``score < review_score`` 로 되돌리면 안 된다 — 점수는 판정 근거가 아니다.
+    """
 
 
 class FactMatcher:
@@ -160,6 +169,13 @@ class ConceptMatcher:
         self._by_id = {f.fact_id: f for f in target_facts}
 
     def search(self, ref: Fact) -> list[MatchCandidate]:
+        """같은 개념에 속한 대상 fact 를 **점수 내림차순**으로 반환한다.
+
+        정렬은 :meth:`FactMatcher.search` 와 같은 규약이다 —
+        :meth:`FactComparator.compare` 가 ``candidates[0]`` 을 "가장 좋은 후보"로
+        취급하므로, 한 개념 노드에 같은 대상 문서 fact 가 둘 이상 들어갔을 때
+        멤버 등록 순서를 그대로 돌려주면 임의의 fact 가 1위가 된다.
+        """
         from .concept_models import BY_CODE, BY_ONTOLOGY, FactRef
 
         out: list[MatchCandidate] = []
@@ -180,4 +196,45 @@ class ConceptMatcher:
                 method=CONCEPT,
                 needs_review=not confirmed,
             ))
+        out.sort(key=lambda c: c.score, reverse=True)  # 동점이면 멤버 순서 유지(안정 정렬)
         return out
+
+    # ------------------------------------------------------------------ #
+    def explain_missing(self, ref: Fact) -> str:
+        """후보가 없을 때 사람에게 줄 사유 — **왜 비교하지 않았는지**.
+
+        F7 에서 ``missing`` 은 대부분 "개념이 ``same_as`` 로 이어지지 않았다"이지
+        "유사도가 임계에 못 미쳤다"가 아니다. 그 쌍을 막은 ``differs_by`` 엣지가
+        있으면 축·사유까지 실어, 사람이 리포트만 보고도 원인을 알 수 있게 한다.
+        """
+        from .concept_models import DIFFERS_BY
+
+        base = ("개념이 같다고 판정되지 않아 비교하지 않았습니다"
+                "(개념 그래프에 이 항목과 이어진 대상 fact 가 없습니다).")
+        blocked = []
+        for edge in self.graph.edges:
+            if edge.relation != DIFFERS_BY:
+                continue
+            other = self._counterpart(edge, ref.fact_id)
+            if other is None:
+                continue
+            axis = f"{edge.axis} 이(가) 다름" if edge.axis else "다른 개념"
+            detail = f" — {edge.reason}" if edge.reason else ""
+            blocked.append(f"'{self._label(other)}'({axis}){detail}")
+        if blocked:
+            return f"{base} 다른 개념으로 차단된 후보: " + " / ".join(blocked)
+        return base
+
+    def _counterpart(self, edge: Any, ref_fact_id: str) -> Any:
+        """``edge`` 가 (기준 fact ↔ 이 대상 문서) 쌍이면 대상 쪽 참조를 준다."""
+        if (edge.left.doc == self.reference_doc and edge.left.fact_id == ref_fact_id
+                and edge.right.doc == self.target_doc):
+            return edge.right
+        if (edge.right.doc == self.reference_doc and edge.right.fact_id == ref_fact_id
+                and edge.left.doc == self.target_doc):
+            return edge.left
+        return None
+
+    def _label(self, ref: Any) -> str:
+        fact = self._by_id.get(ref.fact_id)
+        return fact.entity_name if fact is not None else ref.fact_id

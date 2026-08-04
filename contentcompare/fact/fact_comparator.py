@@ -45,6 +45,14 @@ _RESULTS = (MATCH, MISMATCH, MISSING, UNKNOWN)
 BY_CODE = "code"
 BY_LLM = "llm"
 
+MISSING_BY_SIMILARITY = "대응하는 내용을 대상 문서에서 찾지 못했습니다(유사도 임계 미달)."
+"""유사도 매칭 경로(``use_concept_graph: false``)의 기본 ``missing`` 사유.
+
+개념 그래프 경로에서는 이 문구가 **사실이 아니다** — 호출자가 ``missing_reason`` 으로
+"개념 연결이 없어 비교하지 않았습니다"를 주입한다. 문구가 틀리면 사용자는 F7 에서
+쓰이지도 않는 ``match_min_score`` 를 조정하러 간다.
+"""
+
 # 최소 단위 등가 사전. **여기 없는 조합은 코드가 판단하지 않고 LLM 에 넘긴다** —
 # 사전을 추측으로 부풀리면 잘못된 등가 판정을 낳는다. 도메인 지식(knowledge/*.md)은
 # LLM 경로에서 주입되므로, 코드 사전은 표기 변형만 최소로 담는다.
@@ -122,12 +130,19 @@ class FactComparator:
         target: DocFacts,
         *,
         ref_low_confidence: bool = False,
+        missing_reason: str = "",
     ) -> FactComparison:
-        """기준 fact 1건을 대상 문서 1개와 대조한다."""
+        """기준 fact 1건을 대상 문서 1개와 대조한다.
+
+        ``missing_reason`` 은 후보가 하나도 없을 때의 사유를 **호출자가 주입**하는
+        자리다. 후보가 왜 없는지는 매칭 전략마다 다르다 — 유사도 경로는 임계 미달,
+        F7 개념 경로는 "개념이 ``same_as`` 로 이어지지 않음"이다. 비우면 유사도
+        경로의 기본 문구를 쓴다(롤백 경로 ``use_concept_graph: false`` 가 그대로 사용).
+        """
         if not candidates:
             return FactComparison(
                 reference_fact=ref, target_doc=target.doc_name, result=MISSING,
-                reason="대응하는 내용을 대상 문서에서 찾지 못했습니다(유사도 임계 미달).",
+                reason=missing_reason.strip() or MISSING_BY_SIMILARITY,
             )
 
         best = candidates[0]
