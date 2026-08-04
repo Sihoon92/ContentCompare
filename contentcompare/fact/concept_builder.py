@@ -11,17 +11,25 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from .concept_assembler import assemble
 from .concept_models import (
     BY_CODE,
+    BY_LLM,
     BY_ONTOLOGY,
+    RELATIONS,
     SAME_AS,
+    UNKNOWN,
     ConceptEdge,
+    ConceptMember,
+    ConceptGraph,
     FactRef,
 )
 from .fact_matcher import EXACT, FactMatcher, norm_name
 from .fact_models import Fact
 from .fact_store import FactStore
+from .llm_stage import LlmBudgetExceeded
 from .ontology import Ontology
+from .prompts import CONCEPT_SYSTEM, build_concept_user
 
 logger = logging.getLogger(__name__)
 
@@ -109,3 +117,123 @@ def resolve_known(
         remaining.append(pair)
     logger.info("[Concept] 코드/온톨로지 확정 %d 건, LLM 위임 %d 건", len(edges), len(remaining))
     return edges, remaining
+
+
+def judge_pairs(
+    runner: Any,
+    pairs: list[CandidatePair],
+    *,
+    knowledge: str = "",
+    purpose: str = "",
+    ontology_summary: str = "",
+    batch_size: int = 20,
+) -> list[ConceptEdge]:
+    """남은 후보 쌍을 배치로 LLM 에 넘겨 관계를 받는다.
+
+    실패·예산 초과·응답 누락은 전부 ``unknown`` 엣지로 남긴다. **쌍을 잃지 않는 것**이
+    중요하다 — 판단 못 한 쌍은 리포트의 '검토 필요'로 사람에게 간다.
+    """
+    edges: list[ConceptEdge] = []
+    for start in range(0, len(pairs), max(1, batch_size)):
+        batch = pairs[start : start + max(1, batch_size)]
+        edges.extend(_judge_batch(runner, batch, knowledge, purpose, ontology_summary))
+    return edges
+
+
+def _judge_batch(
+    runner: Any,
+    batch: list[CandidatePair],
+    knowledge: str,
+    purpose: str,
+    ontology_summary: str,
+) -> list[ConceptEdge]:
+    by_ids: dict[tuple[str, str], CandidatePair] = {
+        (p.left.fact_id, p.right.fact_id): p for p in batch
+    }
+    try:
+        obj = runner.complete_json(
+            CONCEPT_SYSTEM,
+            build_concept_user(batch, knowledge=knowledge, purpose=purpose,
+                               ontology_summary=ontology_summary),
+        )
+    except Exception as e:  # noqa: BLE001 — 배치 격리(LlmBudgetExceeded·파싱실패·네트워크)
+        logger.warning("[Concept] 배치 판정 실패(%s) → 보류: %s", type(e).__name__, e)
+        return [_unknown_edge(p, f"LLM 판정 실패({type(e).__name__})") for p in batch]
+
+    decided: dict[tuple[str, str], ConceptEdge] = {}
+    for item in (obj.get("pairs") or []):
+        if not isinstance(item, dict):
+            continue
+        key = (str(item.get("left_fact_id") or ""), str(item.get("right_fact_id") or ""))
+        pair = by_ids.get(key)
+        if pair is None:
+            logger.info("[Concept] 후보에 없는 id 지목 → 무시: %s", key)
+            continue
+        relation = str(item.get("relation") or UNKNOWN)
+        if relation not in RELATIONS:
+            relation = UNKNOWN
+        decided[key] = ConceptEdge(
+            relation=relation, left=pair.left_ref, right=pair.right_ref,
+            axis=str(item.get("axis") or ""),
+            left_text=str(item.get("left_text") or ""),
+            right_text=str(item.get("right_text") or ""),
+            reason=str(item.get("reason") or ""),
+            decided_by=BY_LLM, recall_score=pair.score,
+        )
+    return [
+        decided.get((p.left.fact_id, p.right.fact_id))
+        or _unknown_edge(p, "LLM 응답에 이 쌍이 없었습니다")
+        for p in batch
+    ]
+
+
+def _unknown_edge(pair: CandidatePair, reason: str) -> ConceptEdge:
+    return ConceptEdge(
+        relation=UNKNOWN, left=pair.left_ref, right=pair.right_ref,
+        reason=reason, decided_by=BY_LLM, recall_score=pair.score,
+    )
+
+
+def build_concept_graph(
+    store: FactStore,
+    *,
+    embedder: Any = None,
+    runner: Any = None,
+    ontology: Optional[Ontology] = None,
+    knowledge: str = "",
+    purpose: str = "",
+    top_k: int = 5,
+    min_score: float = 0.3,
+    batch_size: int = 20,
+) -> ConceptGraph:
+    """F7 전체 — 후보 쌍 → 코드/온톨로지 확정 → LLM → 조립."""
+    ontology = ontology or Ontology()
+    pairs = candidate_pairs(store, embedder=embedder, top_k=top_k, min_score=min_score)
+    known, remaining = resolve_known(pairs, ontology)
+
+    llm_edges: list[ConceptEdge] = []
+    if remaining and runner is not None:
+        llm_edges = judge_pairs(
+            runner, remaining, knowledge=knowledge, purpose=purpose,
+            ontology_summary=ontology.summary(), batch_size=batch_size,
+        )
+    elif remaining:
+        llm_edges = [_unknown_edge(p, "LLM 을 쓰지 않아 판정하지 않음") for p in remaining]
+
+    members: list[ConceptMember] = []
+    facts: dict[str, Fact] = {}
+    for doc in ([store.reference] if store.reference else []) + list(store.targets):
+        for fact in doc.facts.facts:
+            members.append(ConceptMember(doc.doc_name, fact.fact_id, fact.entity_name))
+            facts[FactRef(doc.doc_name, fact.fact_id).key] = fact
+
+    graph = assemble(members, known + llm_edges, facts)
+    graph.stats.update({
+        "pairs_considered": len(pairs),
+        "pairs_from_ontology": sum(1 for e in known if e.decided_by == BY_ONTOLOGY),
+        "pairs_by_code": sum(1 for e in known if e.decided_by == BY_CODE),
+        "pairs_by_llm": len(llm_edges),
+        "llm_calls": getattr(runner, "calls", 0),
+    })
+    logger.info("[Concept] 그래프 완성 %s", graph.stats)
+    return graph
