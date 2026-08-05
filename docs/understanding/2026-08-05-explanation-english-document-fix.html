@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>영어로 쓴 문서는 왜 비교가 안 됐을까 — 원인과 고친 이야기</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1c1b19; --muted:#6b6a66; --line:#e2e0dc;
+  --card:#ffffff; --code-bg:#f4f3f0; --accent:#2f6f4e; --accent-soft:#e6f0ea;
+  --excel:#2f6f4e; --excel-bg:#e6f0ea;
+  --word:#2b5c99; --word-bg:#e6edf6;
+  --ppt:#b4581f; --ppt-bg:#f8eae0;
+  --llm:#6b3fa0; --llm-bg:#efe8f8;
+  --code-role:#8a6d1f; --code-role-bg:#f7efd9;
+  --warn:#a33a2a; --warn-bg:#fbeae7;
+  --human:#1f6f78; --human-bg:#e2f0f1;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#16171a; --fg:#e8e6e3; --muted:#a2a09b; --line:#31333a;
+    --card:#1d1f23; --code-bg:#212429; --accent:#7fc9a2; --accent-soft:#1e2f27;
+    --excel:#7fc9a2; --excel-bg:#1e2f27;
+    --word:#8ab4e8; --word-bg:#1c2733;
+    --ppt:#e8a06a; --ppt-bg:#33251a;
+    --llm:#c0a2ec; --llm-bg:#272033;
+    --code-role:#e0c473; --code-role-bg:#2e2818;
+    --warn:#f0958a; --warn-bg:#331f1c;
+    --human:#7fcdd6; --human-bg:#172c2e;
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,-apple-system,"Segoe UI",sans-serif;
+  line-height:1.8; font-size:17px;
+}
+.wrap{max-width:880px; margin:0 auto; padding:32px 20px 150px}
+h1{font-size:2rem; line-height:1.3; margin:0 0 8px}
+h2{font-size:1.45rem; margin:56px 0 12px; padding-top:12px; border-top:1px solid var(--line)}
+h3{font-size:1.12rem; margin:30px 0 8px}
+h4{font-size:1rem; margin:22px 0 6px; color:var(--muted)}
+p{margin:12px 0}
+a{color:var(--accent)}
+ul,ol{padding-left:22px}
+li{margin:7px 0}
+.lede{font-size:1.08rem; color:var(--muted)}
+.meta{color:var(--muted); font-size:.9rem; margin-bottom:24px}
+code{background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:.88em;
+  font-family:"Cascadia Mono",Consolas,"D2Coding",monospace}
+pre{
+  background:var(--code-bg); border:1px solid var(--line); border-radius:8px;
+  padding:14px 16px; overflow-x:auto; white-space:pre; font-size:.82rem; line-height:1.6;
+  font-family:"Cascadia Mono",Consolas,"D2Coding",monospace;
+}
+pre code{background:none; padding:0; font-size:1em}
+.filename{
+  font-family:"Cascadia Mono",Consolas,monospace; font-size:.76rem; color:var(--muted);
+  background:var(--code-bg); border:1px solid var(--line); border-bottom:none;
+  border-radius:8px 8px 0 0; padding:5px 12px; display:inline-block; margin-bottom:-1px;
+}
+.filename + pre{border-radius:0 8px 8px 8px}
+table{border-collapse:collapse; width:100%; font-size:.9rem; margin:16px 0; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+th{background:var(--code-bg); font-weight:600}
+
+.callout{border-left:4px solid var(--accent); background:var(--accent-soft);
+  padding:12px 16px; border-radius:0 8px 8px 0; margin:20px 0}
+.callout.warn{border-color:var(--warn); background:var(--warn-bg)}
+.callout.llm{border-color:var(--llm); background:var(--llm-bg)}
+.callout.human{border-color:var(--human); background:var(--human-bg)}
+.callout .tag{display:block; font-size:.78rem; font-weight:700; letter-spacing:.04em;
+  color:var(--muted); margin-bottom:4px}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+
+nav.toc{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:28px 0}
+nav.toc ol{margin:6px 0 0; padding-left:20px}
+nav.toc li{margin:3px 0}
+nav.toc a{text-decoration:none}
+nav.toc a:hover{text-decoration:underline}
+
+/* ── 카드와 연결(이 글의 기본 그림) ─────────── */
+.fcard{flex:1 1 200px; border:1px solid var(--line); border-left-width:5px; border-radius:8px;
+  background:var(--card); padding:9px 12px; font-size:.88rem; min-width:0}
+.fcard b{display:block; font-size:.95rem}
+.fcard.excel{border-left-color:var(--excel)}
+.fcard.word {border-left-color:var(--word)}
+.fcard .src{display:block; font-size:.73rem; color:var(--muted); margin-top:1px}
+.fcard .val{display:block; margin-top:5px; font-family:"Cascadia Mono",Consolas,monospace;
+  font-size:.8rem; background:var(--code-bg); border-radius:4px; padding:3px 7px; overflow-wrap:anywhere}
+.pairfig{display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; margin:18px 0}
+.edgechip{flex:0 1 170px; display:flex; flex-direction:column; justify-content:center;
+  align-items:center; text-align:center; border-radius:8px; padding:7px 9px; font-size:.8rem;
+  border:1px dashed var(--line); background:var(--card)}
+.edgechip .rel{font-weight:700; font-size:.85rem}
+.edgechip .sub{font-size:.73rem; line-height:1.45; opacity:.85}
+.edgechip.ok  {border-style:solid; border-color:var(--excel); background:var(--excel-bg); color:var(--excel)}
+.edgechip.no  {border-color:var(--warn); background:var(--warn-bg); color:var(--warn)}
+.edgechip.cut {border-color:var(--warn); background:var(--warn-bg); color:var(--warn); border-style:solid}
+
+/* ── 결과 20칸 ────────────────────────────── */
+.grid20{display:flex; flex-wrap:wrap; gap:5px; margin:10px 0 4px; max-width:340px}
+.cellbox{width:28px; height:28px; border-radius:5px; border:1px solid var(--line)}
+.c-ok  {background:var(--excel-bg); border-color:var(--excel)}
+.c-bad {background:var(--warn-bg);  border-color:var(--warn)}
+.c-none{background:var(--code-bg);  border-color:var(--line)}
+.c-hold{background:var(--llm-bg);   border-color:var(--llm)}
+.legend{display:flex; gap:14px; flex-wrap:wrap; font-size:.8rem; color:var(--muted); margin:6px 0 0}
+.legend span{display:flex; gap:5px; align-items:center}
+.legend i{width:13px; height:13px; border-radius:3px; border:1px solid var(--line); display:inline-block}
+.side{display:flex; gap:14px; flex-wrap:wrap; margin:18px 0}
+.side > div{flex:1 1 280px; border:1px solid var(--line); border-radius:10px; background:var(--card); padding:12px 16px; min-width:0}
+.side h4{margin-top:0}
+.tiny{font-size:.79rem; color:var(--muted)}
+
+figure{margin:24px 0}
+figcaption{font-size:.81rem; color:var(--muted); margin-top:8px; text-align:center}
+svg{max-width:100%; height:auto; display:block; margin:0 auto}
+
+/* ── 질문 메모 ────────────────────────────── */
+.qmemo{border:1.5px dashed var(--line); background:transparent; border-radius:10px;
+  padding:12px 14px; margin:22px 0}
+.qmemo[data-status="answered"]{border:1.5px solid var(--accent); background:var(--accent-soft)}
+.qmemo-head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+.qmemo-label{font-size:.76rem; font-weight:700; color:var(--accent); letter-spacing:.04em}
+.qmemo-hint{font-size:.74rem; color:var(--muted)}
+.qmemo-question{min-height:2.2em; margin-top:8px; padding:8px 10px; border-radius:6px;
+  background:var(--card); border:1px solid var(--line); font-size:.9rem; outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder); color:var(--muted)}
+.qmemo-question:focus{border-color:var(--accent)}
+.qmemo-answer{margin-top:10px; padding:10px 12px; border-radius:6px; background:var(--card);
+  border-left:3px solid var(--accent); font-size:.9rem}
+.qmemo-answer:before{content:"답변"; display:block; font-size:.72rem; font-weight:700;
+  color:var(--accent); letter-spacing:.04em; margin-bottom:4px}
+
+/* ── 퀴즈 ─────────────────────────────────── */
+.quiz{border:1px solid var(--line); border-radius:10px; background:var(--card); padding:16px 18px; margin:20px 0}
+.quiz .q{font-weight:600; margin-bottom:10px}
+.quiz button.opt{display:block; width:100%; text-align:left; margin:6px 0; padding:9px 12px;
+  border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg);
+  font:inherit; font-size:.9rem; cursor:pointer}
+.quiz button.opt:hover{border-color:var(--accent)}
+.quiz button.opt.right{background:var(--accent-soft); border-color:var(--accent)}
+.quiz button.opt.wrong{background:var(--warn-bg); border-color:var(--warn)}
+.quiz .fb{margin-top:10px; font-size:.88rem; padding:10px 12px; border-radius:8px;
+  background:var(--code-bg); display:none}
+.quiz .fb.show{display:block}
+
+#qmemo-bar{position:fixed; left:0; right:0; bottom:0; z-index:50;
+  background:var(--card); border-top:1px solid var(--line);
+  padding:10px 16px; display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap}
+#qmemo-save-btn{font:inherit; font-size:.88rem; padding:7px 16px; border-radius:8px;
+  border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer}
+#qmemo-save-btn:hover{filter:brightness(1.08)}
+#qmemo-saymsg{font-size:.8rem; color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>영어로 쓴 문서는 왜 비교가 안 됐을까</h1>
+<p class="meta">2026-08-05 · 브랜치 <code>claude/doc-fact-extraction-comparison-wz9x7p</code> · 고친 커밋 <code>8f1540c</code></p>
+
+<p class="lede">
+우리 프로그램은 엑셀에 적힌 숫자가 다른 문서에도 똑같이 적혀 있는지 확인해 줍니다.
+그런데 상대 문서를 <b>영어로</b> 바꿔서 넣었더니, 갑자기 거의 아무것도 못 찾았습니다.
+범인은 놀랍게도 <b>“영어”가 아니었습니다.</b> 이 글은 그 범인을 찾아가는 이야기입니다.
+</p>
+
+<div class="callout">
+  <span class="tag">이 글을 읽는 법</span>
+  <p>
+  어려운 말은 쓰지 않았습니다. 중간중간 <b>“질문 메모”</b> 상자가 있으니, 읽다가 막히면
+  거기에 바로 적어 두세요. 적는 순간 저장되고, 맨 아래 <b>질문 저장</b> 버튼을 누르면 질문이
+  들어 있는 사본이 내려받아집니다. 그 파일을 <code>docs/understanding/</code> 에 덮어쓴 뒤
+  Claude 에게 “질문에 답해줘”라고 하면 됩니다.
+  </p>
+</div>
+
+<nav class="toc">
+  <b>목차</b>
+  <ol>
+    <li><a href="#what">1. 이 프로그램이 하는 일</a></li>
+    <li><a href="#three">2. 짝을 찾는 세 가지 방법</a></li>
+    <li><a href="#accident">3. 사건 — 영어 문서를 넣어 봤더니</a></li>
+    <li><a href="#culprit">4. 범인 찾기 — 통과할 수 없는 검문소</a></li>
+    <li><a href="#hidden">5. 그럼 왜 한국어에서는 멀쩡했을까</a></li>
+    <li><a href="#fix1">6. 고친 것 ① — 검문소 규칙</a></li>
+    <li><a href="#fix2">7. 고친 것 ② — 사람 메모를 영어에도</a></li>
+    <li><a href="#fix3">8. 고친 것 ③ — 온도 기호</a></li>
+    <li><a href="#result">9. 고치고 나서 — 결과</a></li>
+    <li><a href="#left">10. 아직 남은 문제 (숨기지 않기)</a></li>
+    <li><a href="#quiz">11. 퀴즈</a></li>
+  </ol>
+</nav>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="what">1. 이 프로그램이 하는 일</h2>
+
+<p>
+회사에는 <b>같은 내용이 여러 문서에 나뉘어</b> 적혀 있습니다. 원래 숫자는 엑셀에 있고,
+고객에게 보내는 설명서는 워드에 있고, 발표 자료는 파워포인트에 있습니다.
+</p>
+
+<p>
+문제는 누군가 엑셀만 고치고 워드는 안 고칠 때입니다. 사람이 눈으로 하나하나 맞춰 보려면
+몇 시간이 걸리고, 그러다 꼭 하나를 빠뜨립니다. 그래서 이 프로그램이 대신 맞춰 봅니다.
+</p>
+
+<p>
+프로그램은 먼저 문서를 <b>작은 카드</b>로 잘라 놓습니다. 카드 한 장에는
+“무엇에 대한 이야기인지(이름)”, “값이 얼마인지”, 그리고 <b>“원래 문서에 뭐라고
+적혀 있었는지(원문)”</b> 가 들어갑니다.
+</p>
+
+<div class="pairfig">
+  <div class="fcard excel"><b>공칭전압</b>
+    <span class="src">📗 엑셀 · 7번째 줄</span>
+    <span class="val">값: 3.89 · 원문: "3.89"</span></div>
+  <div class="fcard word"><b>공칭전압</b>
+    <span class="src">📘 워드</span>
+    <span class="val">값: 3.85V · 원문: "공칭전압은 3.85V 이다."</span></div>
+</div>
+
+<p>
+이 두 장이 <b>짝</b>이라는 걸 알아내면, 값을 비교해서 “3.89랑 3.85는 다르네!”라고 알려
+줄 수 있습니다. 그러니까 이 프로그램에서 제일 중요한 일은 <b>짝을 찾는 것</b>입니다.
+</p>
+
+<div class="qmemo" data-qid="what-basic" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“카드”라는 말이 잘 안 그려지나요? 여기에 적어 보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="three">2. 짝을 찾는 세 가지 방법</h2>
+
+<p>짝을 찾는 방법은 셋입니다. 이 셋을 기억하면 이 글의 나머지가 전부 쉬워집니다.</p>
+
+<figure>
+<svg viewBox="0 0 720 250" role="img" aria-label="짝을 찾는 세 가지 길">
+  <rect x="255" y="10" width="210" height="38" rx="9" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".6"/>
+  <text x="360" y="34" font-size="13.5" text-anchor="middle" fill="currentColor">짝을 찾아야 한다</text>
+  <line x1="360" y1="48" x2="360" y2="64" stroke="currentColor" opacity=".4"/>
+  <path d="M120 64 L600 64" stroke="currentColor" opacity=".35"/>
+  <line x1="120" y1="64" x2="120" y2="80" stroke="currentColor" opacity=".35"/>
+  <line x1="360" y1="64" x2="360" y2="80" stroke="currentColor" opacity=".35"/>
+  <line x1="600" y1="64" x2="600" y2="80" stroke="currentColor" opacity=".35"/>
+
+  <rect x="20" y="80" width="200" height="120" rx="10" fill="#f7efd9" stroke="#8a6d1f" stroke-width="1.8"/>
+  <text x="120" y="104" font-size="13" text-anchor="middle" fill="#8a6d1f" font-weight="700">① 이름이 똑같다</text>
+  <text x="120" y="126" font-size="11.5" text-anchor="middle" fill="currentColor">"공칭용량" = "공칭용량"</text>
+  <text x="120" y="147" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".8">컴퓨터가 바로 짝 짓기</text>
+  <text x="120" y="170" font-size="11" text-anchor="middle" fill="#8a6d1f">가장 빠르고 확실함</text>
+  <text x="120" y="189" font-size="11" text-anchor="middle" fill="#8a6d1f" font-weight="700">검사 안 받음</text>
+
+  <rect x="260" y="80" width="200" height="120" rx="10" fill="#efe8f8" stroke="#6b3fa0" stroke-width="1.8"/>
+  <text x="360" y="104" font-size="13" text-anchor="middle" fill="#6b3fa0" font-weight="700">② AI 가 판단한다</text>
+  <text x="360" y="126" font-size="11.5" text-anchor="middle" fill="currentColor">"표준환경온도" ↔</text>
+  <text x="360" y="143" font-size="11.5" text-anchor="middle" fill="currentColor">"Standard ambient…"</text>
+  <text x="360" y="170" font-size="11" text-anchor="middle" fill="#6b3fa0">이름이 달라도 알아봄</text>
+  <text x="360" y="189" font-size="11" text-anchor="middle" fill="#6b3fa0" font-weight="700">검문소를 지나감 ⚠</text>
+
+  <rect x="500" y="80" width="200" height="120" rx="10" fill="#e2f0f1" stroke="#1f6f78" stroke-width="1.8"/>
+  <text x="600" y="104" font-size="13" text-anchor="middle" fill="#1f6f78" font-weight="700">③ 사람이 적어 둔다</text>
+  <text x="600" y="126" font-size="11.5" text-anchor="middle" fill="currentColor">"이 둘은 같은 거야"</text>
+  <text x="600" y="147" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".8">메모장에 저장</text>
+  <text x="600" y="170" font-size="11" text-anchor="middle" fill="#1f6f78">한 번 적으면 계속 씀</text>
+  <text x="600" y="189" font-size="11" text-anchor="middle" fill="#1f6f78" font-weight="700">검사 안 받음</text>
+
+  <text x="360" y="228" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75">
+    ②만 <tspan font-weight="700">검문소</tspan>를 지나간다 — 이 사실이 이야기 전체의 열쇠다
+  </text>
+</svg>
+<figcaption>짝을 찾는 세 가지 길. ①과 ③은 검사를 받지 않고, ②만 검문소를 지난다.</figcaption>
+</figure>
+
+<h3>검문소가 뭔가요?</h3>
+
+<p>
+AI 는 가끔 <b>없는 말을 지어냅니다.</b> “이 둘은 같은 거예요”라고 자신 있게 말했는데
+알고 보면 근거가 없는 경우가 있습니다. 그래서 규칙을 하나 만들어 뒀습니다.
+</p>
+
+<div class="callout llm">
+  <span class="tag">검문소 규칙</span>
+  <p>
+  AI 가 “이 둘은 같다”고 하려면, <b>양쪽 문서에서 실제로 적혀 있는 말을 그대로 베껴 와야</b>
+  합니다. 그리고 그 베껴 온 쪽지를 컴퓨터가 원래 문서와 대조해 봅니다. 진짜로 있는 말이면
+  통과, 지어낸 말이면 <b>연결을 잘라 버립니다.</b>
+  </p>
+</div>
+
+<p>
+여기에 규칙이 하나 더 붙어 있었습니다. <b>“낱말 3개 이상 베껴 와라.”</b>
+왜냐하면 긴 문장에서 딱 한 낱말만 뽑아 오는 건 근거라고 보기 어렵기 때문입니다.
+예를 들어 원문이 <code>Nominal capacity, 1150, mAh</code> 인데 <code>1150</code> 하나만
+베껴 오면, 그건 1150이 적힌 아무 카드에나 갖다 붙일 수 있으니까요.
+</p>
+
+<p>이 규칙, 얼핏 들으면 아주 합리적으로 들립니다. <b>여기에 함정이 있었습니다.</b></p>
+
+<div class="qmemo" data-qid="three-gate" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">검문소가 왜 필요한지, 왜 ②만 지나는지 궁금한 점이 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="accident">3. 사건 — 영어 문서를 넣어 봤더니</h2>
+
+<p>
+확인을 위해 <b>영어 문서</b>를 하나 만들었습니다. 원래 한국어 문서와 <b>숫자도 똑같고 순서도
+똑같게</b> 만들고, 오직 언어만 영어로 바꿨습니다. “같은 내용인데 언어만 다르면 결과도 같아야
+한다”를 확인하려는 것이었습니다.
+</p>
+
+<p>결과는 이랬습니다. 네모 한 칸이 항목 하나입니다.</p>
+
+<div class="side">
+  <div>
+    <h4>📘 한국어 문서 (원래)</h4>
+    <div class="grid20">
+      <div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div>
+      <div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div>
+      <div class="cellbox c-bad"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+    </div>
+    <p class="tiny">일치 10 · 다름 1 · 없음 9</p>
+  </div>
+  <div>
+    <h4>📗 영어 문서 (같은 내용!)</h4>
+    <div class="grid20">
+      <div class="cellbox c-ok"></div><div class="cellbox c-ok"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+    </div>
+    <p class="tiny">일치 2 · 다름 <b>0</b> · 없음 <b>18</b></p>
+  </div>
+</div>
+<div class="legend">
+  <span><i class="c-ok"></i> 일치(같음)</span>
+  <span><i class="c-bad"></i> 다름(문제 발견!)</span>
+  <span><i class="c-none"></i> 상대 문서에 없음</span>
+  <span><i class="c-hold"></i> 판단 못 함</span>
+</div>
+
+<p>
+20개 중 <b>9개가 뒤집혔고, 전부 “못 찾음” 쪽</b>이었습니다. 그리고 제일 뼈아픈 건 이겁니다 —
+한국어에서는 잘 잡아내던 <b>진짜 오류를 놓쳤습니다.</b>
+</p>
+
+<div class="pairfig">
+  <div class="fcard excel"><b>공칭전압</b>
+    <span class="src">📗 엑셀</span>
+    <span class="val">3.89</span></div>
+  <div class="edgechip cut"><span class="rel">연결 끊김 ✂</span>
+    <span class="sub">“상대 문서에 없음”<br>으로 보고됨</span></div>
+  <div class="fcard word"><b>Nominal voltage</b>
+    <span class="src">📗 영어 문서</span>
+    <span class="val">3.85V</span></div>
+</div>
+
+<p>
+3.89와 3.85는 <b>다릅니다.</b> 이건 사람이 꼭 알아야 하는 오류입니다. 그런데 프로그램은
+“그런 항목은 상대 문서에 아예 없어요”라고 말해 버렸습니다. <b>가장 나쁜 종류의 실패</b>입니다.
+틀렸다고 말하는 것보다, 없다고 말해서 아무도 안 보게 만드는 게 더 위험하니까요.
+</p>
+
+<div class="qmemo" data-qid="accident" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">여기서 이상하다고 느낀 점이 있나요? 범인을 미리 추측해 봐도 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="culprit">4. 범인 찾기 — 통과할 수 없는 검문소</h2>
+
+<p>
+먼저 의심한 건 <b>AI 가 영어를 잘 못 읽나?</b> 였습니다. 확인해 보니 <b>아니었습니다.</b>
+AI 는 12쌍을 정확하게 “같다”고 알아봤습니다. <code>표준환경온도</code> 와
+<code>Standard ambient temperature</code> 도 제대로 이었습니다.
+</p>
+
+<p>
+그런데 그중 <b>10개가 검문소에서 잘려 나갔습니다.</b> 그래서 잘린 10개를 하나하나 열어
+봤습니다. 전부 같은 이유였습니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 720 300" role="img" aria-label="검문소에서 엑셀 쪽지만 막히는 그림">
+  <!-- 왼쪽 카드 -->
+  <rect x="14" y="30" width="180" height="76" rx="10" fill="#e6f0ea" stroke="#2f6f4e" stroke-width="1.8"/>
+  <text x="104" y="54" font-size="12.5" text-anchor="middle" fill="#2f6f4e" font-weight="700">📗 엑셀 카드</text>
+  <text x="104" y="74" font-size="11.5" text-anchor="middle" fill="currentColor">공칭용량</text>
+  <text x="104" y="94" font-size="11" text-anchor="middle" fill="currentColor" opacity=".8">원문 전체: "1150.0"</text>
+
+  <!-- 쪽지 -->
+  <rect x="222" y="52" width="120" height="34" rx="6" fill="var(--card)" stroke="#6b3fa0" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="282" y="68" font-size="11" text-anchor="middle" fill="#6b3fa0">베껴 온 쪽지</text>
+  <text x="282" y="81" font-size="11.5" text-anchor="middle" fill="currentColor" font-family="monospace">"1150.0"</text>
+
+  <!-- 검문소 -->
+  <rect x="380" y="18" width="150" height="264" rx="12" fill="none" stroke="#a33a2a" stroke-width="2"/>
+  <text x="455" y="42" font-size="13" text-anchor="middle" fill="#a33a2a" font-weight="700">검문소</text>
+  <text x="455" y="64" font-size="11" text-anchor="middle" fill="currentColor" opacity=".8">규칙: 낱말 3개 이상</text>
+  <line x1="392" y1="76" x2="518" y2="76" stroke="currentColor" opacity=".3"/>
+
+  <text x="455" y="100" font-size="11.5" text-anchor="middle" fill="#a33a2a">"1150.0" → 낱말 1개</text>
+  <text x="455" y="120" font-size="16" text-anchor="middle" fill="#a33a2a" font-weight="700">✗ 막힘</text>
+  <text x="455" y="142" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".75">그런데 원문에</text>
+  <text x="455" y="157" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".75">낱말이 1개뿐이다!</text>
+
+  <line x1="392" y1="176" x2="518" y2="176" stroke="currentColor" opacity=".3"/>
+  <text x="455" y="200" font-size="11.5" text-anchor="middle" fill="#2f6f4e">영어 쪽 쪽지 → 낱말 4개</text>
+  <text x="455" y="220" font-size="16" text-anchor="middle" fill="#2f6f4e" font-weight="700">✓ 통과</text>
+  <text x="455" y="248" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".75">한쪽만 막혀도</text>
+  <text x="455" y="263" font-size="11.5" text-anchor="middle" fill="#a33a2a" font-weight="700">연결은 끊긴다</text>
+
+  <!-- 오른쪽 카드 -->
+  <rect x="556" y="30" width="150" height="76" rx="10" fill="#e6edf6" stroke="#2b5c99" stroke-width="1.8"/>
+  <text x="631" y="54" font-size="12.5" text-anchor="middle" fill="#2b5c99" font-weight="700">📗 영어 카드</text>
+  <text x="631" y="72" font-size="10.5" text-anchor="middle" fill="currentColor">Nominal capacity,</text>
+  <text x="631" y="88" font-size="10.5" text-anchor="middle" fill="currentColor">1150, mAh</text>
+
+  <path d="M194 68 L218 68" stroke="currentColor" opacity=".45"/>
+  <path d="M346 68 L376 68" stroke="currentColor" opacity=".45"/>
+  <path d="M556 68 L534 68" stroke="currentColor" opacity=".45"/>
+</svg>
+<figcaption>엑셀 카드의 원문은 <b>“1150.0” 딱 하나</b>. 낱말 3개를 베끼고 싶어도 벨 게 없다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">범인</span>
+  <p>
+  엑셀은 칸에 <b>숫자 하나만</b> 적습니다. 그러니 그 카드의 원문은 <code>"1150.0"</code>,
+  낱말 하나뿐입니다. 그런데 검문소는 <b>낱말 3개</b>를 요구합니다.
+  </p>
+  <p style="margin-bottom:0">
+  즉 이 카드들은 <b>아무리 정직하게 베껴 와도 절대 통과할 수 없었습니다.</b>
+  규칙이 “지키기 어려운” 게 아니라 <b>“지키는 게 불가능한”</b> 규칙이었던 겁니다.
+  </p>
+</div>
+
+<p>실제로 잘린 10개를 열어 보면 전부 이 모양이었습니다.</p>
+
+<div class="filename">잘린 연결 하나를 열어 본 것</div>
+<pre><code>왼쪽(엑셀)  베껴 온 쪽지: "4.55"        → 낱말 1개  ✗ 막힘
+            원문 전체    : "4.55"        ← 더 베낄 게 없다
+
+오른쪽(영어) 베껴 온 쪽지: "The rated charging voltage is 4.55V."
+                                          → 낱말 7개  ✓ 통과</code></pre>
+
+<p>
+AI 는 아무것도 지어내지 않았습니다. 있는 그대로, 심지어 <b>원문 전체를</b> 베껴 왔습니다.
+그런데도 막혔습니다. 검문소가 지키려던 목적과 정반대의 일이 벌어진 겁니다.
+</p>
+
+<div class="qmemo" data-qid="culprit" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“낱말 3개” 규칙이 왜 문제였는지 이해되셨나요? 헷갈리면 적어 주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="hidden">5. 그럼 왜 한국어에서는 멀쩡했을까</h2>
+
+<p>
+여기서 중요한 질문이 남습니다. <b>엑셀은 한국어일 때도 똑같이 숫자 하나만 적혀 있는데,
+왜 그때는 문제가 안 생겼을까요?</b>
+</p>
+
+<p>답은 <a href="#three">2장의 세 갈래 길</a>에 있습니다.</p>
+
+<figure>
+<svg viewBox="0 0 720 210" role="img" aria-label="한국어일 때와 영어일 때 길의 굵기가 달라진다">
+  <text x="180" y="22" font-size="13" text-anchor="middle" fill="currentColor" font-weight="700">📘 상대가 한국어일 때</text>
+  <text x="540" y="22" font-size="13" text-anchor="middle" fill="currentColor" font-weight="700">📗 상대가 영어일 때</text>
+
+  <!-- 한국어 -->
+  <rect x="40" y="40" width="130" height="44" rx="8" fill="#f7efd9" stroke="#8a6d1f" stroke-width="4"/>
+  <text x="105" y="60" font-size="11.5" text-anchor="middle" fill="#8a6d1f" font-weight="700">① 이름이 같다</text>
+  <text x="105" y="76" font-size="12" text-anchor="middle" fill="#8a6d1f" font-weight="700">10개</text>
+  <rect x="40" y="96" width="130" height="44" rx="8" fill="#efe8f8" stroke="#6b3fa0" stroke-width="1.2"/>
+  <text x="105" y="116" font-size="11.5" text-anchor="middle" fill="#6b3fa0">② AI 판단</text>
+  <text x="105" y="132" font-size="12" text-anchor="middle" fill="#6b3fa0">0개</text>
+  <rect x="40" y="152" width="130" height="40" rx="8" fill="#e2f0f1" stroke="#1f6f78" stroke-width="1.2"/>
+  <text x="105" y="170" font-size="11.5" text-anchor="middle" fill="#1f6f78">③ 사람 메모</text>
+  <text x="105" y="185" font-size="12" text-anchor="middle" fill="#1f6f78">1개</text>
+  <text x="255" y="116" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".8">검문소를 지나는</text>
+  <text x="255" y="133" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".8">연결이 거의 없다</text>
+
+  <!-- 영어 -->
+  <rect x="400" y="40" width="130" height="44" rx="8" fill="#f7efd9" stroke="#8a6d1f" stroke-width="1.2" opacity=".55"/>
+  <text x="465" y="60" font-size="11.5" text-anchor="middle" fill="#8a6d1f">① 이름이 같다</text>
+  <text x="465" y="76" font-size="12" text-anchor="middle" fill="#8a6d1f" font-weight="700">0개</text>
+  <rect x="400" y="96" width="130" height="44" rx="8" fill="#efe8f8" stroke="#6b3fa0" stroke-width="4"/>
+  <text x="465" y="116" font-size="11.5" text-anchor="middle" fill="#6b3fa0" font-weight="700">② AI 판단</text>
+  <text x="465" y="132" font-size="12" text-anchor="middle" fill="#6b3fa0" font-weight="700">전부</text>
+  <rect x="400" y="152" width="130" height="40" rx="8" fill="#e2f0f1" stroke="#1f6f78" stroke-width="1.2" opacity=".55"/>
+  <text x="465" y="170" font-size="11.5" text-anchor="middle" fill="#1f6f78">③ 사람 메모</text>
+  <text x="465" y="185" font-size="12" text-anchor="middle" fill="#1f6f78" font-weight="700">0개</text>
+  <text x="620" y="108" font-size="11.5" text-anchor="middle" fill="#a33a2a" font-weight="700">전부 검문소로</text>
+  <text x="620" y="126" font-size="11.5" text-anchor="middle" fill="#a33a2a" font-weight="700">몰린다 ⚠</text>
+</svg>
+<figcaption>이름이 같으면 검사를 안 받는다. 언어가 다르면 그 길이 <b>완전히 막히고</b>, 모두 검문소로 몰린다.</figcaption>
+</figure>
+
+<div class="callout">
+  <span class="tag">가장 중요한 문장</span>
+  <p>
+  <b>고장은 원래부터 있었습니다.</b> 다만 한국어 문서에서는 대부분의 카드가 “이름이 같다”는
+  빠른 길로 갔고, 그 길은 검문소를 <b>지나지 않기</b> 때문에 아무도 다치지 않았습니다.
+  </p>
+  <p style="margin-bottom:0">
+  언어를 바꾸자 그 빠른 길이 사라졌고, <b>모두가 고장 난 검문소를 지나게</b> 됐습니다.
+  그래서 이건 “영어 때문에 생긴 문제”가 아니라 <b>“영어가 드러낸 원래 문제”</b>입니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="hidden" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“원래부터 고장이었다”는 말이 이해되셨나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="fix1">6. 고친 것 ① — 검문소 규칙</h2>
+
+<p>
+자, 고쳐야 합니다. 그런데 어떻게? <b>“낱말 3개” 규칙을 그냥 없애면 될까요?</b> 안 됩니다.
+그러면 긴 문장에서 한 낱말만 뽑아 오는 얌체 짓을 못 막으니까요.
+</p>
+
+<p>
+그래서 먼저 <b>이 규칙이 원래 뭘 막으려던 건지</b>를 다시 생각했습니다. 답은 이렇습니다.
+</p>
+
+<div class="side">
+  <div>
+    <h4>❌ 막고 싶었던 것</h4>
+    <p style="margin:0">
+    원문이 <code>Nominal capacity, 1150, mAh</code> 인데 <b>그중 <code>1150</code> 하나만</b>
+    뽑아 오는 것. <b>일부만</b> 베끼는 것.
+    </p>
+  </div>
+  <div>
+    <h4>✅ 막을 생각이 없었던 것</h4>
+    <p style="margin:0">
+    원문이 <code>1150.0</code> 뿐이라 <b>그것 말고 베낄 게 없는</b> 경우.
+    <b>전부</b> 베낀 것.
+    </p>
+  </div>
+</div>
+
+<p>
+두 경우 모두 “낱말 1개짜리 쪽지”라서 옛날 규칙은 구별하지 못했습니다. 그래서 규칙에
+<b>딱 한 줄을 더했습니다.</b>
+</p>
+
+<div class="callout">
+  <span class="tag">새 규칙</span>
+  <p style="font-size:1.05rem; margin-bottom:0">
+  낱말이 3개보다 적어도, <b>원문에 있는 걸 전부 다 베껴 왔으면 통과</b>시킨다.
+  </p>
+</div>
+
+<p>이 한 줄이 두 경우를 정확히 갈라 줍니다.</p>
+
+<div class="pairfig">
+  <div class="fcard excel"><b>전부 베낌</b>
+    <span class="src">원문 = "1150.0"</span>
+    <span class="val">쪽지 = "1150.0"</span></div>
+  <div class="edgechip ok"><span class="rel">✓ 통과</span>
+    <span class="sub">더 베낄 게 없었으니까</span></div>
+  <div class="fcard word"><b>일부만 베낌</b>
+    <span class="src">원문 = "Nominal capacity, 1150, mAh"</span>
+    <span class="val">쪽지 = "1150"</span></div>
+</div>
+<p class="tiny" style="text-align:center">오른쪽은 <b>여전히 막힙니다</b> — 원문에 더 있는데 일부만 가져왔으니까요.</p>
+
+<h3>실제 코드는 이렇게 생겼습니다</h3>
+
+<p>어른들을 위해 진짜 코드도 붙입니다. 어렵지 않습니다 — 방금 읽은 말 그대로입니다.</p>
+
+<div class="filename">contentcompare/fact/concept_assembler.py</div>
+<pre><code>def _quote_long_enough(claim, fact):
+    """쪽지가 근거로 인정할 만큼 긴가."""
+    tokens = set(tokenize(claim))          # 쪽지를 낱말로 쪼갠다
+    if len(tokens) &gt;= EVIDENCE_MIN_TOKENS: # 낱말 3개 이상이면
+        return True                        #   → 통과
+    # ↓ 여기가 새로 넣은 한 줄:
+    #   쪽지의 낱말들이 원문의 낱말들과 '완전히 같으면' = 전부 베낀 것
+    return bool(tokens) and tokens == set(tokenize(fact.evidence_text))</code></pre>
+
+<div class="callout warn">
+  <span class="tag">테스트 하나의 정답을 뒤집었습니다</span>
+  <p>
+  이 프로그램에는 “규칙이 잘 작동하는지” 자동으로 검사하는 <b>테스트</b>가 491개 있습니다.
+  그중 하나가 <b>“낱말 1개짜리 쪽지는 막혀야 한다”</b> 였는데, 하필 그 검사에 쓰던 예시가
+  <b>원문이 통째로 1낱말인 경우</b>였습니다. 새 규칙에서는 통과해야 맞습니다.
+  </p>
+  <p style="margin-bottom:0">
+  그래서 그 테스트의 예시를 <b>긴 원문에서 한 조각만 떼어 오는 경우</b>로 바꿔 원래 뜻을
+  지키고, <b>전부 베낀 경우는 통과한다</b>는 새 테스트를 따로 추가했습니다. 판단을 바꿨다는
+  사실은 커밋 메시지와 설계 문서에 그대로 적어 두었습니다 — 나중에 “왜 뒤집었지?”라고
+  묻는 사람이 반드시 나오기 때문입니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fix1" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">새 규칙이 왜 얌체 짓은 여전히 막는지 이해되셨나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="fix2">7. 고친 것 ② — 사람 메모를 영어에도 통하게</h2>
+
+<p>
+세 번째 길, <b>사람이 적어 두는 메모장</b> 이야기입니다. 여기에는 이런 것들이 적혀 있습니다.
+</p>
+
+<div class="filename">knowledge/ontology.yaml — 사람이 손으로 적는 메모장</div>
+<pre><code>같은 것:
+  - ["고객 표준 버전", "문서 기준 규격"]      ← 이름은 달라도 같은 항목
+
+다른 것:
+  - ["1개월저장온도", "표준환경온도"]         ← 비슷해 보여도 다른 항목
+  - ["충전환경온도", "정격 충전 전압"]         ← 온도랑 전압이니 당연히 다름</code></pre>
+
+<p>
+한 번 적어 두면 다음부터 AI 에게 묻지 않고 <b>그대로 씁니다.</b> 사람이 고쳐 준 실수가
+다시는 안 생기게 하는 장치입니다.
+</p>
+
+<p>
+그런데 이 메모장은 <b>한국어 이름으로만</b> 적혀 있었습니다. 영어 문서가 들어오면
+<code>충전환경온도</code> 와 <code>Rated charging voltage</code> 가 같은 짝인지 알 방법이
+없어서, <b>메모장이 통째로 무용지물</b>이 됐습니다.
+</p>
+
+<h3>“그럼 영어 이름도 같이 적으면 되잖아요?”</h3>
+
+<p>
+저도 처음엔 그렇게 생각했습니다. <b>그런데 그러면 큰일 납니다.</b> 왜인지 보세요.
+</p>
+
+<div class="callout warn">
+  <span class="tag">이렇게 적으면 안 되는 이유</span>
+  <pre style="margin:8px 0 0"><code>다른 것:
+  - ["1개월저장온도", "표준환경온도", "Standard ambient temperature"]</code></pre>
+  <p style="margin-bottom:0">
+  이 줄은 <b>“여기 적힌 것들은 서로 전부 다르다”</b>는 뜻입니다. 그런데
+  <code>표준환경온도</code> 와 <code>Standard ambient temperature</code> 는
+  <b>같은 것의 한국어·영어 이름</b>입니다! 같은 걸 “다르다”고 선언해 버리는 셈이라,
+  그 둘은 <b>영원히 비교되지 않습니다.</b>
+  </p>
+</div>
+
+<p>
+그래서 <b>“별명 칸”</b>을 새로 만들었습니다. 같은 것의 여러 이름은 여기에 묶어 둡니다.
+</p>
+
+<div class="filename">새로 생긴 별명 칸</div>
+<pre><code>별명:                                       ← aliases
+  - ["표준환경온도", "Standard ambient temperature"]
+  - ["평가환경습도", "Evaluation ambient humidity"]
+  - ["정격충전전압", "Rated charging voltage"]
+
+다른 것:
+  - ["1개월저장온도", "표준환경온도"]          ← 그대로 두면</code></pre>
+
+<p>
+그러면 컴퓨터가 알아서 <b>별명까지 넓혀서</b> 적용합니다. “1개월저장온도는 표준환경온도와
+다르다”라고만 적어도, <b>“1개월저장온도는 Standard ambient temperature 와도 다르다”</b>가
+저절로 따라옵니다. 그리고 별명끼리는 <b>절대 “다르다”가 붙지 않게</b> 막아 뒀습니다.
+</p>
+
+<div class="callout human">
+  <span class="tag">솔직하게 짚어둘 것</span>
+  <p>
+  이 메모장은 <b>사람이 한 번 확인한 뒤에만</b> 힘을 씁니다. 그러니까 <b>처음 보는 영어
+  문서</b>는 여전히 구해 주지 못합니다. 이건 “같은 실수를 두 번 하지 않게” 만드는 장치이지,
+  첫 실수를 막는 장치가 아닙니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fix2" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“별명 칸”이 왜 따로 필요했는지 궁금한 점이 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="fix3">8. 고친 것 ③ — 온도 기호</h2>
+
+<p>
+마지막은 아주 작은 것입니다. 하지만 재미있습니다.
+</p>
+
+<p>
+컴퓨터에게 <b><code>℃</code> 와 <code>°C</code> 는 완전히 다른 글자</b>입니다. 눈에는 거의
+똑같아 보이지만, 앞의 것은 “섭씨 기호” 한 글자이고, 뒤의 것은 “동그라미 기호 + 알파벳 C”
+두 글자입니다.
+</p>
+
+<p>
+우리 프로그램은 단위 사전에 <code>℃</code> 는 넣어 뒀는데 <code>°C</code> 는 빠뜨렸습니다.
+영어 문서에서는 <code>°C</code> 를 훨씬 많이 씁니다. 그러면 컴퓨터가 <b>“이게 무슨 단위인지
+모르겠다”</b>고 손을 들고, 값 비교를 포기한 뒤 AI 에게 넘겨 버립니다. 느려지고, 결과도
+흔들립니다.
+</p>
+
+<div class="filename">contentcompare/fact/fact_comparator.py</div>
+<pre><code>_UNIT_ALIASES = {
+    "℃": "c", "°c": "c", "도씨": "c", "섭씨": "c", "degc": "c", "c": "c",
+    #        ↑ 이 한 칸을 추가했다
+    ...
+}</code></pre>
+
+<p class="tiny">
+사전에 없는 단위를 <b>추측해서 채우지 않는 것</b>이 이 프로젝트의 규칙입니다. 그래서 이번에
+실제로 본 <code>°C</code> 만 넣었고, <code>°F</code> 같은 건 넣지 않았습니다.
+</p>
+
+<div class="qmemo" data-qid="fix3" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">글자가 다르다는 게 잘 안 와닿나요? 물어봐 주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="result">9. 고치고 나서 — 결과</h2>
+
+<p>세 가지를 고친 뒤 같은 영어 문서를 다시 넣어 봤습니다.</p>
+
+<div class="side">
+  <div>
+    <h4>고치기 전</h4>
+    <div class="grid20">
+      <div class="cellbox c-ok"></div><div class="cellbox c-ok"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+    </div>
+    <p class="tiny">일치 2 · 다름 0 · 판단보류 0 · 없음 18</p>
+  </div>
+  <div>
+    <h4>고친 뒤</h4>
+    <div class="grid20">
+      <div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div><div class="cellbox c-ok"></div>
+      <div class="cellbox c-bad"></div>
+      <div class="cellbox c-hold"></div><div class="cellbox c-hold"></div><div class="cellbox c-hold"></div><div class="cellbox c-hold"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+      <div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div><div class="cellbox c-none"></div>
+    </div>
+    <p class="tiny">일치 4 · <b>다름 1</b> · 판단보류 4 · 없음 11</p>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>확인할 것</th><th>고치기 전</th><th>고친 뒤</th></tr></thead>
+  <tbody>
+    <tr><td>검문소에서 잘린 연결</td><td>10개</td><td><b>0개</b></td></tr>
+    <tr><td>“같다”고 이어진 짝</td><td>2개</td><td><b>12개</b></td></tr>
+    <tr><td>메모장이 결정해 준 것</td><td>0개</td><td><b>6개</b></td></tr>
+    <tr><td><b>진짜 오류 3.89 vs 3.85V</b></td><td>못 찾음 ❌</td><td><b>찾음 ✅</b></td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <span class="tag">가장 중요한 결과</span>
+  <p style="margin-bottom:0">
+  이 프로그램이 존재하는 이유인 <b>“숫자가 다르다”를 다시 찾아냅니다.</b> 그게 이번 수정의
+  목표였고, 달성했습니다.
+  </p>
+</div>
+
+<h3>덤 — 한국어 문서도 좋아졌습니다</h3>
+
+<p>
+확인차 <b>한국어 문서</b>도 다시 돌려 봤는데, 뜻밖의 사실이 나왔습니다. 한국어에서도
+<b>낱말 1개짜리 쪽지가 3개</b> 있었습니다(<code>"4.55"</code> 2개, <code>"3.89"</code> 1개).
+전부 파워포인트 상대였습니다.
+</p>
+
+<p>
+즉 <b>한국어 문서도 이 고장의 피해를 보고 있었습니다.</b> 눈에 안 띄었을 뿐입니다. 고친 뒤
+정답표(사람이 미리 만들어 둔 모범답안)와 맞춰 보니 <b>틀렸던 항목 하나가 맞게 바뀌었습니다.</b>
+</p>
+
+<div class="qmemo" data-qid="result" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">결과 표에서 궁금한 숫자가 있나요? “판단보류”가 뭔지 등.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="left">10. 아직 남은 문제 (숨기지 않기)</h2>
+
+<p>
+고치고 나서도 <b>한국어만큼 잘하지는 못합니다.</b> 왜 그런지 셋을 솔직하게 적어 둡니다.
+좋은 도구는 “얼마나 잘하는지”만큼 <b>“어디까지 못 믿을지”</b>를 알려 줘야 하니까요.
+</p>
+
+<h3>① 판단보류 4개 — AI 가 조심스러워서</h3>
+<p>
+짝은 제대로 이어졌고 값도 실제로 같습니다(둘 다 1150). 그런데 엑셀에는 단위가 안 적혀 있고
+영어 문서에는 <code>mAh</code> 가 적혀 있어서, AI 가 <b>“단위가 정말 같은지 확신이 안 선다”</b>
+며 판단을 미뤘습니다.
+</p>
+<p>
+이건 <b>일부러 그렇게 만든 것</b>입니다. 짝을 AI 가 이었을 때는 “아직 아무도 확인 안 한
+연결”이므로, 그 위에서 컴퓨터가 함부로 “같다/다르다”를 단정하지 않게 해 뒀습니다.
+사람이 메모장에 한 번 적어 주면 이 조심스러움은 사라집니다.
+</p>
+
+<h3>② 엉뚱한 것끼리 한 덩어리가 됐다</h3>
+
+<div class="pairfig">
+  <div class="fcard excel"><b>공칭용량</b><span class="val">1150</span></div>
+  <div class="fcard excel"><b>정격용량</b><span class="val">1150</span></div>
+  <div class="fcard word"><b>Nominal capacity</b><span class="val">1150</span></div>
+  <div class="fcard word"><b>Rated capacity</b><span class="val">1150</span></div>
+</div>
+<p class="tiny" style="text-align:center">AI 가 이 넷을 <b>전부 같은 것</b>이라고 묶어 버렸습니다.</p>
+
+<p>
+원인은 <b>검문소를 느슨하게 만든 대가</b>입니다. 원문이 <code>"1150"</code> 뿐인 카드는
+자기가 누구인지 증명할 방법이 없어서, <b>1150이 적힌 아무 카드에나 붙을 수 있습니다.</b>
+이번엔 넷 다 값이 1150이라 결과는 안 바뀌었지만, 값이 달랐다면 <b>엉뚱한 짝을 비교했을
+것</b>입니다.
+</p>
+<p>
+이건 이름이 같은지 확인하는 길(①번 길)이 <b>닻</b> 역할을 해 주던 걸 잃어서 생긴 일입니다.
+그래서 설계 문서의 <b>“해결하지 못하는 것”</b> 목록에 이 항목을 새로 적어 두었습니다.
+</p>
+
+<h3>③ 원래 없던 것은 여전히 못 찾는다</h3>
+<p>
+영어 문서에서 카드를 만드는 단계에서 <b>규격 버전 문장 하나를 아예 카드로 안 만들었습니다.</b>
+카드가 없으면 짝을 찾을 수도 없습니다. 이건 짝 찾기 단계가 아니라 <b>카드 만드는 단계</b>의
+문제라, 이번 수정으로는 해결되지 않습니다.
+</p>
+
+<h3>보너스 — 조사 중에 발견한 AI 의 반칙</h3>
+
+<div class="callout llm">
+  <span class="tag">AI 가 규칙을 어겼다</span>
+  <p>
+  AI 에게 준 지시문에는 이런 규칙이 있습니다: <b>“값이 다르다는 건 서로 다른 항목이라는
+  근거가 아니다.”</b> 왜냐하면 값이 다른 걸 찾는 게 <b>우리 목적</b>이니까요.
+  </p>
+  <p style="margin-bottom:0">
+  그런데 한 번은 AI 가 <code>3개월저장온도</code> 와 <code>3개월 저장 조건</code> 을 두고
+  <b>“상한값이 서로 다르니 다른 항목”</b>이라며 갈라놓았습니다. 그 결과 <b>찾아야 할 오류가
+  “없음”으로 사라졌습니다.</b> 이건 이번 수정 때문이 아니라는 걸 실험으로 확인했고(같은
+  조건에서 별명 칸을 빼고 돌려도 똑같았습니다), 설계 문서가 <b>미리 걱정했던 그대로</b>
+  일어난 일입니다. 다음 과제는 지시문을 더 단단하게 쓰는 것입니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="left" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">남은 문제 중 더 알고 싶은 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="quiz">11. 퀴즈</h2>
+
+<p>다섯 문제입니다. 함정은 없습니다 — 이해했는지만 확인하는 문제예요.</p>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q1. 영어 문서에서 비교가 안 됐던 <b>진짜 원인</b>은?</div>
+  <button class="opt" data-i="0">AI 가 영어를 잘 못 읽어서</button>
+  <button class="opt" data-i="1">영어 문서에는 숫자가 안 적혀 있어서</button>
+  <button class="opt" data-i="2">엑셀 카드의 원문이 낱말 1개뿐인데 검문소가 낱말 3개를 요구해서 — 지킬 수 없는 규칙이었다</button>
+  <button class="opt" data-i="3">컴퓨터가 느려서 시간이 모자라서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q2. 같은 고장이 <b>한국어 문서에서는 잘 안 보였던</b> 이유는?</div>
+  <button class="opt" data-i="0">한국어 카드에는 원문이 길게 적혀 있어서</button>
+  <button class="opt" data-i="1">이름이 똑같은 카드가 많아서 대부분 “이름이 같다” 길로 갔고, 그 길은 검문소를 지나지 않기 때문</button>
+  <button class="opt" data-i="2">한국어일 때는 검문소가 아예 꺼져 있어서</button>
+  <button class="opt" data-i="3">한국어 문서는 항목 수가 적어서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. 새 검문소 규칙에서, 원문이 <code>Nominal capacity, 1150, mAh</code> 인데 <code>1150</code> 만 베껴 오면?</div>
+  <button class="opt" data-i="0">통과한다 — 규칙을 없앴으니까</button>
+  <button class="opt" data-i="1">통과한다 — 1150이 원문에 진짜 있으니까</button>
+  <button class="opt" data-i="2">사람에게 물어본다</button>
+  <button class="opt" data-i="3">여전히 막힌다 — 원문에 더 있는데 <b>일부만</b> 가져왔으니 “전부 베낌”이 아니다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q4. 메모장의 “다른 것” 줄에 영어 이름을 그냥 같이 적으면 왜 안 되나?</div>
+  <button class="opt" data-i="0">그 줄은 “여기 적힌 것들은 서로 전부 다르다”는 뜻이라, 같은 것의 한국어·영어 이름끼리도 “다르다”가 붙어 영원히 비교되지 않는다</button>
+  <button class="opt" data-i="1">영어는 글자 수가 길어서 파일이 커진다</button>
+  <button class="opt" data-i="2">AI 가 영어 메모를 못 읽는다</button>
+  <button class="opt" data-i="3">한 줄에 이름을 2개까지만 적을 수 있다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q5. 검문소를 느슨하게 만든 <b>대가</b>로 실제로 생긴 일은?</div>
+  <button class="opt" data-i="0">프로그램이 훨씬 느려졌다</button>
+  <button class="opt" data-i="1">AI 가 없는 문장을 지어내기 시작했다</button>
+  <button class="opt" data-i="2">원문이 <code>1150</code> 뿐인 카드가 자기를 구별할 수단이 없어, 1150이 적힌 다른 카드들과 한 덩어리로 묶여 버렸다</button>
+  <button class="opt" data-i="3">한국어 문서 결과가 전부 망가졌다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있으면 어느 부분이 헷갈렸는지 적어 두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<h2 id="more">더 읽을거리</h2>
+
+<ul>
+  <li><a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 개념 그래프</a> — 이 글의 “짝 찾기” 뒤에 있는 생각 전부</li>
+  <li><a href="2026-08-05-explanation-fact-pipeline-artifacts.html">fact 파이프라인 해부</a> — 실행할 때 생기는 파일들이 각각 무엇인지</li>
+  <li><a href="2026-08-03-explanation-how-contentcompare-compares-documents.html">ContentCompare 는 문서를 어떻게 비교하는가</a> — 가장 처음부터</li>
+  <li><code>docs/FACT_F3_5_LIVE_REPORT.md</code> §11 — 이 글의 모든 숫자가 나온 실측 기록</li>
+  <li><code>tests/test_concept_regression_en.py</code> — 이 고장이 다시 생기면 즉시 알려 주는 자동 검사</li>
+</ul>
+
+<div class="callout human">
+  <span class="tag">한 줄 요약</span>
+  <p style="margin-bottom:0">
+  영어가 문제를 <b>만든</b> 게 아니라 <b>드러냈습니다.</b> 검문소에는 지킬 수 없는 규칙이
+  있었고, 한국어 문서는 그 검문소를 대부분 지나지 않았을 뿐입니다.
+  </p>
+</div>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+(function () {
+  var FEEDBACK = {
+    1: ['AI 는 영어를 잘 읽었습니다 — 12쌍을 정확히 “같다”고 알아봤어요. 문제는 그 뒤였습니다.',
+        '숫자는 똑같이 적혀 있었습니다. 일부러 한국어 문서와 값을 1:1로 맞춰 만들었거든요.',
+        '정확합니다! 엑셀 칸의 원문은 “1150.0” 하나뿐이라 낱말 3개를 베낄 방법이 없었습니다. 규칙이 <b>지킬 수 없는 조건</b>이었어요.',
+        '속도 문제가 아닙니다. 결과가 조용히 “없음”으로 바뀐 것이 문제였습니다.'],
+    2: ['한국어 카드도 엑셀 쪽은 똑같이 “1150.0” 한 낱말이었습니다. 원문 길이 차이가 아니에요.',
+        '정확합니다! 이름이 같으면 검사를 안 받고 바로 짝이 됩니다. 언어가 다르면 그 길이 <b>완전히 막혀서</b> 모두 검문소로 몰립니다.',
+        '검문소는 언제나 켜져 있습니다. 다만 “이름이 같다” 길이 검문소를 <b>지나가지 않을</b> 뿐입니다.',
+        '항목 수는 20개로 똑같았습니다.'],
+    3: ['규칙을 없앤 게 아닙니다. “전부 베꼈으면 봐준다”는 예외를 <b>하나만</b> 더했습니다.',
+        '“진짜 있는 말인가”는 통과하지만, “전부 베꼈는가”에서 걸립니다. 두 검사가 따로 있어요.',
+        '사람에게 묻지 않습니다. 컴퓨터가 규칙만으로 결정합니다.',
+        '정확합니다! 쪽지의 낱말이 원문의 낱말과 <b>완전히 같아야</b> 봐줍니다. 일부만 가져오면 여전히 막혀요.'],
+    4: ['정확합니다! “다른 것” 줄은 그 안의 <b>모든 쌍</b>에 “다르다”를 붙입니다. 그래서 별명은 반드시 “별명 칸”에 따로 적어야 합니다.',
+        '파일 크기와는 상관없습니다.',
+        'AI 는 영어 메모도 잘 읽습니다. 문제는 메모의 <b>뜻</b>이 왜곡되는 것이었어요.',
+        '이름은 몇 개든 적을 수 있습니다.'],
+    5: ['오히려 조금 빨라졌습니다(불필요한 AI 호출이 줄어서).',
+        '지어내기는 여전히 막힙니다 — 커버리지 검사는 그대로 두었으니까요.',
+        '정확합니다! 실제로 공칭용량·정격용량·Nominal capacity·Rated capacity 넷이 한 덩어리가 됐습니다. 값이 전부 1150이라 이번엔 결과가 안 바뀌었을 뿐입니다.',
+        '한국어 결과는 오히려 좋아졌습니다 — 정답표 기준으로 틀렸던 항목 하나가 맞게 바뀌었어요.']
+  };
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    var key = qi + 1;
+    quiz.querySelectorAll('button.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.dataset.i, 10);
+        quiz.querySelectorAll('button.opt').forEach(function (b) {
+          b.classList.remove('right', 'wrong');
+        });
+        btn.classList.add(i === answer ? 'right' : 'wrong');
+        if (i !== answer) {
+          quiz.querySelectorAll('button.opt')[answer].classList.add('right');
+        }
+        var texts = FEEDBACK[key] || [];
+        fb.innerHTML = (i === answer ? '✅ ' : '❌ ') + (texts[i] || '');
+        fb.classList.add('show');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
