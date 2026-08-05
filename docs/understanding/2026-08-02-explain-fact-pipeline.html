@@ -1,0 +1,787 @@
+<title>엑셀과 워드는 같은 말을 하고 있을까? — ContentCompare 새 비교 방식 이야기</title>
+<style>
+  :root{
+    --bg:#fbf9f4; --panel:#ffffff; --ink:#2b2620; --sub:#6b6255;
+    --line:#e7e0d3; --accent:#c0552b; --accent-soft:#f4e3d6;
+    --good:#2f7a4f; --good-soft:#e4f3e9;
+    --bad:#b23a3a; --bad-soft:#fbe7e6;
+    --blue:#2d5f8a; --blue-soft:#e2edf6;
+    --gold:#a6791f; --gold-soft:#f7ecd2;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --serif:Georgia,"Noto Serif KR","Nanum Myeongjo",serif;
+    --sans:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); line-height:1.75; font-size:17px;
+  }
+  .wrap{max-width:880px; margin:0 auto; padding:0 22px 120px;}
+  header.hero{
+    padding:64px 22px 40px; text-align:center;
+    background:
+      radial-gradient(circle at 20% 20%, var(--accent-soft) 0%, transparent 45%),
+      radial-gradient(circle at 80% 0%, var(--blue-soft) 0%, transparent 40%);
+    border-bottom:1px solid var(--line);
+  }
+  header.hero h1{
+    font-family:var(--serif); font-size:2.1em; line-height:1.35; margin:0 0 14px;
+    max-width:760px; margin-left:auto; margin-right:auto;
+  }
+  header.hero p.lede{
+    max-width:620px; margin:0 auto; color:var(--sub); font-size:1.08em;
+  }
+  .badge-row{display:flex; gap:10px; justify-content:center; margin-top:22px; flex-wrap:wrap;}
+  .badge{
+    font-size:.82em; padding:5px 12px; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel); color:var(--sub);
+  }
+  nav.toc{
+    max-width:880px; margin:36px auto 0; padding:20px 24px;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+  }
+  nav.toc h2{margin:0 0 10px; font-size:1em; letter-spacing:.02em; color:var(--sub); text-transform:uppercase;}
+  nav.toc ol{margin:0; padding-left:1.3em;}
+  nav.toc li{margin:6px 0;}
+  nav.toc a{color:var(--accent); text-decoration:none; font-weight:600;}
+  nav.toc a:hover{text-decoration:underline;}
+  nav.toc span.sub{color:var(--sub); font-weight:400; font-size:.92em;}
+
+  section{padding:56px 0 10px; border-top:1px solid var(--line);}
+  section:first-of-type{border-top:none;}
+  .kicker{
+    color:var(--accent); font-weight:700; letter-spacing:.06em; font-size:.85em;
+    text-transform:uppercase; margin-bottom:8px;
+  }
+  h2{font-family:var(--serif); font-size:1.75em; margin:0 0 20px;}
+  h3{font-family:var(--serif); font-size:1.32em; margin:36px 0 12px;}
+  h4{font-size:1.05em; margin:22px 0 8px; color:var(--ink);}
+  p{margin:0 0 16px;}
+  a{color:var(--accent);}
+  strong{color:var(--ink);}
+  ul,ol{margin:0 0 16px; padding-left:1.4em;}
+  li{margin:6px 0;}
+
+  .callout{
+    border:1px solid var(--line); border-left:5px solid var(--gold);
+    background:var(--gold-soft); border-radius:10px; padding:16px 18px; margin:20px 0;
+  }
+  .callout .cal-title{font-weight:700; color:#7a5a12; margin-bottom:4px; display:flex; align-items:center; gap:8px;}
+  .callout.bad{border-left-color:var(--bad); background:var(--bad-soft);}
+  .callout.bad .cal-title{color:var(--bad);}
+  .callout.good{border-left-color:var(--good); background:var(--good-soft);}
+  .callout.good .cal-title{color:var(--good);}
+  .callout.blue{border-left-color:var(--blue); background:var(--blue-soft);}
+  .callout.blue .cal-title{color:var(--blue);}
+
+  pre{
+    background:#2b2620; color:#f2ece0; padding:16px 18px; border-radius:12px;
+    overflow-x:auto; font-family:var(--mono); font-size:.86em; line-height:1.6;
+    white-space:pre; margin:14px 0 20px;
+  }
+  code{font-family:var(--mono); background:#efe8d9; padding:.1em .35em; border-radius:5px; font-size:.9em;}
+  pre code{background:none; padding:0;}
+  .cap{font-size:.85em; color:var(--sub); margin:-12px 0 22px;}
+
+  /* ---- Pipeline diagram ---- */
+  .pipeline{
+    display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin:22px 0 8px;
+    overflow-x:auto; padding-bottom:6px;
+  }
+  .stage{
+    flex:1 1 120px; min-width:120px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:14px 12px; text-align:center; position:relative;
+  }
+  .stage .num{
+    display:inline-block; width:22px; height:22px; border-radius:50%; background:var(--accent);
+    color:#fff; font-size:.75em; line-height:22px; margin-bottom:8px; font-weight:700;
+  }
+  .stage .name{font-weight:700; font-size:.95em; margin-bottom:4px;}
+  .stage .desc{font-size:.78em; color:var(--sub);}
+  .stage.llm{border-color:var(--accent); background:var(--accent-soft);}
+  .stage.code{border-color:var(--blue); background:var(--blue-soft);}
+  .arrow{
+    display:flex; align-items:center; justify-content:center; color:var(--sub);
+    font-size:1.3em; padding:0 6px; flex:0 0 auto;
+  }
+  .legend{display:flex; gap:18px; font-size:.82em; color:var(--sub); margin:6px 0 24px; flex-wrap:wrap;}
+  .legend .dot{display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:middle;}
+  .dot.llm{background:var(--accent);} .dot.code{background:var(--blue);}
+
+  /* ---- doc mock ---- */
+  .doc-mock-row{display:flex; gap:16px; flex-wrap:wrap; margin:18px 0 8px;}
+  .doc-mock{
+    flex:1 1 260px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px; min-width:240px;
+  }
+  .doc-mock .title{font-weight:700; font-size:.85em; color:var(--sub); margin-bottom:10px; text-transform:uppercase; letter-spacing:.03em;}
+  table.grid-mock{width:100%; border-collapse:collapse; font-size:.9em;}
+  table.grid-mock th, table.grid-mock td{border:1px solid var(--line); padding:6px 8px; text-align:center;}
+  table.grid-mock th{background:#f4efe2; font-weight:700;}
+  .para-mock{font-size:.92em; line-height:1.7; padding:8px 2px;}
+  .para-mock mark{background:#ffe3b0; padding:0 2px; border-radius:3px;}
+  .para-mock.split{border-top:1px dashed var(--line); margin-top:8px; padding-top:8px; color:var(--sub);}
+
+  /* ---- fact card ---- */
+  .fact-card{
+    background:var(--panel); border:2px solid var(--blue); border-radius:14px; padding:16px 18px;
+    margin:16px 0; max-width:460px;
+  }
+  .fact-card .fc-head{font-weight:700; font-size:1.05em; color:var(--blue); margin-bottom:10px;}
+  .fact-card .fc-attr{display:flex; justify-content:space-between; font-size:.9em; padding:4px 0; border-bottom:1px dashed var(--line);}
+  .fact-card .fc-attr:last-of-type{border-bottom:none;}
+  .fact-card .fc-foot{margin-top:12px; font-size:.78em; color:var(--sub); background:#f4efe2; padding:8px 10px; border-radius:8px;}
+
+  /* ---- compare panel ---- */
+  .vs-row{display:flex; gap:16px; align-items:stretch; flex-wrap:wrap; margin:20px 0;}
+  .vs-col{flex:1 1 260px; border-radius:14px; padding:18px 20px; border:1px solid var(--line);}
+  .vs-col.rag{background:var(--bad-soft); border-color:#e6b9b6;}
+  .vs-col.fact{background:var(--good-soft); border-color:#b9dcc4;}
+  .vs-col h4{margin-top:0;}
+  .vs-col ul{padding-left:1.2em;}
+
+  table.cmp{width:100%; border-collapse:collapse; margin:18px 0; font-size:.92em;}
+  table.cmp th, table.cmp td{border:1px solid var(--line); padding:9px 10px; text-align:left; vertical-align:top;}
+  table.cmp th{background:#f4efe2;}
+  table.cmp tr:nth-child(even) td{background:#fdfbf6;}
+
+  .status-table{width:100%; border-collapse:collapse; margin:14px 0 24px; font-size:.92em;}
+  .status-table th, .status-table td{border:1px solid var(--line); padding:8px 10px;}
+  .status-table th{background:#f4efe2; text-align:left;}
+  .st{display:inline-block; padding:2px 10px; border-radius:999px; font-size:.82em; font-weight:700;}
+  .st.done{background:var(--good-soft); color:var(--good);}
+  .st.wait{background:var(--gold-soft); color:#7a5a12;}
+  .st.todo{background:#efe8de; color:var(--sub);}
+
+  /* ---- quiz ---- */
+  .quiz-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px 22px 18px;
+    margin:22px 0;
+  }
+  .quiz-card .qn{font-weight:700; font-size:.8em; color:var(--accent); text-transform:uppercase; letter-spacing:.04em;}
+  .quiz-card h4{margin:6px 0 16px; font-size:1.08em;}
+  .quiz-opts{display:flex; flex-direction:column; gap:9px;}
+  .quiz-opt{
+    text-align:left; padding:11px 14px; border-radius:10px; border:1px solid var(--line);
+    background:#fdfbf6; cursor:pointer; font-size:.95em; font-family:inherit; color:var(--ink);
+  }
+  .quiz-opt:hover{border-color:var(--accent);}
+  .quiz-opt.correct{background:var(--good-soft); border-color:var(--good); font-weight:700;}
+  .quiz-opt.incorrect{background:var(--bad-soft); border-color:var(--bad);}
+  .quiz-opt:disabled{cursor:default;}
+  .quiz-fb{margin-top:12px; padding:12px 14px; border-radius:10px; font-size:.92em; display:none;}
+  .quiz-fb.show{display:block;}
+  .quiz-fb.ok{background:var(--good-soft); color:#1d5636;}
+  .quiz-fb.no{background:var(--bad-soft); color:#7a2626;}
+
+  footer{
+    text-align:center; color:var(--sub); font-size:.85em; padding:50px 0 10px;
+  }
+
+  @media (max-width:640px){
+    header.hero{padding:44px 16px 30px;}
+    header.hero h1{font-size:1.55em;}
+    section{padding:40px 0 6px;}
+    .pipeline{flex-direction:column;}
+    .arrow{transform:rotate(90deg); padding:4px 0;}
+    .vs-row{flex-direction:column;}
+  }
+</style>
+
+<header class="hero">
+  <h1>엑셀과 워드는 정말 같은 말을 하고 있을까?<br>— ContentCompare가 문서를 대조하는 두 가지 방법</h1>
+  <p class="lede">
+    엑셀 표에 "충전환경온도는 -5도에서 55도"라고 적혀 있는데, 워드 문서에는 뭐라고 적혀 있을까요?
+    같은 말일까요, 아니면 누군가 옮겨 적다가 숫자를 실수한 걸까요? 이 이야기는 그걸 컴퓨터가
+    대신 확인해주는 프로그램, <strong>ContentCompare</strong>가 <em>지금까지 어떻게 일해왔는지</em>와
+    <em>앞으로 어떻게 더 똑똑해지려는지</em>에 대한 이야기입니다.
+  </p>
+  <div class="badge-row">
+    <span class="badge">배경 지식 불필요</span>
+    <span class="badge">RAG 방식 vs Fact 방식</span>
+    <span class="badge">실제 코드 포함</span>
+    <span class="badge">퀴즈 5문제</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">이야기의 배경</a> — <span class="sub">이 프로그램은 뭘 하는 프로그램일까?</span></li>
+    <li><a href="#intuition">핵심 아이디어</a> — <span class="sub">옛날 방식의 문제, 새 방식의 차별점</span></li>
+    <li><a href="#code">코드로 보는 새 방식</a> — <span class="sub">F0~F3, 실제로 뭘 만들었나</span></li>
+    <li><a href="#quiz">이해도 퀴즈</a> — <span class="sub">잘 이해했는지 확인해보기</span></li>
+  </ol>
+</nav>
+
+<section id="bg">
+  <div class="kicker">Section 1 · Background</div>
+  <h2>이야기의 배경</h2>
+
+  <p>
+    큰 회사에서 새 제품을 만들 때는 문서가 정말 많이 생깁니다. 제품의 규격(예: "이 배터리는
+    영하 5도에서 55도 사이에서만 충전해야 안전하다")을 적어둔 <strong>엑셀 표</strong>가 하나 있고,
+    그걸 풀어서 설명하는 <strong>워드 문서</strong>가 있고, 회의에서 발표할 <strong>PPT</strong>도 있습니다.
+  </p>
+  <p>
+    문제는, 이 문서들을 사람이 한 땀 한 땀 손으로 옮겨 적는다는 거예요. 사람은 실수를 합니다.
+    엑셀에는 분명히 "-5도"라고 적혀 있는데, 워드 문서를 쓰던 사람이 깜빡하고 "5도"라고 적으면?
+    아무도 눈치채지 못한 채 회의 자료가 나가버릴 수도 있어요.
+  </p>
+  <p>
+    <strong>ContentCompare</strong>는 이 실수를 컴퓨터가 대신 잡아주는 프로그램입니다. 엑셀을
+    "기준"으로 놓고, 워드나 PPT 같은 다른 문서들과 항목 하나하나를 대조해서 <strong>같다 / 다르다
+    / 잘 모르겠다</strong> 세 가지 중 하나로 표시해주고, "어디에 그렇게 적혀 있길래 그렇게
+    판단했는지" 증거까지 같이 보여줍니다. 사람이 다시 한번 눈으로 확인하기 쉽도록요.
+  </p>
+
+  <div class="callout blue">
+    <div class="cal-title">📌 잠깐! 이 저장소 안에는 방법이 두 가지 있어요</div>
+    지금 이 프로젝트 안에는 문서를 대조하는 <strong>완전히 다른 두 가지 방법</strong>이 나란히
+    들어있습니다. 하나는 <strong>이미 완성돼서 실제로 쓰이고 있는 "RAG 방식"</strong>이고, 다른 하나는
+    <strong>지금 한창 새로 만들고 있는 "Fact 방식"</strong>입니다. 둘 다 목적지(정확한 대조)는 같지만,
+    가는 길이 완전히 다릅니다. 이 이야기는 두 길이 어떻게 다른지, 그리고 왜 새 길을 만들고
+    있는지를 설명합니다.
+  </div>
+
+  <h3>1) 지금 쓰이고 있는 방법 — "도서관 사서" 방식 (RAG)</h3>
+  <p>
+    이 방법을 사람에 비유하면 이렇습니다. 도서관에 정말 많은 책(워드/PPT 문서 조각들)이 꽂혀
+    있어요. 엑셀의 한 행을 "질문 쪽지"로 만들어서 <strong>사서</strong>에게 건네주면, 사서는 그
+    질문과 가장 관련 있어 보이는 페이지 10장 정도를 뽑아옵니다. 그러면 <strong>심사위원</strong>이
+    그 10장만 딱 보고 "네, 같은 내용이네요" 또는 "아니요, 다르네요"라고 판단합니다.
+  </p>
+
+  <div class="pipeline">
+    <div class="stage code"><div class="num">1</div><div class="name">문서 읽기</div><div class="desc">엑셀 행, 워드 문단,<br>PPT 도형을 꺼냄</div></div>
+    <div class="arrow">→</div>
+    <div class="stage code"><div class="num">2</div><div class="name">조각내고 색인</div><div class="desc">긴 글은 800자씩 자르고<br>의미 지문(임베딩) 저장</div></div>
+    <div class="arrow">→</div>
+    <div class="stage code"><div class="num">3</div><div class="name">후보 찾기</div><div class="desc">사서: 뜻으로+낱말로<br>후보 10개 추림</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">4</div><div class="name">LLM 판정</div><div class="desc">심사위원: 후보만 보고<br>같다/다르다 결정</div></div>
+    <div class="arrow">→</div>
+    <div class="stage code"><div class="num">5</div><div class="name">리포트</div><div class="desc">결과 + 근거를<br>표로 정리</div></div>
+  </div>
+  <div class="legend">
+    <span><span class="dot code"></span>컴퓨터가 규칙대로 처리(코드)</span>
+    <span><span class="dot llm"></span>AI(LLM)에게 물어봄</span>
+  </div>
+  <p class="cap"><code>contentcompare/pipeline.py</code>의 <code>ComparePipeline.run</code> 5단계를 그대로 그린 그림입니다.</p>
+
+  <p>
+    "사서가 후보를 찾는다"는 게 정확히는 두 가지 방법을 합친 거예요.
+  </p>
+  <ul>
+    <li>
+      <strong>뜻으로 찾기 (임베딩)</strong> — 모든 문장을 숫자 목록(벡터)으로 바꿔서, 비슷한
+      뜻을 가진 문장은 숫자 목록도 비슷하게 만듭니다. "매출액은 1,200억원이다"와 "작년 매출
+      1200억"은 단어가 다르지만 뜻이 비슷하니까 숫자 목록도 가깝게 나옵니다.
+    </li>
+    <li>
+      <strong>낱말로 찾기 (BM25)</strong> — 옛날부터 쓰던 검색엔진 방식으로, 정확히 같은 단어가
+      들어있는지를 봅니다. 제품 이름이나 숫자처럼 "정확히 똑같아야 의미 있는" 것들을 잘 잡아냅니다.
+    </li>
+    <li>
+      <strong>두 리스트 합치기 (RRF)</strong> — 뜻으로 찾은 순위표와 낱말로 찾은 순위표를 합쳐서
+      최종 후보를 뽑습니다.
+    </li>
+    <li>
+      <strong>골고루 뽑기 (MMR)</strong> — 후보 10개가 전부 비슷비슷한 문장이면 손해니까, 서로
+      다른 위치에서 온 후보들이 섞이도록 골고루 뽑습니다.
+    </li>
+  </ul>
+
+  <h3>2) 지금 진행 상황</h3>
+  <p>
+    새 방식(Fact 방식)은 아직 완성되지 않았습니다. 아래는 지금까지 어디까지 만들어졌는지를
+    보여주는 표예요 (<code>docs/FACT_PIPELINE_PLAN.md</code> 기준).
+  </p>
+  <table class="status-table">
+    <tr><th>단계</th><th>하는 일</th><th>상태</th></tr>
+    <tr><td>F0</td><td>문서에서 있는 그대로의 정보(글자·표·위치) 꺼내기</td><td><span class="st done">완료</span></td></tr>
+    <tr><td>F1</td><td>이 문서가 대충 뭘 말하는 문서인지, 표의 각 열이 무슨 뜻인지 AI가 추측</td><td><span class="st done">완료</span></td></tr>
+    <tr><td>F2</td><td>엑셀의 각 행을 깔끔한 형태로 정리 (레코드)</td><td><span class="st done">완료</span></td></tr>
+    <tr><td>F3</td><td>레코드/문단을 "사실 카드"(Fact)로 바꾸기 — 오늘의 주인공</td><td><span class="st wait">구현 완료, 실전 검증 대기</span></td></tr>
+    <tr><td>F3.5</td><td>진짜 문서로 제대로 되는지 확인 + 정답지 만들기</td><td><span class="st todo">시작 전</span></td></tr>
+    <tr><td>F4</td><td>사실 카드가 틀리지 않았는지 검사하고 고치기</td><td><span class="st todo">시작 전</span></td></tr>
+    <tr><td>F5</td><td>사실 카드끼리 짝지어서 같다/다르다 비교하기</td><td><span class="st todo">시작 전</span></td></tr>
+    <tr><td>F6</td><td>최종 리포트 + 옛날 방식과 성능 비교</td><td><span class="st todo">시작 전</span></td></tr>
+  </table>
+  <p>
+    이 글은 <strong>F0~F3, 즉 "사실 카드를 만드는 부분까지"</strong>를 중심으로 설명합니다.
+    아직 카드끼리 비교하는 부분(F5)은 만들어지지 않았다는 걸 기억해두세요 — 지금은 "재료를
+    깨끗하게 다듬는 단계"까지 온 거예요.
+  </p>
+</section>
+
+<section id="intuition">
+  <div class="kicker">Section 2 · Intuition</div>
+  <h2>핵심 아이디어</h2>
+
+  <h3>도서관 사서 방식의 함정</h3>
+  <p>
+    도서관 사서 비유로 돌아가 볼게요. 사서가 정말 유능해도, 딱 하나 약점이 있습니다.
+    <strong>애초에 사서가 후보로 뽑아오지 못하면, 심사위원은 그 내용을 아예 볼 수조차 없다</strong>는
+    거예요. 심사위원은 "본 것"만 판단할 수 있지, "못 본 것"은 판단할 수 없습니다.
+  </p>
+  <p>다음 상황을 상상해봐요.</p>
+
+  <div class="doc-mock-row">
+    <div class="doc-mock">
+      <div class="title">기준.xlsx (엑셀, 한 행)</div>
+      <table class="grid-mock">
+        <tr><th>항목</th><th>하한치</th><th>상한치</th></tr>
+        <tr><td>충전환경온도</td><td>-5</td><td>55</td></tr>
+      </table>
+    </div>
+    <div class="doc-mock">
+      <div class="title">설명.docx (워드, 두 문단)</div>
+      <div class="para-mock">3번째 문단: "<mark>충전환경온도</mark>는 배터리 보호를 위해
+      엄격히 관리되는 항목이다."</div>
+      <div class="para-mock split">4번째 문단: "관리 범위는 <mark>-5~55℃</mark>이며,
+      이를 벗어나면 충전을 중단한다."</div>
+    </div>
+  </div>
+
+  <p>
+    사람이 읽으면 "아, 3번째 문단과 4번째 문단을 같이 읽으면 엑셀이랑 똑같은 말이구나!"라고
+    바로 압니다. 그런데 RAG 방식은 <strong>문단 하나하나를 따로따로</strong> 도서관에 꽂아둡니다.
+    "충전환경온도"라는 이름만 있는 3번째 문단은 엑셀 행과 뜻이 비슷해 보이지만 정작 숫자가
+    없고, 숫자만 있는 4번째 문단은 "충전환경온도"라는 이름이 없어서 검색에 안 걸릴 수도
+    있어요. 둘 다 후보 10위 안에 못 들면, 심사위원은 이 사실 자체를 <strong>못 보고</strong>
+    "모르겠다" 또는 "못 찾음"이라고 답할 수 있습니다 — 실제로는 맞는 내용인데도요!
+  </p>
+
+  <div class="callout bad">
+    <div class="cal-title">⚠️ RAG 방식이 조용히 실패하는 경우들</div>
+    <ul style="margin-bottom:0">
+      <li>긴 문단을 800자 단위로 뚝 잘라버려서, 앞부분과 뒷부분이 서로 다른 조각이 되어버림</li>
+      <li>같은 사실이 두 문단(또는 표+각주, 도형+발표자 노트)에 나뉘어 적혀 있으면 둘 다 애매하게 걸림</li>
+      <li>표현이 너무 달라서(약어, 영어, 다른 용어) 사서가 아예 못 찾음</li>
+      <li>후보를 10개까지만 보여주기로 정해놔서, 진짜 정답이 11등이면 영원히 못 봄</li>
+    </ul>
+  </div>
+
+  <p>
+    중요한 건, 이 실패가 <strong>조용히</strong> 일어난다는 점이에요. 시스템은 그냥 "모르겠다"고
+    답할 뿐, "제가 사서 단계에서 후보를 놓쳤어요"라고 알려주지 않습니다. 그래서 사람이 결과만
+    보면 "진짜 다른 내용이라서 그런지, 시스템이 못 찾아서 그런지" 구분하기 어렵습니다.
+  </p>
+
+  <h3>새 방식의 아이디어 — "먼저 사실 카드부터 만들어두자"</h3>
+  <p>
+    Fact 방식은 완전히 다르게 접근합니다. "일단 후보를 찾고 그 안에서 비교하자"가 아니라,
+    <strong>"문서를 통째로 미리 읽고, 그 안에 있는 사실들을 전부 깔끔한 카드로 만들어두자"</strong>는
+    아이디어입니다. 나중에 비교할 때는 이 카드끼리 짝지으면 되니까, 애매하게 후보를 놓칠
+    걱정이 줄어듭니다.
+  </p>
+  <p>레고 설명서를 만드는 것과 비슷해요. 완성된 레고 성 사진 한 장을 던져주는 대신,</p>
+  <ol>
+    <li>부품을 종류별로 나누고 (F0: 원본 그대로 꺼내기)</li>
+    <li>이 상자가 대충 "성 만들기 세트"인지 "자동차 세트"인지 파악하고 (F1: 문서 프로파일)</li>
+    <li>부품 하나하나에 이름표를 붙이고 (F2: 엑셀 행 정리)</li>
+    <li>"이 조립품은 무엇이고, 어떤 특징(색깔·크기)을 갖는다"는 카드를 만드는 것 (F3: 사실 카드
+    만들기)</li>
+  </ol>
+  <p>과 같습니다. 앞서 나온 예시라면, 워드 문서의 3번째 문단과 4번째 문단은 하나로 합쳐져서
+  이런 카드가 됩니다.</p>
+
+  <div class="fact-card">
+    <div class="fc-head">📇 충전환경온도</div>
+    <div class="fc-attr"><span>하한치 (lower_limit)</span><span>-5 ℃</span></div>
+    <div class="fc-attr"><span>상한치 (upper_limit)</span><span>55 ℃</span></div>
+    <div class="fc-foot">
+      근거: "관리 범위는 -5~55℃이며, 이를 벗어나면..." · 출처: 설명.docx 3~4번째 문단
+    </div>
+  </div>
+
+  <p>
+    엑셀의 해당 행도 똑같은 모양의 카드로 바뀝니다. 이제 두 카드는 "충전환경온도"라는 같은
+    이름표를 달고, 같은 모양(하한치/상한치)의 값을 갖고 있으니 <strong>훨씬 쉽고 정확하게</strong>
+    짝지어 비교할 수 있습니다 — 이 짝짓기 단계(F5)는 아직 만들어지지 않았지만, "카드가 준비돼
+    있으면 비교가 쉬워진다"는 게 핵심 논리입니다.
+  </p>
+
+  <h3>그런데, AI가 카드를 지어내면 어떡하죠?</h3>
+  <p>
+    아주 좋은 의심이에요. AI(LLM)는 가끔 그럴싸하게 "거짓말"을 합니다(이걸 <strong>할루시네이션</strong>이라고
+    불러요). 카드를 만드는 걸 AI에게 맡기면, AI가 원본에 없는 값을 지어내서 카드에 적어버릴
+    위험이 있습니다. 새 방식은 이 위험을 막기 위해 <strong>두 가지 규칙</strong>을 강하게
+    적용합니다.
+  </p>
+
+  <div class="vs-row">
+    <div class="vs-col fact">
+      <h4>✅ 규칙 1 — 엑셀은 AI를 아예 안 씁니다</h4>
+      <p style="margin-bottom:0">
+        엑셀 행은 F2 단계에서 이미 한 번 깔끔하게 정리됐기 때문에, 그걸 카드로 바꾸는
+        F3 단계는 <strong>AI 호출이 0번</strong>입니다. 그냥 정해진 규칙대로 코드가 옮겨
+        적습니다. AI가 관여하지 않으니 지어낼 수도 없습니다.
+      </p>
+    </div>
+    <div class="vs-col fact">
+      <h4>✅ 규칙 2 — 워드/PPT는 "증거 검사"를 통과해야 함</h4>
+      <p style="margin-bottom:0">
+        워드/PPT는 AI가 카드를 만들긴 하지만, AI가 "이 카드는 [문단3], [문단4]를 근거로
+        했어요"라고 답하면, 코드가 <strong>진짜로 그런 문단이 존재하는지</strong> 대조합니다.
+        존재하지 않는 근거를 댄 카드는 그 자리에서 통째로 버려집니다.
+      </p>
+    </div>
+  </div>
+
+  <p>이게 왜 "맞는 접근"이라고 볼 수 있을까요? 세 가지 이유로 정리할 수 있습니다.</p>
+  <table class="cmp">
+    <tr><th>기준</th><th>도서관 사서 방식 (RAG)</th><th>사실 카드 방식 (Fact)</th></tr>
+    <tr>
+      <td>흩어진 내용</td>
+      <td>문단이 따로따로 검색되어 놓칠 수 있음</td>
+      <td>관련된 조각(본문+각주, 도형+발표자 노트)을 한 그룹으로 묶어서 AI에게 한 번에 보여줌</td>
+    </tr>
+    <tr>
+      <td>표현이 다른 경우</td>
+      <td>"하한치"와 "Lower"를 다른 말로 인식할 수 있음</td>
+      <td>정해진 사전(semantic_role)으로 "하한치=Lower=최소값"을 같은 의미로 미리 통일</td>
+    </tr>
+    <tr>
+      <td>AI가 지어내는 문제</td>
+      <td>후보 10개 안에서 판단하지만, 판단 자체가 근거 검증 없이 신뢰됨</td>
+      <td>근거 문단 id가 실제로 존재하는지 코드가 매번 대조·검증, 실패하면 카드 폐기</td>
+    </tr>
+    <tr>
+      <td>디버깅(문제 원인 찾기)</td>
+      <td>중간 과정이 로그에만 남아 추적이 어려움</td>
+      <td>모든 단계 결과가 파일(JSON)로 저장되어 사람이 직접 열어볼 수 있음</td>
+    </tr>
+  </table>
+
+  <div class="callout good">
+    <div class="cal-title">💡 정리</div>
+    RAG 방식은 <strong>"필요할 때마다 빠르게 찾아서 비교"</strong>하는 방법이라 빠르고 저렴하지만,
+    검색이 실패하면 조용히 틀립니다. Fact 방식은 <strong>"미리 모든 사실을 정리해서 깔끔한
+    카드로 만들어두고, 그 카드가 진짜인지 매번 검증"</strong>하는 방법이라 느리고 손이 더
+    가지만, 흩어진 정보를 놓치지 않고 AI의 거짓말도 걸러낼 수 있습니다. 정확도가 훨씬
+    중요한 "규격 대조" 작업에는 이 방향이 더 안전한 선택입니다.
+  </div>
+</section>
+
+<section id="code">
+  <div class="kicker">Section 3 · Code Walkthrough</div>
+  <h2>코드로 보는 새 방식 (F0 ~ F3)</h2>
+
+  <p>
+    이제 실제 코드를 살짝 들여다볼게요. 전체 흐름을 담당하는 건 <code>contentcompare/fact/pipeline.py</code>의
+    <code>FactPipeline</code>입니다. 문서 하나마다 <code>_process_one(path)</code>가 아래 순서로
+    호출됩니다.
+  </p>
+
+  <div class="pipeline">
+    <div class="stage code"><div class="num">F0</div><div class="name">Raw 추출</div><div class="desc">원본 그대로<br>physical/compact raw</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">F1</div><div class="name">프로파일 + 스키마</div><div class="desc">문서 목적 추측,<br>열 의미 추측</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">F2</div><div class="name">레코드 정리</div><div class="desc">엑셀 행만 해당,<br>30행씩 배치 처리</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">F3</div><div class="name">Fact 추출</div><div class="desc">엑셀=규칙변환(무AI)<br>워드/PPT=AI 추출</div></div>
+  </div>
+  <div class="legend">
+    <span><span class="dot code"></span>코드가 규칙대로 처리</span>
+    <span><span class="dot llm"></span>AI(LLM) 호출 있음</span>
+  </div>
+  <p class="cap">
+    참고로 워드/PPT 문서는 F1의 "문서 프로파일"까지만 거치고, F2(레코드 정리)는 건너뛰고 바로
+    F3에서 문단·도형을 사실 카드로 바꿉니다. 반면 엑셀은 F1의 "열 의미 추측"과 F2 레코드
+    정리를 거친 뒤, F3에서는 AI 없이 규칙 변환만 합니다.
+  </p>
+
+  <h3>F0 — 있는 그대로 꺼내기</h3>
+  <p>
+    가장 먼저 할 일은 "문서를 있는 그대로, 해석 없이" 꺼내는 것입니다. 셀 주소, 병합 여부,
+    슬라이드 번호, 도형 id 같은 <strong>물리적 사실</strong>만 <code>physical_raw.json</code>에
+    담고, 이를 조금 압축한 <code>compact_raw.json</code>도 만듭니다. 실제로 저장된 예시를
+    보면 이렇게 생겼습니다.
+  </p>
+  <pre><code>// artifacts/기준_xlsx/document_profile.json 근처 데이터의 원천이 되는
+// compact_raw 의 표 구조 예시 (요약)
+{
+  "doc_type": "excel",
+  "sheets": {
+    "실적": {
+      "rows": [
+        ["제품명", "연도", "매출액", "직원수"],
+        ["A제품", 2023, "1,200억원", "500명"]
+      ]
+    }
+  }
+}</code></pre>
+  <p class="cap">아직 AI는 한 번도 등장하지 않았습니다. F0은 100% 코드입니다.</p>
+
+  <h3>F1 — "이 문서 대충 뭐야?" 물어보기</h3>
+  <p>
+    이제 처음으로 AI에게 물어봅니다. <code>profiler.py</code>의 <code>profile_document()</code>가
+    문서 전체를 보여주고 "이 문서의 목적이 뭐고, 어떤 표/문단 구조를 갖고 있어?"라고 묻습니다.
+    실제로 저장된 결과입니다.
+  </p>
+  <pre><code>// artifacts/기준_xlsx/document_profile.json
+{
+  "doc_type": "excel",
+  "main_purpose": "제품별 연도별 매출액 및 직원수 실적 기록",
+  "main_structures": [{
+    "kind": "table",
+    "location": "sheet=실적 / A1:D4",
+    "purpose": "제품별 성과 지표(매출, 인원) 데이터 목록",
+    "row_grain_hint": "특정 제품의 특정 연도 실적 정보"
+  }],
+  "confidence": 1.0
+}</code></pre>
+
+  <p>
+    엑셀이라면 한 걸음 더 나아가서, <code>schema_inducer.py</code>가 <strong>"이 열은 무슨
+    의미야?"</strong>를 물어봅니다. 이때 등장하는 게 <strong>semantic_role</strong>(의미
+    역할)이라는 사전입니다. "하한치", "Lower", "최소값"처럼 표현은 달라도 뜻이 같은 것들을
+    미리 정의된 카테고리로 묶어줍니다.
+  </p>
+  <pre><code>// contentcompare/fact/semantic_roles.py (개념 요약)
+ROLE_SYNONYMS = {
+    "quantitative_lower_bound": ["하한치", "하한값", "최소값", "min", "lower", "lsl"],
+    "quantitative_target":      ["중심치", "기준값", "target", "nominal", "typ"],
+    "quantitative_upper_bound": ["상한치", "최대값", "max", "upper", "usl"],
+    ...
+}</code></pre>
+  <p>그 결과로 나온 열 의미 사전이 아래처럼 저장됩니다.</p>
+  <pre><code>// artifacts/기준_xlsx/column_schema.json
+{
+  "columns": [
+    {"column": "A", "field_name": "제품명", "semantic_role": "entity_name"},
+    {"column": "C", "field_name": "매출액", "semantic_role": "quantitative_target"},
+    {"column": "D", "field_name": "직원수", "semantic_role": "quantitative_target"}
+  ]
+}</code></pre>
+  <div class="callout blue">
+    <div class="cal-title">🛡️ 안전장치 하나</div>
+    AI가 <code>semantic_role</code>로 아무 단어나 마음대로 지어낼 수는 없습니다.
+    <code>normalize_role()</code>이라는 코드가 항상 결과를 검사해서, 정해진 목록(하한치/중심치/상한치/이름/단위/기타 등)에
+    없는 값이 오면 무조건 <code>"unknown"</code>으로 바꿔버립니다. AI의 창의력이 시스템을
+    망가뜨리지 못하게 막는 장치예요.
+  </div>
+
+  <h3>F2 — 엑셀 행을 카드 재료로 다듬기</h3>
+  <p>
+    엑셀 행 하나하나를 <code>record_normalizer.py</code>가 정리합니다. 한 번에 30행씩 묶어서
+    AI에게 보여주고, "제품명·상한치·하한치 같은 속성들을 뽑아서 정리해줘"라고 요청합니다.
+  </p>
+  <pre><code>// F2 가 만드는 Record 하나의 예시
+{
+  "record_id": "row-2",
+  "entity": {"display_name": "충전환경온도"},
+  "attributes": {
+    "lower_limit": {"value": -5, "unit": "℃"},
+    "upper_limit": {"value": 55, "unit": "℃"}
+  },
+  "source": {"sheet": "실적", "row": 2, "cell_range": "D2:E2"},
+  "evidence_text": "충전환경온도 -5 55"
+}</code></pre>
+  <div class="callout blue">
+    <div class="cal-title">🛡️ 안전장치 — 좌표는 AI에게 안 맡깁니다</div>
+    AI에게는 딱 "몇 번째 행이야?"만 물어봅니다. <code>sheet</code>(시트 이름)나
+    <code>cell_range</code>(정확한 셀 범위)는 <strong>코드가 원본을 다시 확인해서 직접 계산</strong>합니다.
+    AI가 "D2:E2"라고 잘못 우겨도 무시되고, 코드가 실제로 그 행에 어떤 셀이 있었는지 보고
+    다시 계산한 값으로 항상 덮어씁니다.
+  </div>
+  <p>
+    또 하나 재밌는 장치는 <strong>이어달리기(carry-over)</strong>예요. 엑셀에서 "대분류" 열은
+    보통 첫 행에만 적히고 아래 행들은 비어있잖아요? 30행씩 나눠서 AI에게 보여주다 보면, 딱
+    그 경계에서 잘리면 대분류를 잃어버릴 수 있습니다. 그래서 각 배치가 끝날 때마다
+    "지금까지 확정된 분류는 이거야"라는 메모를 다음 배치에 같이 넘겨줘서 끊기지 않게 합니다.
+  </p>
+
+  <h3>F3 — 진짜 사실 카드(Fact) 만들기 — 핵심 단계</h3>
+  <p>
+    드디어 카드를 만드는 단계입니다. 여기서 엑셀과 워드/PPT의 길이 완전히 갈립니다.
+  </p>
+
+  <h4>엑셀 → Fact : AI 없이, 규칙만으로</h4>
+  <p>
+    F2에서 이미 정리를 끝냈기 때문에, F3은 그냥 형식만 바꿔주는 "번역 작업"입니다. 코드가
+    직접 처리하고 AI를 부르지 않습니다.
+  </p>
+  <pre><code>// contentcompare/fact/fact_extractor.py (개념 요약)
+def _facts_from_records(records):
+    facts = []
+    for rec in records.items:
+        f = Fact(
+            fact_id=f"fact-{rec.record_id}",          # 코드가 직접 정함
+            entity_name=rec.entity.display_name,
+            attributes=dict(rec.attributes),            # 있는 그대로 복사
+            source={"doc_type": "excel", **rec.source.to_dict()},
+        )
+        facts.append(f)
+    return FactSet(items=facts)</code></pre>
+  <p>
+    AI 호출이 0번이니 비용도 0원, 지어낼 위험도 0%입니다. F2가 이미 "의미를 이해해서 정리"하는
+    어려운 일을 끝냈기 때문에, F3에서는 그저 자리만 옮겨 담으면 됩니다.
+  </p>
+
+  <h4>워드/PPT → Fact : AI가 만들지만, 코드가 검사함</h4>
+  <p>
+    워드 문단이나 PPT 도형은 애초에 표처럼 깔끔하지 않아서 AI의 도움이 필요합니다.
+    <code>fact_extractor.py</code>는 관련 있어 보이는 조각들을 하나의 묶음으로 만든 뒤 AI에게
+    보여줍니다. 특히 PPT는 <strong>같은 슬라이드의 도형들 + 그 슬라이드의 발표자 노트</strong>를
+    하나의 묶음으로 만듭니다 — 앞서 본 "본문과 각주가 나뉘어 있는" 문제를 이렇게 해결합니다.
+  </p>
+  <pre><code>// AI에게 보내는 입력의 느낌 (각 조각에 id가 붙어있음)
+[p001_s001] "충전환경온도"
+[p001_s002] "-5~55℃, 중심치 25℃"
+[s1-notes]  "0.1C, 4.55V 조건 기준"
+
+// AI가 돌려주는 답
+{
+  "entity_name": "충전환경온도",
+  "attributes": {
+    "lower_limit": {"value": -5, "unit": "℃"},
+    "upper_limit": {"value": 55, "unit": "℃"},
+    "target_value": {"value": 25, "unit": "℃"}
+  },
+  "evidence_text": "-5~55℃, 중심치 25℃",
+  "source_ids": ["p001_s001", "p001_s002", "s1-notes"]
+}</code></pre>
+  <p>
+    여기서 가장 중요한 부분이 나옵니다. AI가 <code>source_ids</code>로 어떤 조각을 근거로
+    삼았는지 답하면, 코드는 곧바로 <strong>"그 id가 진짜로 이 묶음 안에 있었나?"</strong>를
+    확인합니다.
+  </p>
+  <pre><code>// contentcompare/fact/fact_extractor.py (개념 요약)
+batch_ids = {u["id"] for u in batch}          # 실제로 AI에게 보여준 조각 id 들
+valid_ids = [i for i in raw.get("source_ids", []) if i in batch_ids]
+
+if not valid_ids:
+    continue   # 근거가 전부 가짜면 이 카드는 통째로 버림!
+
+fact.source = build_source_from(valid_ids)     # 진짜 id로만 출처를 다시 구성</code></pre>
+
+  <div class="callout good">
+    <div class="cal-title">✅ 실제 테스트로 확인된 동작</div>
+    이 프로젝트의 테스트 코드(<code>tests/test_fact_extractor.py</code>)에는 이런 상황이 그대로
+    들어있습니다. AI가 <code>["p1", "p99"]</code>를 근거로 댔는데 <code>p99</code>는 실제로
+    존재하지 않는 조각이었다면 → 결과 카드에는 <code>p1</code>만 남습니다. 만약 AI가 댄 근거가
+    <strong>전부</strong> 가짜라면 → 그 카드 자체가 사라집니다. "그럴듯하지만 근거 없는 카드"가
+    최종 결과에 살아남지 못하게 코드가 매번 검사하는 거예요.
+  </div>
+
+  <p>
+    이렇게 만들어진 <code>Fact</code>는 <code>fact_id</code>, <code>source</code>,
+    <code>search_text</code> 이 세 가지 값을 <strong>AI가 뭐라고 답했든 상관없이 항상 코드가
+    새로 계산</strong>해서 덮어씁니다. AI는 "무슨 사실이 있는지, 값이 얼마인지"만 책임지고,
+    "이 카드의 정체를 증명하는 껍데기 정보"는 전부 코드 몫입니다. 이게 지금까지(F0~F3) 만들어진
+    새 방식의 핵심이며, 다음 단계(F4 검증, F5 카드 짝짓기)를 위한 튼튼한 재료가 됩니다.
+  </p>
+
+  <div class="callout">
+    <div class="cal-title">🔮 앞으로 만들 것 (아직 없음)</div>
+    <ul style="margin-bottom:0">
+      <li><strong>F4</strong> — 카드 안의 숫자가 말이 되는지(하한치가 상한치보다 커버리진 않았는지 등) 코드로 한 번
+      더 검사하고, 이상하면 AI에게 "다시 만들어봐"라고 시키는 반복 교정</li>
+      <li><strong>F5</strong> — 드디어 카드끼리 짝짓기! 엑셀 카드와 워드/PPT 카드 중 같은 이름표를
+      가진 것끼리 묶어서 속성 값을 대조하고 같음/다름/모름을 판정</li>
+      <li><strong>F6</strong> — 사람이 보기 좋은 리포트로 만들고, 옛날 방식(RAG)과 실제로 어느 쪽이
+      더 정확한지 같은 문서로 비교 실험</li>
+    </ul>
+  </div>
+</section>
+
+<section id="quiz">
+  <div class="kicker">Section 4 · Check Yourself</div>
+  <h2>이해도 퀴즈</h2>
+  <p>버튼을 눌러 답을 골라보세요. 정답/오답 여부와 이유가 바로 나옵니다.</p>
+
+  <div class="quiz-card" data-q="1">
+    <div class="qn">Question 1</div>
+    <h4>기존 RAG(도서관 사서) 방식에서 "충전환경온도" 정보가 3번째 문단(이름)과 4번째
+    문단(숫자)에 나뉘어 있을 때, 왜 시스템이 이 사실을 놓칠 수 있을까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">AI(심사위원)가 한글을 이해하지 못하기 때문에</button>
+      <button class="quiz-opt" data-correct="true">검색(사서)이 문단을 각각 따로 취급해서, 둘 다 후보 상위권에 못 들면 심사위원이 아예 보지 못하기 때문에</button>
+      <button class="quiz-opt">엑셀 파일을 아예 읽지 못하기 때문에</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="2">
+    <div class="qn">Question 2</div>
+    <h4>새 방식(F3)에서 엑셀 행을 사실 카드(Fact)로 바꿀 때는 왜 AI를 아예 호출하지
+    않을까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">엑셀은 AI가 읽을 수 없는 형식이라서</button>
+      <button class="quiz-opt" data-correct="true">한 단계 앞(F2)에서 이미 AI가 의미를 정리해뒀기 때문에, F3은 형식만 바꾸는 규칙 변환이면 충분해서</button>
+      <button class="quiz-opt">엑셀 회사가 AI 사용을 금지해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="3">
+    <div class="qn">Question 3</div>
+    <h4>워드/PPT 사실 카드를 만들 때, 코드가 <code>source_ids</code>를 검사하는 이유는
+    무엇일까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">문서 용량을 줄이기 위해서</button>
+      <button class="quiz-opt" data-correct="true">AI가 실제로 존재하지 않는 근거를 지어내서 댈 경우, 그 카드를 걸러내거나 버리기 위해서</button>
+      <button class="quiz-opt">문서를 더 빨리 읽기 위해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="4">
+    <div class="qn">Question 4</div>
+    <h4>PPT 문서를 처리할 때, 같은 슬라이드의 도형들과 그 슬라이드의 발표자 노트를 하나의
+    묶음으로 AI에게 보여주는 이유는 무엇일까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">발표자 노트는 원래 안 읽어도 되는 내용이라서</button>
+      <button class="quiz-opt">AI 호출 횟수를 늘리기 위해서</button>
+      <button class="quiz-opt" data-correct="true">본문(도형)과 각주 성격의 노트에 나뉘어 적힌 같은 사실을 AI가 한 번에 보고 하나의 카드로 합칠 수 있게 하기 위해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="5">
+    <div class="qn">Question 5</div>
+    <h4>"하한치", "Lower", "최소값"처럼 서로 다른 표현을 <code>semantic_role</code>(예:
+    <code>quantitative_lower_bound</code>) 같은 정해진 이름으로 통일하는 이유는 무엇일까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">문서를 한국어로만 작성하도록 강제하기 위해서</button>
+      <button class="quiz-opt" data-correct="true">표현이 달라도 같은 뜻인 값들을 같은 카테고리로 묶어서, 서로 다른 문서의 카드끼리도 정확히 짝지어 비교할 수 있게 하기 위해서</button>
+      <button class="quiz-opt">엑셀 열 이름을 자동으로 영어로 번역하기 위해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+</section>
+
+</div>
+
+<footer>ContentCompare · Fact Schema Induction 파이프라인(F0~F3) 설명 · docs/FACT_PIPELINE_PLAN.md 기반</footer>
+
+<script>
+  document.querySelectorAll('.quiz-card').forEach(function(card){
+    var opts = card.querySelectorAll('.quiz-opt');
+    var fb = card.querySelector('.quiz-fb');
+    opts.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if (btn.disabled) return;
+        var correct = btn.dataset.correct === 'true';
+        opts.forEach(function(o){ o.disabled = true; });
+        if (correct) {
+          btn.classList.add('correct');
+          fb.textContent = '✅ 정답이에요! ' + btn.textContent;
+          fb.className = 'quiz-fb show ok';
+        } else {
+          btn.classList.add('incorrect');
+          var correctBtn = card.querySelector('[data-correct="true"]');
+          correctBtn.classList.add('correct');
+          fb.textContent = '❌ 아쉬워요. 정답은: ' + correctBtn.textContent;
+          fb.className = 'quiz-fb show no';
+        }
+      });
+    });
+  });
+</script>

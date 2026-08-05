@@ -1,0 +1,1721 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fact 엔진의 LLM 사용 지점 — 무엇을 넣고 무엇을 받는가</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --fg:#1f2328; --muted:#5b6470; --line:#e3e5e8; --card:#ffffff;
+    --code-bg:#f5f6f7; --code-fg:#222;
+    --llm:#7c4dbe; --llm-bg:#f3edfc;
+    --code-role:#4a5563; --code-role-bg:#eef0f2;
+    --embed:#0f8a86; --embed-bg:#e6f5f4;
+    --human:#c2691a; --human-bg:#fdf1e3;
+    --match:#1f8a4c; --match-bg:#e8f6ee;
+    --mismatch:#c0392b; --mismatch-bg:#fdecea;
+    --missing:#7b838c; --missing-bg:#f0f1f3;
+    --unknown:#b58105; --unknown-bg:#fdf6e3;
+    --accent:#2f6fd0;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+    line-height:1.75; font-size:16.5px; padding-bottom:96px;
+  }
+  .wrap{max-width:940px; margin:0 auto; padding:0 20px}
+  header.page{padding:56px 0 26px; border-bottom:1px solid var(--line); margin-bottom:28px}
+  header.page h1{font-size:clamp(25px,4.4vw,38px); line-height:1.28; margin:0 0 12px; letter-spacing:-.02em}
+  header.page .sub{color:var(--muted); font-size:16px; margin:0}
+  header.page .meta{color:var(--muted); font-size:13.5px; margin-top:16px}
+  h2{font-size:clamp(21px,3.2vw,27px); margin:56px 0 6px; letter-spacing:-.015em; scroll-margin-top:16px}
+  h2 .num{color:var(--accent); font-variant-numeric:tabular-nums; margin-right:8px}
+  h3{font-size:19px; margin:34px 0 8px; letter-spacing:-.01em}
+  h4{font-size:16.5px; margin:24px 0 6px; color:#333}
+  p{margin:12px 0}
+  a{color:var(--accent)}
+  code{background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:.88em;
+       font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace}
+  pre{
+    background:var(--code-bg); color:var(--code-fg); border:1px solid var(--line);
+    border-radius:9px; padding:14px 16px; overflow-x:auto; font-size:13.2px; line-height:1.6;
+    white-space:pre; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace;
+  }
+  pre.wrapped{white-space:pre-wrap}
+  .toc{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 22px; margin:26px 0}
+  .toc h2{margin:0 0 10px; font-size:17px; color:var(--fg)}
+  .toc ol{margin:0; padding-left:22px}
+  .toc li{margin:4px 0}
+  .callout{border-left:4px solid var(--accent); background:#eef4fd; padding:12px 16px; border-radius:0 9px 9px 0; margin:20px 0}
+  .callout.def{border-color:var(--llm); background:var(--llm-bg)}
+  .callout.warn{border-color:#d08b00; background:#fdf6e3}
+  .callout.key{border-color:var(--match); background:var(--match-bg)}
+  .callout .tag{display:block; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:4px}
+  .skip{background:#f2f3f5; border:1px dashed #c9ced4; border-radius:9px; padding:10px 14px; color:var(--muted); font-size:14.5px; margin:16px 0}
+  figure{margin:26px 0; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px}
+  figure svg{display:block; width:100%; height:auto}
+  figcaption{color:var(--muted); font-size:13.5px; margin-top:12px; text-align:center}
+  table{border-collapse:collapse; width:100%; margin:18px 0; font-size:14.6px; display:block; overflow-x:auto}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#f2f3f5; font-weight:650}
+  .badge{display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap}
+  .b-llm{background:var(--llm-bg); color:var(--llm)}
+  .b-code{background:var(--code-role-bg); color:var(--code-role)}
+  .b-embed{background:var(--embed-bg); color:var(--embed)}
+  .b-human{background:var(--human-bg); color:var(--human)}
+  .b-match{background:var(--match-bg); color:var(--match)}
+  .b-mismatch{background:var(--mismatch-bg); color:var(--mismatch)}
+  .b-missing{background:var(--missing-bg); color:var(--missing)}
+  .b-unknown{background:var(--unknown-bg); color:var(--unknown)}
+  .io{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:16px 0}
+  .io > div{background:var(--card); border:1px solid var(--line); border-radius:11px; padding:12px 14px; min-width:0}
+  .io h5{margin:0 0 8px; font-size:13px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted)}
+  .io pre{margin:0; background:#fafbfc}
+  .stage{background:var(--card); border:1px solid var(--line); border-left:5px solid var(--llm); border-radius:11px; padding:16px 18px; margin:26px 0}
+  .stage.codeonly{border-left-color:var(--code-role)}
+  .stage.embed{border-left-color:var(--embed)}
+  .stage > h3{margin-top:0}
+  .qmemo{border:1.6px dashed #b9c0c8; background:#f7f8f9; border-radius:11px; padding:12px 15px; margin:22px 0}
+  .qmemo[data-status="answered"]{border:1.6px solid var(--accent); background:#eef4fd}
+  .qmemo-head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:7px}
+  .qmemo-label{font-size:12.5px; font-weight:700; color:var(--accent); letter-spacing:.04em}
+  .qmemo-hint{font-size:12.5px; color:var(--muted)}
+  .qmemo-question{min-height:38px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 11px; font-size:14.6px; outline:none}
+  .qmemo-question:focus{border-color:var(--accent)}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#a6adb5}
+  .qmemo-answer{margin-top:10px; background:#fff; border-left:3px solid var(--accent); border-radius:0 8px 8px 0; padding:10px 13px; font-size:14.8px}
+  .quiz{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:20px 0}
+  .quiz .q{font-weight:650; margin:0 0 12px}
+  .opt{display:block; width:100%; text-align:left; background:#fafbfc; border:1px solid var(--line); border-radius:9px;
+       padding:10px 13px; margin:7px 0; cursor:pointer; font-size:15px; font-family:inherit; line-height:1.55; color:inherit}
+  .opt:hover{background:#f0f3f7; border-color:#c3cbd4}
+  .opt.correct{background:var(--match-bg); border-color:var(--match)}
+  .opt.wrong{background:var(--mismatch-bg); border-color:var(--mismatch)}
+  .fb{margin-top:11px; padding:11px 13px; border-radius:9px; font-size:14.5px; display:none}
+  .fb.show{display:block}
+  .fb.ok{background:var(--match-bg); border-left:4px solid var(--match)}
+  .fb.no{background:var(--mismatch-bg); border-left:4px solid var(--mismatch)}
+  #qmemo-bar{position:fixed; left:0; right:0; bottom:0; background:#fffffff2; backdrop-filter:blur(6px);
+             border-top:1px solid var(--line); padding:11px 18px; display:flex; gap:14px; align-items:center;
+             justify-content:center; flex-wrap:wrap; z-index:50}
+  #qmemo-save-btn{background:var(--accent); color:#fff; border:0; border-radius:9px; padding:9px 18px;
+                  font-size:14.5px; font-weight:650; cursor:pointer; font-family:inherit}
+  #qmemo-save-btn:hover{background:#265cb0}
+  #qmemo-saymsg{color:var(--muted); font-size:13px}
+  footer.page{margin:60px 0 20px; padding-top:22px; border-top:1px solid var(--line); color:var(--muted); font-size:14px}
+  @media (max-width:720px){
+    body{font-size:16px}
+    .io{grid-template-columns:1fr}
+    pre{font-size:12.4px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>fact 엔진의 LLM 사용 지점 —<br>무엇을 넣고 무엇을 받는가</h1>
+  <p class="sub">문서 파일이 판정으로 바뀌기까지, LLM 이 개입하는 여섯 자리를 실제 입출력 데이터로 따라갑니다.
+  그리고 왜 이렇게 나누면 비교를 잘하게 되는지, 온톨로지는 그 안에서 무슨 일을 하는지 설명합니다.</p>
+  <p class="meta">
+    ContentCompare · <code>--engine fact</code> · 2026-08-05<br>
+    이 페이지의 모든 예시는 저장소에 남아 있는 <strong>실제 산출물</strong>입니다 —
+    기준 <code>자표준문서.xlsx</code>, 대상 <code>자표준_규격서.docx</code> · <code>자표준_발표.pptx</code>
+    (<code>artifacts/</code> 폴더).
+  </p>
+</header>
+
+<div class="callout">
+  <span class="tag">이 페이지 사용법</span>
+  읽다가 막히는 곳이 있으면 <strong>「질문 메모」</strong> 상자에 그대로 적어두세요. 타이핑하는 즉시 이 브라우저에
+  자동 저장되고(localStorage), 맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 박힌 HTML 사본이 다운로드됩니다.
+  그 파일로 <code>docs/understanding/</code> 의 원본을 덮어쓴 뒤 Claude 에게 "이 페이지 질문에 답해줘"라고 하면
+  같은 자리에 답이 채워집니다.
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#s1">배경 ① — 아주 처음부터: 문서 비교가 왜 어려운가</a></li>
+    <li><a href="#s2">배경 ② — fact 엔진의 지도와 LLM 여섯 자리</a></li>
+    <li><a href="#s3">직관 — 세 개의 아이디어</a></li>
+    <li><a href="#s4">LLM 입출력 카탈로그 ①~④ (문서를 fact 로)</a></li>
+    <li><a href="#s5">LLM 입출력 카탈로그 ⑤ (개념 판정) — 그리고 그 앞뒤의 코드</a></li>
+    <li><a href="#s6">LLM 입출력 카탈로그 ⑥ (값 대조) — 코드가 먼저 손대는 이유</a></li>
+    <li><a href="#s7">온톨로지의 역할</a></li>
+    <li><a href="#s8">코드 워크스루 — 어디를 고치면 무엇이 바뀌나</a></li>
+    <li><a href="#s9">왜 잘 되는가, 그리고 무엇을 못 하는가</a></li>
+    <li><a href="#s10">이해도 퀴즈 5문항</a></li>
+    <li><a href="#s11">부록 — 실측 수치와 더 읽을거리</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ 1 -->
+<h2 id="s1"><span class="num">1.</span>배경 ① — 아주 처음부터: 문서 비교가 왜 어려운가</h2>
+
+<div class="skip">이미 이 프로젝트를 아는 분은 <a href="#s2">2장</a>으로 건너뛰어도 됩니다.
+이 절은 "문서 두 개를 대조한다"는 일이 왜 어려운지 처음부터 설명합니다.</div>
+
+<p>
+회사에는 같은 사실이 여러 문서에 흩어져 적힙니다. 엑셀 규격서에 <code>정격충전전압 4.55</code> 라는 셀이 있고,
+Word 규격서에는 <em>"정격 충전 전압은 4.55V 이다."</em> 라는 문장이 있고, 발표 PPT 에는 <em>"정격 충전 4.55V"</em>
+라는 도형 텍스트가 있습니다. 셋이 서로 맞는지 사람이 눈으로 대조하는 일은 지루하고, 지루한 일은 틀립니다.
+</p>
+
+<p>이걸 자동화하려 하면 곧바로 세 가지 벽에 부딪힙니다.</p>
+
+<ul>
+  <li><strong>형식이 다르다.</strong> 엑셀은 격자, Word 는 문단, PPT 는 도형입니다. 같은 사실인데 담긴 그릇이 다릅니다.</li>
+  <li><strong>표현이 다르다.</strong> <code>정격충전전압</code> / <code>정격 충전 전압</code> / <code>Rated charge voltage</code>
+      는 문자열로는 전혀 다릅니다.</li>
+  <li><strong>비슷한데 다른 것이 있다.</strong> <code>1개월저장온도</code> 와 <code>표준환경온도</code> 는 둘 다
+      "온도"라서 말도 비슷하고 뜻도 비슷해 보이지만, <strong>비교하면 안 되는</strong> 서로 다른 규격입니다.</li>
+</ul>
+
+<p>
+앞의 두 벽은 익숙한 해법이 있습니다. 문장을 숫자 벡터로 바꿔(임베딩) 가까운 것끼리 붙이면 표현 차이를 넘을 수 있고,
+LLM 에게 "이 둘이 같은 말이냐"고 물으면 형식 차이도 넘습니다. 문제는 세 번째 벽입니다. 이 페이지의 절반은 결국
+<strong>세 번째 벽을 어떻게 넘었는가</strong>에 관한 이야기입니다.
+</p>
+
+<div class="callout def">
+  <span class="tag">용어</span>
+  <strong>fact</strong> — 이 프로젝트가 문서에서 뽑아내는 최소 단위. "무엇에 대한(<code>entity_name</code>)
+  어떤 값(<code>attributes</code>)이며, 근거는 이 문장(<code>evidence_text</code>)이고, 출처는 여기
+  (<code>source</code>)"라는 네 조각으로 이루어진 JSON 객체입니다. 문서 종류가 무엇이든 결국 이 모양이 됩니다.
+</div>
+
+<div class="qmemo" data-qid="s1-why-hard" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 2 -->
+<h2 id="s2"><span class="num">2.</span>배경 ② — fact 엔진의 지도와 LLM 여섯 자리</h2>
+
+<p>
+ContentCompare 에는 두 개의 엔진이 있습니다. 기존 RAG 엔진은 문서를 잘게 쪼개 검색으로 후보를 찾고 LLM 에게
+"같냐"고 묻습니다. 새 <strong>fact 엔진</strong>(<code>--engine fact</code>)은 접근이 다릅니다.
+<em>문서를 먼저 사실의 목록으로 정규화한 뒤, 사실끼리 대조</em>합니다.
+</p>
+
+<p>
+그 흐름 전체를 한 장으로 보면 이렇습니다. 색이 곧 <strong>누가 그 일을 하는가</strong>입니다 —
+<span class="badge b-code">코드</span>는 결정적이고 공짜이며 항상 같은 답을 내고,
+<span class="badge b-llm">LLM</span>은 유연하지만 비싸고 흔들리며,
+<span class="badge b-embed">임베딩</span>은 순위만 매길 뿐 판정하지 않습니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 900 470" role="img" aria-label="fact 파이프라인 전체 흐름도">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#98a2ad"/>
+    </marker>
+  </defs>
+  <style>
+    .box{rx:9}
+    .lb{font:600 13px -apple-system,"Malgun Gothic",sans-serif; fill:#1f2328}
+    .lb-s{font:11.5px -apple-system,"Malgun Gothic",sans-serif; fill:#5b6470}
+    .ln{stroke:#98a2ad; stroke-width:1.6; marker-end:url(#ar)}
+    .sect{font:700 12px -apple-system,"Malgun Gothic",sans-serif; fill:#8b949e; letter-spacing:.08em}
+  </style>
+
+  <text class="sect" x="16" y="20">문서 하나마다 (서로 격리 실행)</text>
+
+  <rect class="box" x="16" y="32" width="146" height="52" fill="#eef0f2" stroke="#c9ced4"/>
+  <text class="lb" x="30" y="54">F0 raw → compact</text>
+  <text class="lb-s" x="30" y="72">코드 · COM 물리정보</text>
+
+  <rect class="box" x="192" y="32" width="146" height="52" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="lb" x="206" y="54">① F1 Profiler</text>
+  <text class="lb-s" x="206" y="72">LLM · 문서 목적</text>
+
+  <rect class="box" x="368" y="32" width="146" height="52" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="lb" x="382" y="54">② F1 Schema</text>
+  <text class="lb-s" x="382" y="72">LLM · 엑셀 열 역할</text>
+
+  <rect class="box" x="544" y="32" width="146" height="52" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="lb" x="558" y="54">③ F2 Records</text>
+  <text class="lb-s" x="558" y="72">LLM · 엑셀 행 정규화</text>
+
+  <rect class="box" x="720" y="32" width="164" height="52" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="lb" x="734" y="54">④ F3 Fact 추출</text>
+  <text class="lb-s" x="734" y="72">Word/PPT=LLM, 엑셀=코드</text>
+
+  <line class="ln" x1="162" y1="58" x2="188" y2="58"/>
+  <line class="ln" x1="338" y1="58" x2="364" y2="58"/>
+  <line class="ln" x1="514" y1="58" x2="540" y2="58"/>
+  <line class="ln" x1="690" y1="58" x2="716" y2="58"/>
+
+  <rect class="box" x="720" y="104" width="164" height="46" fill="#eef0f2" stroke="#c9ced4"/>
+  <text class="lb" x="734" y="124">F4a 근거 검증</text>
+  <text class="lb-s" x="734" y="141">코드 · 저신뢰 표시</text>
+  <line class="ln" x1="802" y1="84" x2="802" y2="100"/>
+
+  <rect x="16" y="172" width="868" height="54" rx="9" fill="#fff" stroke="#c9ced4" stroke-dasharray="4 3"/>
+  <text class="lb" x="32" y="194">문서별 fact 목록</text>
+  <text class="lb-s" x="32" y="213">엑셀 20건 · Word 11건 · PPT 12건 — 형식이 달랐지만 지금은 모두 같은 모양</text>
+  <line class="ln" x1="802" y1="150" x2="802" y2="168"/>
+
+  <text class="sect" x="16" y="256">F7 · 개념 그래프 — "이 둘을 비교해도 되는가"</text>
+
+  <rect class="box" x="16" y="268" width="196" height="52" fill="#e6f5f4" stroke="#8fc9c6"/>
+  <text class="lb" x="30" y="290">F7-1 후보 쌍 recall</text>
+  <text class="lb-s" x="30" y="308">임베딩 · 460쌍 → 65쌍</text>
+
+  <rect class="box" x="238" y="268" width="196" height="52" fill="#fdf1e3" stroke="#e2b47c"/>
+  <text class="lb" x="252" y="290">F7-2 온톨로지·이름일치</text>
+  <text class="lb-s" x="252" y="308">사람+코드 · 17쌍 확정</text>
+
+  <rect class="box" x="460" y="268" width="196" height="52" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="lb" x="474" y="290">⑤ F7-3 개념 판정</text>
+  <text class="lb-s" x="474" y="308">LLM · 48쌍 → 3회 호출</text>
+
+  <rect class="box" x="682" y="268" width="202" height="52" fill="#eef0f2" stroke="#c9ced4"/>
+  <text class="lb" x="696" y="290">F7-4 조립·근거검증</text>
+  <text class="lb-s" x="696" y="308">코드 · 개념 노드 생성</text>
+
+  <line class="ln" x1="212" y1="294" x2="234" y2="294"/>
+  <line class="ln" x1="434" y1="294" x2="456" y2="294"/>
+  <line class="ln" x1="656" y1="294" x2="678" y2="294"/>
+
+  <text class="sect" x="16" y="356">F5 · 값 대조 — "값이 같은가"</text>
+
+  <rect class="box" x="16" y="368" width="290" height="52" fill="#eef0f2" stroke="#c9ced4"/>
+  <text class="lb" x="30" y="390">코드가 값·단위 대조</text>
+  <text class="lb-s" x="30" y="408">확정 가능하면 여기서 끝 (32/40건)</text>
+
+  <rect class="box" x="330" y="368" width="256" height="52" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="lb" x="344" y="390">⑥ 애매한 것만 LLM</text>
+  <text class="lb-s" x="344" y="408">단위 미상 · 표기 차이 (8/40건)</text>
+
+  <rect class="box" x="610" y="368" width="274" height="52" fill="#fff" stroke="#c9ced4"/>
+  <text class="lb" x="624" y="390">F6 리포트</text>
+  <text class="lb-s" x="624" y="408">양측 원문을 나란히 실어 검수 가능</text>
+
+  <line class="ln" x1="306" y1="394" x2="326" y2="394"/>
+  <line class="ln" x1="586" y1="394" x2="606" y2="394"/>
+  <line class="ln" x1="802" y1="320" x2="802" y2="344"/>
+  <line class="ln" x1="802" y1="344" x2="160" y2="344"/>
+  <line class="ln" x1="160" y1="344" x2="160" y2="364"/>
+</svg>
+<figcaption>fact 엔진 전체. 보라 = LLM(⑥곳), 회색 = 코드, 청록 = 임베딩, 주황 = 사람의 온톨로지.
+숫자는 실측 1회 실행 기준입니다.</figcaption>
+</figure>
+
+<p>
+이 그림에서 가장 먼저 눈에 띄어야 할 것은 <strong>보라색이 생각보다 적다</strong>는 사실입니다. 흔히 "LLM 으로
+문서를 비교한다"고 하면 문서 두 개를 통째로 넣고 답을 받는 그림을 떠올리지만, 여기서 LLM 은 여섯 개의 좁은
+구멍으로만 들어옵니다. 그리고 각 구멍마다 <strong>무엇을 넣고 무엇을 받는지가 JSON 스키마로 못 박혀</strong> 있습니다.
+</p>
+
+<div class="callout key">
+  <span class="tag">설계 원칙</span>
+  <strong>파일을 LLM 에 통째로 주지 않는다.</strong> 코드가 먼저 문서에서 <em>해석 없이 관찰 가능한 물리 정보</em>
+  (셀 주소, 병합 범위, 굵은 글씨, 블록 순서)만 뽑아 <code>compact_raw</code> 를 만들고, LLM 은 그것을 보고
+  구조를 <em>추론</em>합니다. 그래서 각 단계의 입력과 출력이 파일로 남고, 틀렸을 때 어느 단계에서 틀렸는지 짚을 수 있습니다.
+</div>
+
+<div class="qmemo" data-qid="s2-pipeline-map" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">위 흐름도에서 헷갈리는 단계가 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 3 -->
+<h2 id="s3"><span class="num">3.</span>직관 — 세 개의 아이디어</h2>
+
+<p>세부로 들어가기 전에, 이 설계를 떠받치는 생각 세 개를 먼저 봅니다. 나머지는 전부 이 셋의 귀결입니다.</p>
+
+<h3>아이디어 ① — 다른 그릇을 같은 모양으로 옮긴다</h3>
+
+<p>
+엑셀 행, Word 문장, PPT 도형은 생김새가 전혀 다릅니다. 이것들을 직접 비교하려 들면 비교 로직이 문서 종류의
+곱만큼 늘어납니다. 대신 <strong>전부 같은 카드로 옮긴 뒤</strong> 카드끼리만 비교하면, 비교 로직은 하나면 됩니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 900 320" role="img" aria-label="세 가지 문서가 같은 fact 카드로 정규화되는 그림">
+  <style>
+    .src{font:12.5px ui-monospace,Menlo,Consolas,monospace; fill:#333}
+    .ttl{font:700 12.5px -apple-system,"Malgun Gothic",sans-serif; fill:#5b6470}
+    .fld{font:11.5px ui-monospace,Menlo,Consolas,monospace; fill:#5b6470}
+    .val{font:600 12.5px ui-monospace,Menlo,Consolas,monospace; fill:#1f2328}
+    .ln2{stroke:#98a2ad; stroke-width:1.6; marker-end:url(#ar2)}
+  </style>
+  <defs><marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#98a2ad"/></marker></defs>
+
+  <!-- sources -->
+  <rect x="10" y="16" width="300" height="66" rx="8" fill="#e8f1e9" stroke="#a8c9ae"/>
+  <text class="ttl" x="24" y="36">엑셀 — 6행 G열</text>
+  <text class="src" x="24" y="58">{"r":6,"cells":{"E":"정격충전전압","G":4.55}}</text>
+
+  <rect x="10" y="106" width="300" height="66" rx="8" fill="#e6eef8" stroke="#a9c1e0"/>
+  <text class="ttl" x="24" y="126">Word — 블록 w_b005</text>
+  <text class="src" x="24" y="148">"정격 충전 전압은 4.55V 이다."</text>
+
+  <rect x="10" y="196" width="300" height="66" rx="8" fill="#f7e9e6" stroke="#e0b3a9"/>
+  <text class="ttl" x="24" y="216">PPT — slide 2, 도형</text>
+  <text class="src" x="24" y="238">"정격 충전 4.55V"</text>
+
+  <line class="ln2" x1="316" y1="49"  x2="392" y2="120"/>
+  <line class="ln2" x1="316" y1="139" x2="392" y2="139"/>
+  <line class="ln2" x1="316" y1="229" x2="392" y2="158"/>
+
+  <!-- fact card -->
+  <rect x="400" y="60" width="486" height="196" rx="11" fill="#fff" stroke="#7c4dbe" stroke-width="1.8"/>
+  <text class="ttl" x="418" y="84" fill="#7c4dbe">fact — 문서 종류와 무관한 공통 모양</text>
+  <line x1="418" y1="94" x2="868" y2="94" stroke="#ece4f7"/>
+  <text class="fld" x="418" y="116">entity_name</text><text class="val" x="560" y="116">"정격 충전 전압"</text>
+  <text class="fld" x="418" y="142">attributes</text>  <text class="val" x="560" y="142">{"target_value": {value:4.55, unit:"V"}}</text>
+  <text class="fld" x="418" y="168">evidence_text</text><text class="val" x="560" y="168">"정격 충전 전압은 4.55V 이다."</text>
+  <text class="fld" x="418" y="194">source</text>      <text class="val" x="560" y="194">{doc_type:"word", block_ids:["w_b005"]}</text>
+  <text class="fld" x="418" y="220">fact_id</text>     <text class="val" x="560" y="220">"fact-word-2"</text>
+  <text class="fld" x="418" y="244">confidence</text>  <text class="val" x="560" y="244">1.0</text>
+</svg>
+<figcaption>아이디어 ①. 문서 종류마다 다른 추출 경로를 쓰지만, 도착지는 하나입니다.
+이후 모든 로직은 이 카드만 압니다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="s3-fact-card" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">fact 카드의 필드 중 역할이 애매한 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>아이디어 ② — "무엇에 대한 것인가"와 "값이 같은가"를 분리한다</h3>
+
+<p>
+이것이 세 번째 벽을 넘는 방법입니다. 처음에는 자연스럽게 임베딩 유사도로 짝을 지었습니다. 그런데 실측을 해보니
+이런 결과가 나왔습니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 900 210" role="img" aria-label="임베딩 코사인 점수 위에서 정답과 오답이 겹치는 그림">
+  <style>
+    .ax{stroke:#98a2ad; stroke-width:1.4}
+    .tick{font:11.5px ui-monospace,monospace; fill:#5b6470}
+    .lab{font:12.5px -apple-system,"Malgun Gothic",sans-serif}
+  </style>
+  <line class="ax" x1="70" y1="120" x2="850" y2="120"/>
+  <text class="tick" x="62" y="142">0.55</text>
+  <text class="tick" x="838" y="142">0.85</text>
+  <text class="lab" x="380" y="168" fill="#5b6470">임베딩 코사인 점수 (bge-m3)</text>
+
+  <!-- 0.6084 -->
+  <circle cx="165" cy="120" r="8" fill="#fdecea" stroke="#c0392b" stroke-width="2"/>
+  <text class="tick" x="140" y="146">0.608</text>
+  <text class="lab" x="88" y="98" fill="#c0392b">1개월저장온도 ↔ 표준환경온도</text>
+  <text class="lab" x="150" y="80" fill="#c0392b" font-weight="700">다른 개념</text>
+
+  <!-- 0.6551 -->
+  <circle cx="286" cy="120" r="8" fill="#fdecea" stroke="#c0392b" stroke-width="2"/>
+  <text class="tick" x="261" y="146">0.655</text>
+  <text class="lab" x="214" y="52" fill="#c0392b">충전환경온도 ↔ 정격 충전 전압</text>
+  <text class="lab" x="272" y="34" fill="#c0392b" font-weight="700">다른 개념</text>
+
+  <!-- 0.6944 -->
+  <circle cx="388" cy="120" r="8" fill="#fdecea" stroke="#c0392b" stroke-width="2"/>
+  <text class="tick" x="363" y="146">0.694</text>
+  <text class="lab" x="330" y="98" fill="#c0392b">평가환경온도 ↔ 표준환경온도</text>
+
+  <!-- 0.7656 -->
+  <circle cx="573" cy="120" r="8" fill="#e8f6ee" stroke="#1f8a4c" stroke-width="2"/>
+  <text class="tick" x="548" y="146">0.766</text>
+  <text class="lab" x="500" y="98" fill="#1f8a4c">고객 표준 버전 ↔ 문서 기준 규격</text>
+  <text class="lab" x="556" y="80" fill="#1f8a4c" font-weight="700">같은 개념</text>
+
+  <!-- threshold attempts -->
+  <line x1="480" y1="100" x2="480" y2="140" stroke="#b58105" stroke-dasharray="4 3" stroke-width="1.6"/>
+  <text class="tick" x="452" y="192" fill="#b58105">임계를 여기 두면?</text>
+  <text class="tick" x="452" y="176" fill="#b58105">0.73</text>
+</svg>
+<figcaption>정답 하나(초록)와 오답 셋(빨강)이 한 구간에 섞여 있습니다. 임계를 0.73 에 두면 이 문서에서는 맞지만,
+그건 이 네 점을 보고 사후에 고른 값일 뿐입니다.</figcaption>
+</figure>
+
+<p>
+문제는 임계값 선정 실패가 아닙니다. <strong>코사인 점수에는 "무관함"을 뜻하는 지점이 없습니다.</strong>
+0.61 과 0.77 은 정도의 차이일 뿐, "이 둘은 <em>다른</em> 항목이다"라는 <em>부정 판정</em>을 표현하는 수단이 아닙니다.
+게다가 점수 스케일은 임베딩 모델마다 달라서, <code>0.65</code> 라는 임계는 모델을 바꾸면 사실상 "전부 통과"가 됩니다.
+</p>
+
+<p>그래서 질문을 둘로 쪼갰습니다.</p>
+
+<table>
+  <tr><th style="width:26%">단계</th><th>묻는 것</th><th style="width:34%">누가 답하나</th></tr>
+  <tr>
+    <td><strong>F7 개념 그래프</strong></td>
+    <td>이 둘을 <strong>비교해도 되는가</strong></td>
+    <td><span class="badge b-llm">LLM</span> 연결 제안 + <span class="badge b-code">코드</span> 차단 집행</td>
+  </tr>
+  <tr>
+    <td><strong>F5 값 대조</strong></td>
+    <td>값이 <strong>같은가</strong></td>
+    <td><span class="badge b-code">코드</span> 확정 + <span class="badge b-llm">LLM</span> 애매한 것만</td>
+  </tr>
+</table>
+
+<p>
+쪼개고 나면 유사도의 역할이 확 줄어듭니다. 이제 임베딩은 판정하지 않고, <strong>LLM 에게 검토시킬 후보 쌍을
+좁히는 recall 용도로만</strong> 남습니다. 판정에서 빠졌으니 임계값을 느슨하게(기본 0.3) 잡아도 안전합니다 —
+<em>틀려도 손해가 작습니다.</em> 낮게 잡으면 LLM 호출이 늘고, 높게 잡으면 후보가 안 만들어져
+<span class="badge b-missing">missing</span> 이 될 뿐입니다. 최적값을 고를 필요가 사라진 것이 이 분리의 진짜 이득입니다.
+</p>
+
+<div class="qmemo" data-qid="s3-split-question" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"유사도로는 부정 판정을 못 한다"는 논지에서 걸리는 점이 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>아이디어 ③ — 권한을 비대칭으로 준다</h3>
+
+<p>
+두 종류의 실수는 값이 다릅니다. <strong>틀린 연결</strong>(무관한 두 항목을 이어놓고 "값이 다르다"고 보고)은
+사람을 잘못된 수정으로 유도합니다 — 멀쩡한 문서를 고치게 만듭니다. 반면 <strong>놓친 연결</strong>은
+<span class="badge b-missing">missing</span> 으로 남아 검토 목록에 오르고, 사람이 보면 끝납니다.
+손해가 비대칭이므로 권한도 비대칭으로 줍니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="연결은 검증을 거치고 차단은 코드가 단독으로 하는 비대칭 권한 그림">
+  <style>
+    .t{font:13px -apple-system,"Malgun Gothic",sans-serif; fill:#1f2328}
+    .t7{font:700 13px -apple-system,"Malgun Gothic",sans-serif}
+    .ts{font:11.5px -apple-system,"Malgun Gothic",sans-serif; fill:#5b6470}
+  </style>
+  <defs><marker id="ar3" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#98a2ad"/></marker></defs>
+
+  <rect x="14" y="26" width="872" height="94" rx="10" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="t7" x="32" y="50" fill="#7c4dbe">연결 (same_as) — 좁은 문을 통과해야 성립</text>
+  <rect x="32" y="62" width="150" height="40" rx="7" fill="#fff" stroke="#c7b0e6"/>
+  <text class="t" x="46" y="87">LLM 이 제안</text>
+  <line x1="186" y1="82" x2="228" y2="82" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar3)"/>
+  <rect x="232" y="62" width="216" height="40" rx="7" fill="#fff" stroke="#c9ced4"/>
+  <text class="t" x="246" y="80">코드: 인용문이 원문에 있나?</text>
+  <text class="ts" x="246" y="96">커버리지 ≥ 0.8 · 토큰 ≥ 3</text>
+  <line x1="452" y1="82" x2="494" y2="82" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar3)"/>
+  <rect x="498" y="62" width="176" height="40" rx="7" fill="#fff" stroke="#c9ced4"/>
+  <text class="t" x="512" y="80">코드: differs_by 위반?</text>
+  <text class="ts" x="512" y="96">승격된 차단이 이긴다</text>
+  <line x1="678" y1="82" x2="718" y2="82" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar3)"/>
+  <rect x="722" y="62" width="148" height="40" rx="7" fill="#e8f6ee" stroke="#1f8a4c"/>
+  <text class="t7" x="742" y="87" fill="#1f8a4c">개념 병합 성립</text>
+
+  <rect x="14" y="140" width="872" height="94" rx="10" fill="#eef0f2" stroke="#c9ced4"/>
+  <text class="t7" x="32" y="164" fill="#4a5563">차단 — 코드가 단독으로 집행한다</text>
+  <rect x="32" y="176" width="256" height="40" rx="7" fill="#fff" stroke="#c9ced4"/>
+  <text class="t" x="46" y="201">사람이 승격한 differs_by</text>
+  <rect x="300" y="176" width="256" height="40" rx="7" fill="#fff" stroke="#c9ced4"/>
+  <text class="t" x="314" y="201">인용문이 원문에 없음</text>
+  <rect x="568" y="176" width="302" height="40" rx="7" fill="#fff" stroke="#c9ced4"/>
+  <text class="t" x="582" y="201">그래프 모순 (합치면 차단 쌍이 한 개념이 됨)</text>
+</svg>
+<figcaption>아이디어 ③. 연결은 세 관문을 지나야 하지만, 차단은 코드가 혼자 결정합니다.
+차단이 틀려도 <span class="badge b-missing">missing</span> 하나가 늘 뿐이기 때문입니다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">과대평가 금지</span>
+  근거 인용 게이트가 실제로 막는 것은 <strong>"원문에 없는 문구를 지어내는 것"</strong>과 값 하나만 던지는
+  퇴화한 인용뿐입니다. LLM 이 양쪽에서 <em>실제로 존재하는</em> 문구를 골라 인용하면, 두 fact 가 무관해도 이 게이트는
+  통과합니다. 즉 이 검사는 "주장의 출처가 실재하는가"만 보증하지 "주장이 옳은가"는 보증하지 않습니다.
+  잘못된 연결을 실제로 막는 것은 (a) 프롬프트 규약, (b) 승격된 <code>differs_by</code>,
+  (c) LLM 이 만든 연결 위에서는 값 판정도 LLM 이 한 번 더 보게 하는 <code>needs_review</code> 입니다.
+</div>
+
+<div class="qmemo" data-qid="s3-asymmetry" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">권한 비대칭 / 근거 게이트의 한계에 대해 궁금한 점.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 4 -->
+<h2 id="s4"><span class="num">4.</span>LLM 입출력 카탈로그 ①~④ — 문서를 fact 로</h2>
+
+<p>
+이제 여섯 개의 구멍을 하나씩 들여다봅니다. 각 단계마다 <strong>무엇을 넣고 무엇을 받는지</strong>를 실제 데이터로
+보이겠습니다. 먼저 문서 하나를 fact 목록으로 바꾸는 네 자리입니다. 이 단계들은 <em>문서마다 독립적으로</em>
+돌기 때문에, 한 문서가 실패해도 나머지는 계속 처리됩니다.
+</p>
+
+<h3>먼저: 코드가 만드는 입력 — <code>compact_raw</code></h3>
+
+<div class="stage codeonly">
+  <h3><span class="badge b-code">코드</span> F0 · raw → compact</h3>
+  <p>COM 으로 문서를 열어 <em>해석 없이</em> 물리 정보만 뽑습니다. 서식이 곧 구조 힌트이므로 병합 범위와 굵은 글씨를
+  그대로 남기는 것이 중요합니다.</p>
+<pre>{"doc_type":"excel","file_name":"자표준문서.xlsx",
+ "sheets":[{
+   "sheet_name":"데이터","used_range":"B1:P22","n_rows":22,"n_cols":15,
+   "merged_cells":[{"range":"D1:E1","value":"항목"},
+                   {"range":"F1:H1","value":"정량규격"},
+                   {"range":"K1:K2","value":"단위"}],
+   "bold_cells":["B1","C1","D1","F1","I1","D2","E2","F2","G2","H2"],
+   "rows":[
+     {"r":1,"cells":{"B":"순번","C":"항목구분","D":"항목","F":"정량규격","K":"단위"}},
+     {"r":2,"cells":{"D":"중분류","E":"소분류","F":"하한치","G":"중심치","H":"상한치"}},
+     {"r":3,"cells":{"B":10.0,"C":"기본사양","E":"고객 표준 버전",
+                     "J":"배터리승인규격 ver 4.7\nSEC Req. ver.4.7"}},
+     {"r":6,"cells":{"B":40.0,"C":"기본사양","E":"정격충전전압","G":4.55}}
+   ]}]}</pre>
+  <p><code>F1:H1</code> 이 "정량규격"으로 병합돼 있고 2행에 "하한치/중심치/상한치"가 있다는 사실 — 여기에
+  <strong>이 표가 2행짜리 멀티헤더</strong>라는 단서가 전부 들어 있습니다. LLM 은 이 단서를 읽습니다.</p>
+</div>
+
+<h3>① Document Profiler — 이 문서는 무엇을 하는 문서인가</h3>
+
+<div class="stage">
+  <h3><span class="badge b-llm">LLM ①</span> <code>fact/profiler.py</code> · 문서당 1회 · 모든 문서 종류</h3>
+  <div class="io">
+    <div>
+      <h5>입력</h5>
+<pre class="wrapped">system: "당신은 문서 구조 분석가입니다.
+  내용을 지어내지 말고, 확신이 없으면
+  confidence 를 낮게 주세요. …"
+
+user: compact_raw 전체
+      (6000자로 잘라서 넣음)</pre>
+    </div>
+    <div>
+      <h5>출력 → <code>document_profile.json</code></h5>
+<pre class="wrapped">{"doc_type":"excel",
+ "main_purpose":"배터리 관련 제품의 기술
+   사양 및 환경 조건에 대한 정량/정성
+   규격 정의서",
+ "main_structures":[
+   {"kind":"table",
+    "location":"sheet=데이터 / B1:P22",
+    "row_grain_hint":"각 행은 특정 항목에
+      대한 사양 정보를 나타냄"}],
+ "confidence":0.95}</pre>
+    </div>
+  </div>
+  <p>
+  이 한 줄(<code>main_purpose</code>)은 버려지지 않습니다. 뒤의 fact 추출 프롬프트와 개념 판정 프롬프트에
+  <strong>"[문서 분야]" 맥락으로 재사용</strong>됩니다. "배터리 규격서"라는 걸 아는 상태에서 판단하는 것과
+  모르는 상태에서 판단하는 것은 다르기 때문입니다.
+  </p>
+</div>
+
+<h3>② Schema Inducer — 열의 <em>의미</em>를 뽑는다 (엑셀 전용)</h3>
+
+<div class="stage">
+  <h3><span class="badge b-llm">LLM ②</span> <code>fact/schema_inducer.py</code> · 시트당 1회</h3>
+  <div class="io">
+    <div>
+      <h5>입력</h5>
+<pre class="wrapped">시트 이름: 데이터
+크기: 약 22행 x 15열
+병합 셀(헤더 힌트): [D1:E1=항목, …]
+굵은 셀(헤더 후보): [B1,C1,D1,F1,…]
+어휘 힌트(코드 추정, 참고용):
+  {"하한치":"quantitative_lower_bound", …}
+
+[상위 행]
+행 1: {"B":"순번","D":"항목","F":"정량규격"…}
+행 2: {"D":"중분류","E":"소분류",
+       "F":"하한치","G":"중심치","H":"상한치"}
+행 3: {"B":10.0,"E":"고객 표준 버전", …}</pre>
+    </div>
+    <div>
+      <h5>출력 → <code>table_profile.json</code> + <code>column_schema.json</code></h5>
+<pre class="wrapped">{"header_structure":{
+   "header_start_row":1,"header_rows":2,
+   "data_start_row":3},
+ "row_grain":{"primary_entity_columns":["D","E"]},
+ "columns":[
+  {"column":"B","field_name":"순번",
+   "semantic_role":"metadata"},
+  {"column":"E","field_name":"소분류",
+   "semantic_role":"entity_subcategory"},
+  {"column":"F","field_name":"정량규격",
+   "semantic_role":"quantitative_lower_bound",
+   "raw_header":["정량규격","하한치"]},
+  {"column":"G","field_name":"중심치",
+   "semantic_role":"quantitative_target"},
+  {"column":"H","field_name":"상한치",
+   "semantic_role":"quantitative_upper_bound"}]}</pre>
+    </div>
+  </div>
+
+  <div class="callout def">
+    <span class="tag">여기가 핵심 아이디어</span>
+    <strong>고정하는 것은 어휘가 아니라 계약이다.</strong> 문서마다 열 이름은 제각각(<code>정량규격</code>,
+    <code>Min</code>, <code>하한</code>, <code>Lower</code>…)이지만, LLM 에게
+    <strong>고정된 10종 어휘</strong>(<code>entity_name</code>, <code>quantitative_lower_bound</code>,
+    <code>unit</code>, <code>metadata</code> …) 중에서만 고르게 하면, 이후 코드는 문서 종류를 몰라도 처리할 수 있습니다.
+    LLM 이 하는 일은 "이 문서 특유의 것 → 우리 공통 계약"으로 <em>번역</em>하는 것뿐입니다.
+  </div>
+
+  <p>주의할 점: 프롬프트는 "모든 열이 같은 값인 행(예: '대외비')은 배너이므로 헤더가 아니다" 같은
+  <strong>판별 기준을 명시</strong>합니다. LLM 에게 "알아서 잘 해봐"가 아니라, 사람이 아는 규칙을 말로 적어주는 것입니다.</p>
+</div>
+
+<div class="qmemo" data-qid="s4-schema-role" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint"><code>semantic_role</code> 어휘 설계에 대해 궁금한 점.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>③ Record Normalizer — 행을 레코드로 (엑셀 전용)</h3>
+
+<div class="stage">
+  <h3><span class="badge b-llm">LLM ③</span> <code>fact/record_normalizer.py</code> · 행 배치당 1회</h3>
+  <div class="io">
+    <div>
+      <h5>입력</h5>
+<pre class="wrapped">[행 의미] 배터리 제품의 기술 사양 및 환경
+  조건에 대한 개별 항목별 규격 정보
+[열 스키마(열 → 역할)]
+- E열: 소분류 → entity_subcategory
+- F열: 정량규격 → quantitative_lower_bound
+- G열: 중심치 → quantitative_target
+- K열: 단위 → unit
+[직전까지 확정된 분류]
+  category=기본사양, subcategory=C001D001
+[데이터 행]
+행 6: {"B":40.0,"C":"기본사양",
+       "E":"정격충전전압","G":4.55}</pre>
+    </div>
+    <div>
+      <h5>출력 → <code>records.json</code></h5>
+<pre class="wrapped">{"record_id":"row-6",
+ "entity":{"category":"기본사양",
+           "subcategory":"C001D001",
+           "display_name":"정격충전전압"},
+ "attributes":{
+   "target_value":{"value":4.55,"unit":""}},
+ "metadata":{"순번":"40.0"},
+ "source":{"row":6},
+ "evidence_text":"4.55",
+ "confidence":1.0}</pre>
+    </div>
+  </div>
+  <p>세 가지 규칙이 프롬프트에 못 박혀 있습니다.</p>
+  <ul>
+    <li><strong>carry</strong> — 병합 때문에 비어 있는 상위 분류는 "직전까지 확정된 분류"로 채웁니다.
+        그래서 배치를 나눠도 맥락이 끊기지 않습니다.</li>
+    <li><strong>소계·합계·빈 행 제외</strong> — 비교 대상이 아닌 행은 레코드로 만들지 않습니다.</li>
+    <li><strong>값 변환 금지</strong> — 단위 변환도, 수식 해석도 하지 않습니다. 셀에 있는 그대로만 옮깁니다.
+        해석은 나중에 코드가 합니다.</li>
+  </ul>
+</div>
+
+<h3>④ Fact Extractor — 엑셀은 코드, Word/PPT 는 LLM</h3>
+
+<div class="stage codeonly">
+  <h3><span class="badge b-code">코드</span> 엑셀 경로 · LLM 0회</h3>
+  <p>레코드가 이미 구조화돼 있으니 코드가 결정적으로 변환합니다.</p>
+<pre>{"fact_id":"fact-row-6","fact_type":"quantitative_spec",
+ "entity_name":"정격충전전압",
+ "entity_path":["기본사양","C001D001","정격충전전압"],
+ "attributes":{"target_value":{"value":4.55,"unit":""}},
+ "search_text":"정격충전전압 기본사양 C001D001 4.55",
+ "source":{"doc_type":"excel","sheet":"데이터","row":6,"cell_range":"B6:O6"},
+ "evidence_text":"4.55","confidence":1.0}</pre>
+</div>
+
+<div class="stage">
+  <h3><span class="badge b-llm">LLM ④</span> Word/PPT 경로 · <code>fact/fact_extractor.py</code> · 블록 배치당 1회</h3>
+  <div class="io">
+    <div>
+      <h5>입력 — 각 블록에 <code>[id]</code> 를 붙여서</h5>
+<pre class="wrapped">다음은 word 문서의 블록/도형입니다.
+문서 맥락: 배터리 셀 규격 요약서
+
+[w_b004] 본 규격은 배터리승인규격 ver 4.7
+         (SEC Req. ver.4.7) 을 따른다.
+[w_b005] 정격 충전 전압은 4.55V 이다.
+[w_b006] 방전 종지 전압은 3.0V 로 한다.
+[w_b011] 표 [["공칭용량","1150","mAh"], …]</pre>
+    </div>
+    <div>
+      <h5>출력 → <code>facts.json</code></h5>
+<pre class="wrapped">{"fact_id":"fact-word-2",
+ "fact_type":"quantitative_spec",
+ "entity_name":"정격 충전 전압",
+ "attributes":{
+   "target_value":{"value":4.55,"unit":"V"}},
+ "source":{"doc_type":"word",
+           "block_ids":["w_b005"]},
+ "evidence_text":"정격 충전 전압은 4.55V 이다.",
+ "confidence":1.0}</pre>
+    </div>
+  </div>
+  <p>
+  <code>[id]</code> 를 붙이는 이유는 <strong>추적성</strong>입니다. LLM 은 <code>source_ids</code> 에 자기가 근거로 삼은
+  블록 id 만 적어야 하고, 코드는 그 id 가 실제로 입력에 있었는지 확인할 수 있습니다.
+  "흩어진 서술(본문 + 스피커노트)이 같은 대상이면 하나의 fact 로 병합하라"는 지시도 여기 들어갑니다 —
+  PPT 는 도형과 노트에 정보가 쪼개져 있는 일이 흔하기 때문입니다.
+  </p>
+</div>
+
+<div class="stage codeonly">
+  <h3><span class="badge b-code">코드</span> F4a · Rule Validator</h3>
+  <p>
+  뽑힌 fact 의 <code>evidence_text</code> 토큰이 원문에 <strong>80% 이상 실재</strong>하는지 검사합니다.
+  실패한 fact 는 <em>버리지 않고</em> 저신뢰(<code>low_confidence</code>)로 표시합니다. 나중에 F5 가
+  "코드가 단독 판정하면 안 되는 것"으로 취급해 LLM 에게 한 번 더 보여줍니다.
+  </p>
+</div>
+
+<p>
+여기까지가 문서 하나의 여정입니다. 실측에서는 엑셀 20건, Word 11건, PPT 12건의 fact 가 나왔고,
+<strong>형식이 전혀 달랐던 세 문서가 같은 모양의 카드 43장</strong>이 됐습니다. 이제 카드끼리 붙일 차례입니다.
+</p>
+
+<div class="qmemo" data-qid="s4-extraction" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">추출 단계(①~④)에서 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 5 -->
+<h2 id="s5"><span class="num">5.</span>LLM 입출력 카탈로그 ⑤ — 개념 판정, 그리고 그 앞뒤의 코드</h2>
+
+<p>
+F7 개념 그래프는 네 단계인데, LLM 은 그중 세 번째에서만 씁니다. 앞뒤로 코드가 감싸고 있는 구조를 먼저 보세요 —
+LLM 이 받는 일감의 양과 형태를 앞의 코드가 결정하고, LLM 이 낸 답의 효력을 뒤의 코드가 결정합니다.
+</p>
+
+<div class="stage embed">
+  <h3><span class="badge b-embed">임베딩</span> F7-1 · 후보 쌍 생성 (<code>concept_builder.candidate_pairs</code>)</h3>
+  <p>
+  기준 20건 × 대상 23건을 전부 물으면 460쌍입니다. 임베딩 코사인으로 상위만 남겨 <strong>65쌍</strong>으로 줄입니다.
+  다시 강조하면, 이건 판정이 아니라 <em>계산량 제한</em>입니다. 그래서 임계값이
+  <code>concept_recall_min: 0.3</code> 처럼 느슨해도 됩니다.
+  </p>
+  <p>
+  다만 여기에 구멍이 하나 있고, 코드가 그것을 메웁니다: <strong>온톨로지가 아는 쌍은 유사도와 무관하게 무조건
+  후보에 추가</strong>합니다(<code>_augment_with_ontology</code>). 이유는 7장에서 설명합니다.
+  </p>
+</div>
+
+<div class="stage codeonly">
+  <h3><span class="badge b-human">사람</span> + <span class="badge b-code">코드</span> F7-2 · 확정 (<code>resolve_known</code>)</h3>
+  <p>65쌍 중 <strong>17쌍이 LLM 없이 끝납니다.</strong> 우선순위는 <em>온톨로지(사람) &gt; 이름 완전일치(코드)</em> 입니다 —
+  사람이 "이 둘은 다르다"고 확정했으면 이름이 같아도 잇지 않습니다.</p>
+<pre>{"relation":"same_as",
+ "left":{"doc":"자표준문서.xlsx","fact_id":"fact-row-4"},
+ "right":{"doc":"자표준_규격서.docx","fact_id":"fact-word-7"},
+ "reason":"정규화 항목명이 동일합니다: 공칭용량",
+ "decided_by":"code","recall_score":1.0}</pre>
+  <p>실측 내역: 온톨로지 4쌍 + 이름 완전일치 13쌍. 남은 48쌍이 LLM 에게 갑니다.</p>
+</div>
+
+<div class="stage">
+  <h3><span class="badge b-llm">LLM ⑤</span> F7-3 · 개념 관계 판정 · 20쌍씩 배치 → <strong>3회 호출</strong></h3>
+  <div class="io">
+    <div>
+      <h5>입력 (<code>build_concept_user</code>)</h5>
+<pre class="wrapped">[문서 분야]
+배터리 제품의 기술 사양 규격 정의서
+        ↑ ①Profiler 의 출력 재사용
+
+[참고자료 — 도메인 지식]
+(knowledge/*.md 전체)
+
+[이미 확정된 관계 — 일관되게 판단하세요]
+- 고객 표준 버전 / 문서 기준 규격 → same_as
+- 1개월저장온도 / 표준환경온도
+    → differs_by (축: 측정조건)
+        ↑ 온톨로지 요약 주입
+
+[쌍 1]
+left_fact_id: fact-row-16 (자표준문서.xlsx)
+  항목: 평가환경습도
+  속성: lower_limit=33.0, target_value=43.0,
+        upper_limit=53.0
+right_fact_id: fact-ppt-3 (자표준_발표.pptx)
+  항목: 방전환경온도
+  속성: lower_limit=-30 ℃, target_value=30 ℃,
+        upper_limit=90 ℃
+… (쌍 20 까지)</pre>
+    </div>
+    <div>
+      <h5>출력 → <code>concept_graph.json</code> 의 엣지</h5>
+<pre class="wrapped">{"pairs":[
+ {"left_fact_id":"fact-row-16",
+  "right_fact_id":"fact-ppt-3",
+  "relation":"unknown",
+  "axis":"물리량",
+  "reason":"왼쪽은 '습도'이고
+            오른쪽은 '온도'입니다."},
+
+ {"left_fact_id":"fact-row-21",
+  "right_fact_id":"fact-ppt-8",
+  "relation":"same_as",
+  "left_text":"-10.0, 35.0, 70.0",
+  "right_text":"3개월 저장: -10 ~ 60℃
+                (기준 35℃)",
+  "reason":"둘 다 3개월 저장 조건의
+            온도 범위를 규정한다."}
+]}</pre>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <span class="tag">프롬프트의 가장 중요한 한 줄</span>
+    <strong>"값이 다른 것은 differs_by 의 근거가 아닙니다."</strong><br>
+    <code>-10~70</code> 과 <code>-10~60</code> 을 보고 "값이 다르니 다른 항목"이라고 추론하면,
+    <em>우리가 찾으려던 불일치가 판단 재료로 소비돼 영원히 발견되지 않습니다.</em>
+    개념 판정 단계에서는 "이 항목이 <strong>무엇에 대한 것인지</strong>"만 보게 합니다.
+    값의 차이는 결과이지 재료가 아닙니다.
+  </div>
+
+  <p>
+  또 하나: <code>axis</code>("측정조건", "물리량", "산정방식"…)는 <strong>정해진 목록이 없습니다.</strong>
+  LLM 이 문서 도메인에 맞게 직접 이름을 짓습니다. 배터리 규격에서는 (물리량/측정조건)이 구분 축이지만,
+  계약서라면 (의무주체/기한), 재무라면 (계정과목/기간/연결범위)일 것입니다.
+  <strong>코드는 이 문자열을 해석하지 않습니다</strong> — 엣지 종류(<code>same_as</code>/<code>differs_by</code>)만
+  보고 집행하므로, 도메인이 바뀌어도 코드는 그대로입니다.
+  </p>
+</div>
+
+<div class="stage codeonly">
+  <h3><span class="badge b-code">코드</span> F7-4 · 조립 (<code>concept_assembler.assemble</code>)</h3>
+  <p>코드가 위상만 보고 집행합니다. 순서가 중요합니다.</p>
+  <ol>
+    <li><strong>근거 검증</strong> — LLM 이 제안한 <code>same_as</code> 만 검사합니다. 인용문 토큰의 80% 가 원문에
+        실재해야 하고 최소 3토큰이어야 합니다. 실패하면 <code>unknown</code> 으로 <em>강등</em>하되 버리지 않습니다.</li>
+    <li><strong>병합</strong> — Union-Find 로 <code>same_as</code> 를 이어 개념 노드를 만듭니다.
+        사람이 승격한 것(<code>promoted</code>)을 먼저 적용합니다.</li>
+    <li><strong>차단 집행</strong> — 합쳤을 때 <code>differs_by</code> 로 이어진 두 fact 가 한 개념이 되면 거부합니다.</li>
+  </ol>
+  <p>강등할 때 사유를 <strong>앞에</strong> 붙이는 디테일이 있습니다.</p>
+<pre class="wrapped">"[거부됨: 근거 인용이 원문에 없음] 거부된 주장: 둘 다 SEC Req. ver.4.7 을 가리킨다"</pre>
+  <p>
+  LLM 이 쓴 그럴듯한 사유만 리포트에 실리면, 사람이 그걸 읽고 "아 맞네" 하며 온톨로지로 승격시켜
+  <strong>게이트를 사람 손으로 우회</strong>시킬 수 있기 때문입니다. 원문 사유는 검수를 위해 보존하되,
+  거부됐다는 사실이 먼저 보이게 합니다.
+  </p>
+</div>
+
+<h3>결과 — 개념 노드</h3>
+
+<figure>
+<svg viewBox="0 0 900 260" role="img" aria-label="개념 노드 c-0001 에 세 문서의 fact 가 묶인 그림">
+  <style>
+    .n{font:12.5px -apple-system,"Malgun Gothic",sans-serif; fill:#1f2328}
+    .n7{font:700 13px -apple-system,"Malgun Gothic",sans-serif}
+    .ns{font:11px ui-monospace,monospace; fill:#5b6470}
+  </style>
+  <ellipse cx="450" cy="60" rx="190" ry="34" fill="#f3edfc" stroke="#7c4dbe" stroke-width="1.8"/>
+  <text class="n7" x="450" y="55" text-anchor="middle" fill="#7c4dbe">개념 c-0001 — "고객 표준 버전"</text>
+  <text class="ns" x="450" y="74" text-anchor="middle">한 개념 = 여러 문서의 fact 집합</text>
+
+  <line x1="330" y1="88" x2="150" y2="140" stroke="#7c4dbe" stroke-width="1.6"/>
+  <line x1="450" y1="96" x2="450" y2="140" stroke="#7c4dbe" stroke-width="1.6"/>
+  <line x1="570" y1="88" x2="750" y2="140" stroke="#7c4dbe" stroke-width="1.6"/>
+
+  <rect x="20" y="140" width="260" height="76" rx="9" fill="#e8f1e9" stroke="#a8c9ae"/>
+  <text class="n7" x="36" y="162">자표준문서.xlsx</text>
+  <text class="n" x="36" y="182">고객 표준 버전</text>
+  <text class="ns" x="36" y="202">fact-row-3 · B3:P3</text>
+
+  <rect x="320" y="140" width="260" height="76" rx="9" fill="#e6eef8" stroke="#a9c1e0"/>
+  <text class="n7" x="336" y="162">자표준_규격서.docx</text>
+  <text class="n" x="336" y="182">문서 기준 규격</text>
+  <text class="ns" x="336" y="202">fact-word-1 · w_b004</text>
+
+  <rect x="620" y="140" width="260" height="76" rx="9" fill="#f7e9e6" stroke="#e0b3a9"/>
+  <text class="n7" x="636" y="162">자표준_발표.pptx</text>
+  <text class="n" x="636" y="182">적용 규격</text>
+  <text class="ns" x="636" y="202">fact-ppt-1 · slide 1</text>
+
+  <text class="n" x="450" y="244" text-anchor="middle" fill="#5b6470">이름이 셋 다 다른데 한 개념으로 묶였습니다 — F7 이 하는 일은 이게 전부입니다.</text>
+</svg>
+<figcaption>실제 <code>concept_graph.json</code> 의 노드 <code>c-0001</code>. 실측 통계는
+<code>same_as</code> 20 · <code>differs_by</code> 43 · <code>unknown</code> 2 였습니다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="s5-concept-graph" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">개념 판정 프롬프트나 그래프 조립 순서에서 궁금한 점.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 6 -->
+<h2 id="s6"><span class="num">6.</span>LLM 입출력 카탈로그 ⑥ — 값 대조, 코드가 먼저 손대는 이유</h2>
+
+<p>
+개념 그래프가 "비교해도 된다"고 한 쌍에 대해서만 값을 대조합니다. 판정 규칙은 하나뿐입니다.
+</p>
+
+<div class="callout key">
+  <span class="tag">판정 규칙 (전부)</span>
+  <strong>두 fact 의 개념이 <code>same_as</code> 로 이어져 있지 않으면 비교하지 않는다.</strong><br>
+  임계값 없음, 슬롯 어휘 없음, 도메인 사전 없음. "연결이 없으면 없는 것"이 기본값입니다.
+</div>
+
+<p>
+그리고 대조 자체는 <strong>코드가 먼저</strong> 합니다. fact 를 <code>{value, unit}</code> 으로 정규화한 이유가
+바로 "값 비교는 코드가 한다"였으니, 이건 설계의 일관된 귀결입니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="F5 값 대조의 결정 흐름도">
+  <style>
+    .d{font:12.5px -apple-system,"Malgun Gothic",sans-serif; fill:#1f2328}
+    .d7{font:700 12.5px -apple-system,"Malgun Gothic",sans-serif}
+    .ds{font:11px -apple-system,"Malgun Gothic",sans-serif; fill:#5b6470}
+    .dl{stroke:#98a2ad; stroke-width:1.5; marker-end:url(#ar4)}
+  </style>
+  <defs><marker id="ar4" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#98a2ad"/></marker></defs>
+
+  <rect x="330" y="12" width="240" height="42" rx="8" fill="#fff" stroke="#c9ced4"/>
+  <text class="d7" x="450" y="38" text-anchor="middle">개념 연결이 있는가?</text>
+
+  <line class="dl" x1="330" y1="33" x2="176" y2="33"/>
+  <rect x="14" y="12" width="158" height="42" rx="8" fill="#f0f1f3" stroke="#7b838c"/>
+  <text class="d7" x="93" y="31" text-anchor="middle" fill="#7b838c">missing</text>
+  <text class="ds" x="93" y="47" text-anchor="middle">코드 · 20건</text>
+
+  <line class="dl" x1="450" y1="54" x2="450" y2="76"/>
+  <rect x="300" y="76" width="300" height="42" rx="8" fill="#fff" stroke="#c9ced4"/>
+  <text class="d7" x="450" y="102" text-anchor="middle">코드가 값·단위로 단정할 수 있나?</text>
+
+  <line class="dl" x1="600" y1="97" x2="700" y2="97"/>
+  <rect x="704" y="62" width="182" height="34" rx="8" fill="#e8f6ee" stroke="#1f8a4c"/>
+  <text class="d7" x="795" y="85" text-anchor="middle" fill="#1f8a4c">match · 코드 10건</text>
+  <rect x="704" y="102" width="182" height="34" rx="8" fill="#fdecea" stroke="#c0392b"/>
+  <text class="d7" x="795" y="125" text-anchor="middle" fill="#c0392b">mismatch · 코드 2건</text>
+
+  <line class="dl" x1="450" y1="118" x2="450" y2="146"/>
+  <rect x="240" y="146" width="420" height="66" rx="8" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="d7" x="450" y="170" text-anchor="middle" fill="#7c4dbe">⑥ LLM 에게 위임</text>
+  <text class="ds" x="450" y="190" text-anchor="middle">공통 속성 없음 · 단위 미상 · 십진 배수 · 문자열 차이</text>
+  <text class="ds" x="450" y="206" text-anchor="middle">저신뢰 fact · LLM 이 만든 연결(needs_review)</text>
+
+  <line class="dl" x1="660" y1="179" x2="700" y2="179"/>
+  <rect x="704" y="146" width="182" height="30" rx="8" fill="#e8f6ee" stroke="#1f8a4c"/>
+  <text class="d7" x="795" y="167" text-anchor="middle" fill="#1f8a4c">match · LLM 7건</text>
+  <rect x="704" y="182" width="182" height="30" rx="8" fill="#fdecea" stroke="#c0392b"/>
+  <text class="d7" x="795" y="203" text-anchor="middle" fill="#c0392b">mismatch · LLM 1건</text>
+
+  <line class="dl" x1="450" y1="212" x2="450" y2="240"/>
+  <rect x="300" y="240" width="300" height="46" rx="8" fill="#fdf6e3" stroke="#b58105"/>
+  <text class="d7" x="450" y="262" text-anchor="middle" fill="#b58105">LLM 실패·예산초과 → unknown (판단보류)</text>
+  <text class="ds" x="450" y="278" text-anchor="middle">버리지 않고 '검토 필요'로 사람에게 간다</text>
+
+  <text class="ds" x="450" y="312" text-anchor="middle">실측 40건 판정 · LLM 위임률 20% (8/40)</text>
+</svg>
+<figcaption>F5 결정 흐름. 코드가 32건을 끝내고, 8건만 LLM 이 봤습니다.</figcaption>
+</figure>
+
+<h3>코드가 단독 확정하는 경우 — LLM 0회</h3>
+
+<div class="stage codeonly">
+  <h4><span class="badge b-match">match</span> 값이 같음 — 그런데 <em>속성 이름이 다릅니다</em></h4>
+<pre class="wrapped">기준  공칭용량   lower_limit  = 1150.0  (단위 없음)   ← 엑셀 F열('하한치')에 적혀 있었음
+대상  공칭용량   target_value = 1150    mAh          ← Word 표에서 추출
+
+→ match  "값이 일치합니다(1150.0). 속성 이름은 다르지만(lower_limit / target_value)
+          양쪽 모두 이 항목의 단일 값입니다."</pre>
+  <p>
+  기준 엑셀이 공칭용량을 하필 '하한치' 열에 적어서 키가 어긋난 <strong>실제 사례</strong>입니다.
+  코드는 "양쪽 다 속성이 하나뿐이면 키 이름 차이를 무시한다"는 규칙으로 이걸 넘깁니다 —
+  속성이 하나뿐인 fact 는 "이 항목의 값은 X"라는 뜻이고, 키 이름은 원본 표의 <em>열 위치</em>에서 왔을 뿐이기 때문입니다.
+  </p>
+  <p><strong>단, 예외가 있습니다.</strong> <code>lower_limit</code> vs <code>upper_limit</code> 은 의미가
+  정반대라 값이 같아도 같은 주장이 아니므로 코드가 단정하지 않습니다.</p>
+</div>
+
+<div class="stage codeonly">
+  <h4><span class="badge b-mismatch">mismatch</span> 값이 다름</h4>
+<pre class="wrapped">기준  공칭전압   target_value = 3.89
+대상  공칭전압   target_value = 3.85 V
+
+→ mismatch ["target_value"]  "값이 다릅니다: target_value(기준 3.89 vs 대상 3.85V)"</pre>
+  <p>한쪽만 단위가 있는 경우는 호환으로 봅니다 — 실측 20 fact 중 16개가 기준 문서의 단위 열이 통째로 비어 있었고,
+  그때 값이 같으면 같다고 보는 것이 사람의 판단과 일치했기 때문입니다.</p>
+</div>
+
+<div class="stage codeonly">
+  <h4><span class="badge b-missing">missing</span> 후보 없음 — <em>사유가 경로마다 다릅니다</em></h4>
+  <p>개념 경로에서 <code>missing</code> 은 "유사도가 임계에 못 미쳤다"가 아니라 <strong>"왜 비교하지 않았는지"</strong>입니다.
+  <code>ConceptMatcher.explain_missing()</code> 이 이 문장을 만듭니다.</p>
+<pre class="wrapped">"개념이 같다고 판정되지 않아 비교하지 않았습니다(개념 그래프에 이 항목과 이어진 대상 fact 가 없습니다).
+ 다른 개념으로 차단된 후보: '표준환경온도'(측정조건 이(가) 다름) — 저장 조건과 상시 환경 조건은 다른 규격"</pre>
+  <p>
+  문구가 틀리면 사용자는 F7 에서 쓰이지도 않는 <code>match_min_score</code> 를 조정하러 갑니다.
+  <strong>사유는 사람을 어디로 보내는지를 결정</strong>하므로, 매칭 전략이 자기 사유를 직접 만들게 했습니다.
+  </p>
+</div>
+
+<h3>코드가 손을 떼는 경우 — 그때만 LLM ⑥</h3>
+
+<p>다음 중 하나라도 걸리면 코드는 판단을 포기하고 넘깁니다.</p>
+
+<ul>
+  <li><strong>공통 속성이 없음</strong> (양쪽 다 속성이 하나뿐인 경우 제외)</li>
+  <li><strong>사전에 없는 단위</strong> — <code>_UNIT_ALIASES</code> 는 <code>℃/도씨/degc</code>,
+      <code>%/rh%</code>, <code>V/볼트</code>, <code>mA/A</code>, <code>mAh/Ah</code> 정도만 담고 있고,
+      <strong>추측으로 부풀리지 않습니다.</strong> 사전을 넓히면 잘못된 등가 판정이 늘기 때문입니다.</li>
+  <li><strong>십진 배수 관계</strong> — <code>1495</code> vs <code>1.495A</code>. mA↔A 접두어 차이의 전형적 흔적이라
+      '다르다'고 단정하지 않습니다.</li>
+  <li><strong>문자열이 다름</strong> — 문자열은 <em>같을 때만</em> 코드가 단정합니다.
+      <code>"배터리승인규격 ver 4.7 SEC Req. ver.4.7"</code> vs <code>"SEC Req. ver.4.7"</code> 은
+      문자열이 달라도 같은 규격을 가리키기 때문입니다.</li>
+  <li><strong>근거가 불안정</strong> — F4a 저신뢰 fact이거나, 그 연결을 LLM 이 만든 경우(<code>needs_review</code>).</li>
+</ul>
+
+<div class="stage">
+  <h3><span class="badge b-llm">LLM ⑥</span> <code>fact/fact_comparator.py</code> · 위임된 건만 · 실측 8회</h3>
+  <div class="io">
+    <div>
+      <h5>입력 (<code>build_compare_user</code>)</h5>
+<pre class="wrapped">[참고 자료 — 도메인 지식]
+(knowledge/*.md 전체)
+
+[기준 문서의 항목]
+항목: 고객 표준 버전
+속성: qualitative_spec=배터리승인규격 ver 4.7
+      SEC Req. ver.4.7
+근거 원문: 배터리승인규격 ver 4.7
+           SEC Req. ver.4.7
+
+[대상 문서의 후보]
+[fact-word-1]
+  항목: 문서 기준 규격
+  속성: 참조규격=4.7 ver
+  근거 원문: 본 규격은 배터리승인규격
+    ver 4.7 (SEC Req. ver.4.7) 을 따른다.</pre>
+    </div>
+    <div>
+      <h5>출력 → <code>comparison_result.json</code></h5>
+<pre class="wrapped">{"result":"match",
+ "target_fact_id":"fact-word-1",
+ "mismatch_attributes":[],
+ "reason":"기준의 '배터리승인규격 ver 4.7'과
+   후보의 '4.7 ver'은 표기 순서만 다를 뿐
+   동일한 버전을 의미하므로 일치합니다."}</pre>
+      <p style="font-size:14px;color:#5b6470;margin-top:10px">
+      코드는 LLM 이 지목한 <code>target_fact_id</code> 가 <strong>자기가 준 후보 안에</strong> 있는지 검증합니다
+      (<code>_pick_target</code>) — 할루시네이션으로 없는 id 를 지목하면 무시합니다.</p>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <span class="tag">프롬프트가 강제하는 태도</span>
+    <strong>"확신이 없으면 match/mismatch 로 단정하지 말고 unknown 을 쓰세요. 틀린 단정보다 보류가 낫습니다."</strong><br>
+    그리고 <em>"기준의 단위가 비어 있으면 대상 단위를 근거로 단위를 추측하지 마세요"</em> —
+    값이 배수 관계라 단위에 따라 답이 달라진다면 그건 <code>unknown</code> 입니다.
+    LLM 호출이 실패하거나 예산이 끝나도 결과를 버리지 않고 <code>unknown</code> 으로 남깁니다.
+  </div>
+</div>
+
+<div class="qmemo" data-qid="s6-value-compare" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드/LLM 분담 경계에서 애매하게 느껴지는 케이스가 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 7 -->
+<h2 id="s7"><span class="num">7.</span>온톨로지의 역할</h2>
+
+<p>
+지금까지 LLM 이 판단한 것들은 실행할 때마다 조금씩 흔들릴 수 있습니다. 온톨로지는 그 흔들림을 <strong>사람이
+확인한 지점부터 고정</strong>하는 장치입니다. 같은 <code>knowledge/</code> 폴더에 있지만
+<code>*.md</code>(도메인 지식)와는 성격이 다릅니다.
+</p>
+
+<table>
+  <tr><th style="width:20%"></th><th><code>knowledge/*.md</code></th><th><code>knowledge/ontology.yaml</code></th></tr>
+  <tr><td><strong>형태</strong></td><td>자연어 설명 ("매출과 Revenue는 같은 항목")</td><td>항목명 쌍 → 관계</td></tr>
+  <tr><td><strong>쓰임</strong></td><td>프롬프트에 <em>참고자료</em>로 주입</td><td><strong>LLM 을 건너뛰고 코드가 직접 적용</strong></td></tr>
+  <tr><td><strong>효력</strong></td><td>LLM 이 참고할 수도, 안 할 수도</td><td>강제</td></tr>
+</table>
+
+<p>실제 파일은 이렇게 짧습니다.</p>
+
+<pre>same_as:
+  - names: ["고객 표준 버전", "문서 기준 규격"]
+    reason: "둘 다 SEC Req. ver.4.7 을 가리킨다 (2026-08-03 실측 확인)"
+
+differs_by:
+  - names: ["1개월저장온도", "표준환경온도"]
+    axis: "측정조건"
+    reason: "저장 조건과 상시 환경 조건은 다른 규격"
+  - names: ["평가환경온도", "평가 환경 습도"]
+    axis: "물리량"
+    reason: "온도와 습도"
+  - names: ["충전환경온도", "정격 충전 전압"]
+    axis: "물리량"
+    reason: "온도와 전압"</pre>
+
+<p>
+3장의 "정답과 오답이 겹친다"는 그래프를 다시 떠올려 보세요. <strong>거기 있던 오답 셋이 그대로 이 파일에
+등록돼 있습니다.</strong> 한 번 확인한 오판은 다시 반복되지 않습니다.
+</p>
+
+<h3>온톨로지가 하는 네 가지 일</h3>
+
+<h4>① recall 을 건너뛴다 — 가장 중요한 하나</h4>
+
+<p>
+직관적으로는 "온톨로지는 임베딩이 찾아온 후보에 관계를 붙여주는 사전"일 것 같습니다. 그런데 그렇게 만들면
+<strong>정작 가장 필요한 쌍에 효력이 없습니다.</strong>
+</p>
+
+<figure>
+<svg viewBox="0 0 900 240" role="img" aria-label="온톨로지가 recall 을 우회해 후보를 보강하는 그림">
+  <style>
+    .o{font:12.5px -apple-system,"Malgun Gothic",sans-serif; fill:#1f2328}
+    .o7{font:700 12.5px -apple-system,"Malgun Gothic",sans-serif}
+    .os{font:11.5px -apple-system,"Malgun Gothic",sans-serif; fill:#5b6470}
+  </style>
+  <defs><marker id="ar5" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#98a2ad"/></marker>
+    <marker id="ar6" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#c2691a"/></marker></defs>
+
+  <rect x="20" y="86" width="180" height="60" rx="9" fill="#fff" stroke="#c9ced4"/>
+  <text class="o7" x="110" y="112" text-anchor="middle">모든 쌍 460</text>
+  <text class="os" x="110" y="132" text-anchor="middle">기준 20 × 대상 23</text>
+
+  <line x1="204" y1="116" x2="256" y2="116" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar5)"/>
+
+  <rect x="260" y="86" width="200" height="60" rx="9" fill="#e6f5f4" stroke="#8fc9c6"/>
+  <text class="o7" x="360" y="112" text-anchor="middle" fill="#0f8a86">임베딩 recall</text>
+  <text class="os" x="360" y="132" text-anchor="middle">점수 상위만 → 65쌍</text>
+
+  <line x1="464" y1="116" x2="516" y2="116" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar5)"/>
+
+  <rect x="520" y="86" width="200" height="60" rx="9" fill="#fff" stroke="#c9ced4"/>
+  <text class="o7" x="620" y="112" text-anchor="middle">후보 쌍 목록</text>
+  <text class="os" x="620" y="132" text-anchor="middle">→ 관계 판정으로</text>
+
+  <rect x="260" y="16" width="200" height="52" rx="9" fill="#fdf1e3" stroke="#e2b47c"/>
+  <text class="o7" x="360" y="38" text-anchor="middle" fill="#c2691a">온톨로지가 아는 쌍</text>
+  <text class="os" x="360" y="56" text-anchor="middle">dict 조회 · 임베딩 불필요</text>
+
+  <path d="M460 42 L560 42 L560 82" fill="none" stroke="#c2691a" stroke-width="2" marker-end="url(#ar6)"/>
+  <text class="os" x="580" y="42" fill="#c2691a">recall 을 통째로 우회해 무조건 추가</text>
+
+  <text class="o" x="20" y="192" fill="#c2691a">왜? — 승격이 가장 필요한 쌍은 "유사도로는 절대 못 잇는 진짜 동의어"입니다.</text>
+  <text class="os" x="20" y="214">예: 「고객 표준 버전」 ↔ 「적용 규격」. recall 의 부분집합에만 적용하면, 사람이 아무리 적어도 그 쌍은 영원히 이어지지 않습니다.</text>
+</svg>
+<figcaption><code>_augment_with_ontology()</code>. 이름 쌍 조회는 dict 룩업이라 비용이 거의 없으므로,
+기준 × 대상 전수를 훑어도 부담이 없습니다.</figcaption>
+</figure>
+
+<p>
+같은 구멍이 하나 더 있습니다. <code>FactMatcher.search()</code> 는 이름 완전일치를 찾으면 <em>조기 종료</em>합니다 —
+그러면 그 기준 fact 에 대해 다른 후보가 아예 안 만들어집니다. 온톨로지 보강은 이 구멍도 같이 메웁니다.
+</p>
+
+<h4>② LLM 을 건너뛴다 — 재현성과 비용</h4>
+
+<p>
+승격된 쌍은 <code>decided_by: "ontology"</code>, <code>promoted: true</code> 로 확정됩니다. LLM 이 그날 기분에 따라
+다르게 답할 여지가 사라집니다. 실측 65쌍 중 4쌍이 여기서 처리됐습니다.
+</p>
+
+<h4>③ 차단이 연결을 이긴다</h4>
+
+<p>
+우선순위는 <strong>온톨로지(사람) &gt; 이름 완전일치(코드) &gt; LLM</strong> 입니다. 파일을 로드할 때도
+<code>same_as</code> 를 먼저 넣고 <code>differs_by</code> 로 덮어씁니다. 사람이 "이 둘은 다르다"고 했으면
+이름이 같아도, LLM 이 잇자고 해도 병합되지 않습니다.
+</p>
+
+<h4>④ LLM 판단의 일관성 기준선</h4>
+
+<p>
+<code>ontology.summary()</code> 가 개념 판정 프롬프트에
+<code>[이미 확정된 관계 — 일관되게 판단하세요]</code> 블록으로 들어갑니다(5장 입력 예시 참고).
+등록되지 않은 <em>새로운</em> 쌍도 사람이 정한 기준과 같은 결로 판단하도록 유도합니다.
+</p>
+
+<h3>운영 루프 — 쓸수록 결정적으로 수렴한다</h3>
+
+<figure>
+<svg viewBox="0 0 900 190" role="img" aria-label="온톨로지 human-in-the-loop 사이클">
+  <style>
+    .c{font:12.5px -apple-system,"Malgun Gothic",sans-serif; fill:#1f2328}
+    .c7{font:700 12.5px -apple-system,"Malgun Gothic",sans-serif}
+    .cs{font:11.5px -apple-system,"Malgun Gothic",sans-serif; fill:#5b6470}
+  </style>
+  <defs><marker id="ar7" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#98a2ad"/></marker></defs>
+
+  <rect x="16" y="40" width="190" height="62" rx="9" fill="#f3edfc" stroke="#c7b0e6"/>
+  <text class="c7" x="111" y="66" text-anchor="middle">실행</text>
+  <text class="cs" x="111" y="86" text-anchor="middle">LLM 이 관계를 제안</text>
+
+  <line x1="210" y1="71" x2="248" y2="71" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar7)"/>
+
+  <rect x="252" y="40" width="200" height="62" rx="9" fill="#fff" stroke="#c9ced4"/>
+  <text class="c7" x="352" y="62" text-anchor="middle">concept_graph.json</text>
+  <text class="cs" x="352" y="82" text-anchor="middle">same_as 20 · differs_by 43 · unknown 2</text>
+
+  <line x1="456" y1="71" x2="494" y2="71" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar7)"/>
+
+  <rect x="498" y="40" width="190" height="62" rx="9" fill="#fdf1e3" stroke="#e2b47c"/>
+  <text class="c7" x="593" y="62" text-anchor="middle" fill="#c2691a">사람이 검토</text>
+  <text class="cs" x="593" y="82" text-anchor="middle">'검토 필요'부터 확인</text>
+
+  <line x1="692" y1="71" x2="730" y2="71" stroke="#98a2ad" stroke-width="1.6" marker-end="url(#ar7)"/>
+
+  <rect x="734" y="40" width="150" height="62" rx="9" fill="#fdf1e3" stroke="#e2b47c"/>
+  <text class="c7" x="809" y="62" text-anchor="middle" fill="#c2691a">ontology.yaml</text>
+  <text class="cs" x="809" y="82" text-anchor="middle">확실한 것만 승격</text>
+
+  <path d="M809 106 L809 148 L111 148 L111 108" fill="none" stroke="#c2691a" stroke-width="1.8" marker-end="url(#ar7)"/>
+  <text class="cs" x="450" y="168" text-anchor="middle" fill="#c2691a">다음 실행부터 이 쌍은 LLM 에 묻지 않는다 — 영구 확정</text>
+</svg>
+<figcaption>키는 <strong>정규화된 항목명</strong>입니다("고객 표준 버전" == "고객표준버전").
+<code>fact_id</code> 는 실행마다 바뀌므로 쓸 수 없습니다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">한 줄 요약</span>
+  온톨로지는 <strong>쓸수록 LLM 의존이 줄고 판정이 결정적으로 수렴하는 장치</strong>입니다.
+  처음엔 LLM 이 대부분을 판단하지만, 사람이 검토한 결과가 쌓일수록 그 문서군에 대해서는
+  코드가 재현 가능하게 판정하게 됩니다.
+</div>
+
+<div class="qmemo" data-qid="s7-ontology" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">온톨로지 운영(무엇을 승격할지, 언제 위험한지)에 대해 궁금한 점.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 8 -->
+<h2 id="s8"><span class="num">8.</span>코드 워크스루 — 어디를 고치면 무엇이 바뀌나</h2>
+
+<p>
+지금까지의 이야기가 실제로 어느 파일에 들어 있는지 정리합니다. 모두 <code>contentcompare/fact/</code> 아래입니다.
+</p>
+
+<table>
+  <tr><th style="width:28%">파일</th><th style="width:14%">역할</th><th>고치면 바뀌는 것</th></tr>
+  <tr>
+    <td><code>pipeline.py</code></td><td><span class="badge b-code">코드</span></td>
+    <td>전체 오케스트레이션. <code>_process_one_safe()</code> 가 문서 단위 예외를 격리하고,
+        <code>finally</code> 에서 계측(<code>run_stats.json</code>)을 반드시 남깁니다.</td>
+  </tr>
+  <tr>
+    <td><code>prompts.py</code></td><td><span class="badge b-llm">LLM</span></td>
+    <td><strong>여섯 개 프롬프트가 전부 여기 모여 있습니다.</strong> 판정 태도를 바꾸려면 여기입니다.
+        각 프롬프트에는 버전 상수(<code>PROFILER_VERSION</code> 등)가 붙어 있어, 바꾸면 캐시가 자동 무효화됩니다.</td>
+  </tr>
+  <tr>
+    <td><code>llm_stage.py</code></td><td><span class="badge b-code">코드</span></td>
+    <td>모든 LLM 호출의 공통 관문. JSON 파싱(코드펜스에 관대) + 1회 재시도 + <strong>호출 예산</strong> 강제.
+        <code>calls / retries / parse_failures</code> 계측이 여기서 나옵니다.</td>
+  </tr>
+  <tr>
+    <td><code>semantic_roles.py</code></td><td>어휘</td>
+    <td>②Schema Inducer 가 고를 수 있는 10종 역할 어휘. 새 도메인에 새 역할이 필요하면 여기.</td>
+  </tr>
+  <tr>
+    <td><code>fact_matcher.py</code></td><td><span class="badge b-embed">임베딩</span></td>
+    <td><code>FactMatcher</code>=recall 전용, <code>ConceptMatcher</code>=개념 그래프 조회.
+        <code>explain_missing()</code> 이 missing 사유 문구를 만듭니다.</td>
+  </tr>
+  <tr>
+    <td><code>concept_builder.py</code></td><td>혼합</td>
+    <td>F7-1~3. <code>candidate_pairs</code>(recall+온톨로지 보강) → <code>resolve_known</code>(코드 확정)
+        → <code>judge_pairs</code>(LLM 배치).</td>
+  </tr>
+  <tr>
+    <td><code>concept_assembler.py</code></td><td><span class="badge b-code">코드</span></td>
+    <td>F7-4. 근거 검증(<code>EVIDENCE_MIN_COVERAGE=0.8</code>, <code>EVIDENCE_MIN_TOKENS=3</code>),
+        Union-Find 병합, <code>differs_by</code> 차단 집행, 강등 사유 라벨.</td>
+  </tr>
+  <tr>
+    <td><code>fact_comparator.py</code></td><td>혼합</td>
+    <td>F5. <code>_decide_by_code()</code> 가 코드 확정, 실패하면 <code>_decide_by_llm()</code>.
+        단위 사전 <code>_UNIT_ALIASES</code> 와 십진 배수 판정도 여기.</td>
+  </tr>
+  <tr>
+    <td><code>ontology.py</code></td><td><span class="badge b-human">사람</span></td>
+    <td><code>knowledge/ontology.yaml</code> 로더. 파일이 없으면 조용히 빈 온톨로지로 시작하되
+        <strong>로그는 반드시 남깁니다</strong> — 경로 오타로 재현성 장치가 소리 없이 사라지는 걸 막기 위해서입니다.</td>
+  </tr>
+  <tr>
+    <td><code>validator.py</code></td><td><span class="badge b-code">코드</span></td>
+    <td>F4a fact 검증 + 개념 그래프 검증. <code>evidence_coverage()</code> 는 F4a 와 F7-4 가 함께 씁니다.</td>
+  </tr>
+</table>
+
+<h3>두 개의 되돌리기 스위치</h3>
+
+<pre>fact:
+  use_concept_graph: true      # false → F7 을 끄고 옛 유사도 매칭으로 롤백
+  compare_use_llm: true        # false → LLM 판정 없이 코드만. 애매하면 전부 unknown
+  concept_recall_top_k: 5      # recall 폭 (판정 아님)
+  concept_recall_min: 0.3      # recall 임계 (판정 아님 — 느슨해도 안전)
+  concept_batch_pairs: 20      # 한 번의 LLM 호출에 넣을 쌍 수
+  max_llm_calls_per_concept: 30
+  ontology_path: knowledge/ontology.yaml</pre>
+
+<div class="callout warn">
+  <span class="tag">헷갈리기 쉬운 설정</span>
+  <code>match_min_score</code> / <code>match_review_score</code> / <code>match_top_k</code> 는
+  <strong>F7 경로에서 쓰이지 않습니다.</strong> <code>use_concept_graph: false</code> 로 롤백했을 때만 동작합니다.
+  개념 경로에서 <code>missing</code> 이 많다고 이 값을 만지면 아무 일도 일어나지 않습니다 —
+  그래서 missing 사유 문구를 경로별로 다르게 만든 것입니다(6장).
+</div>
+
+<h3>계측 — 이 파이프라인이 자기 자신에 대해 남기는 기록</h3>
+
+<p>
+모든 단계가 <code>artifacts/&lt;문서&gt;/&lt;단계&gt;.json</code> 으로 남고, 거기에 더해 계측 파일이 둘 있습니다.
+</p>
+
+<pre>artifacts/자표준문서_xlsx/
+  physical_raw.json      ← F0 물리정보
+  compact_raw.json       ← F0 압축본 (= ①의 입력)
+  document_profile.json  ← ①의 출력
+  table_profile.json     ← ②의 출력 (1/2)
+  column_schema.json     ← ②의 출력 (2/2)
+  records.json           ← ③의 출력
+  facts.json             ← ④의 출력
+  validation_report.json ← F4a
+  concept_graph.json     ← F7 전체 (기준 문서에만)
+  comparison_result.json ← F5 전체 (기준 문서에만)
+  run_stats.json         ← 계측: LLM 호출/재시도/파싱실패, 드롭 사유, 블록 커버리지</pre>
+
+<p>
+<code>decided_by</code> 필드(<code>code</code> / <code>llm</code> / <code>ontology</code>)가 판정마다 붙어 있어서,
+<strong>"LLM 이 실제로 어디서 필요한가"를 수치로 확인</strong>할 수 있습니다. 실측 위임률은 20% 였습니다.
+이 계측은 장식이 아니라 오판·누락 추적의 유일한 단서이므로 제거하지 않는 것이 이 프로젝트의 규약입니다.
+</p>
+
+<div class="qmemo" data-qid="s8-code-map" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">어떤 동작을 바꾸려면 어디를 봐야 할지 헷갈리는 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 9 -->
+<h2 id="s9"><span class="num">9.</span>왜 잘 되는가, 그리고 무엇을 못 하는가</h2>
+
+<h3>잘 되는 이유 여섯 가지</h3>
+
+<table>
+  <tr><th style="width:34%">원리</th><th>효과</th></tr>
+  <tr><td><strong>파일을 LLM 에 통째로 안 준다</strong></td>
+      <td>물리정보 → 구조해석 → 값추출로 쪼개져, 어느 단계에서 틀렸는지 파일로 짚을 수 있습니다.</td></tr>
+  <tr><td><strong>이질적 문서를 같은 모양으로</strong></td>
+      <td>엑셀 행 / Word 문장 / PPT 도형이 전부 같은 fact 카드가 되어, 형식 차이가 비교 로직에서 사라집니다.</td></tr>
+  <tr><td><strong>"무엇인가"와 "같은가"를 분리</strong></td>
+      <td>유사도가 원리적으로 못 푸는 <em>부정 판정</em>을 개념 그래프가 담당. 임계값 튜닝이 판정에서 빠집니다.</td></tr>
+  <tr><td><strong>값 비교는 코드가</strong></td>
+      <td><code>{value, unit}</code> 정규화의 목적. 재현성 100%, 비용 0, LLM 은 진짜 애매한 20%만.</td></tr>
+  <tr><td><strong>권한 비대칭 + 근거 인용</strong></td>
+      <td>지어낸 연결을 코드가 강등. 모든 판정에 양측 원문이 나란히 실려 사람이 검수할 수 있습니다.</td></tr>
+  <tr><td><strong>확신 없으면 <span class="badge b-unknown">unknown</span></strong></td>
+      <td>틀린 단정보다 보류. 실패·예산초과도 조용히 사라지지 않고 '검토 필요'로 사람에게 갑니다.</td></tr>
+</table>
+
+<h3>못 하는 것 — 정직하게</h3>
+
+<ul>
+  <li><strong>근거 게이트는 "옳음"을 보증하지 않습니다.</strong> LLM 이 양쪽에서 실재하는 문구를 골라 무관한 fact 를
+      이으면 통과합니다(3장 경고 참고). 이걸 실제로 막는 건 프롬프트 규약, 승격된 <code>differs_by</code>,
+      그리고 <code>needs_review</code> 재검토입니다.</li>
+  <li><strong>한글 토큰이 bigram 으로 부풀려집니다.</strong> 그래서 <code>EVIDENCE_MIN_TOKENS=3</code> 은
+      "퇴화한 인용(값 하나만 던지기)을 막는 바닥"이지 강한 검사가 아닙니다.</li>
+  <li><strong>추출 자체가 틀리면 그 아래는 전부 틀립니다.</strong> ②가 헤더를 잘못 잡으면 ③④⑤⑥이 아무리 정확해도
+      소용없습니다. 그래서 각 단계 산출물이 파일로 남는 것이 중요합니다.</li>
+  <li><strong>F4b(LLM 교정 루프)는 아직 없습니다.</strong> JSON 준수도가 실측에서 양호해 우선순위가 낮았고,
+      실패 분포를 보고 설계해야 사변이 되지 않기 때문입니다.</li>
+  <li><strong>Ollama 함정.</strong> 컨텍스트가 모자라면 오류가 아니라 <em>빈 응답</em>이 옵니다.
+      fact 프롬프트는 기본 <code>num_ctx</code>(4096)를 쉽게 넘으므로 16384 이상을 권장합니다.</li>
+</ul>
+
+<div class="qmemo" data-qid="s9-limits" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">한계 중 실제로 부딪힐 것 같은 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 10 -->
+<h2 id="s10"><span class="num">10.</span>이해도 퀴즈 5문항</h2>
+
+<p>답을 클릭하면 정오와 해설이 나옵니다. 헷갈리면 해당 장을 다시 보세요.</p>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q1. F7 개념 그래프 경로에서 임베딩 코사인 유사도는 어떤 역할을 하는가?</p>
+  <button class="opt" data-i="0">기준 fact 와 대상 fact 가 같은 개념인지 최종 판정한다. 임계값을 넘으면 같은 개념이다.</button>
+  <button class="opt" data-i="1">판정에는 전혀 쓰이지 않고, LLM 에게 검토시킬 후보 쌍을 좁히는 recall 용도로만 쓰인다.</button>
+  <button class="opt" data-i="2">LLM 이 낸 개념 판정을 사후 검증해, 점수가 낮으면 그 연결을 취소한다.</button>
+  <button class="opt" data-i="3">값이 같은지 비교할 때 숫자 대신 텍스트 유사도로 대조하는 데 쓰인다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q2. LLM 이 두 fact 를 <code>same_as</code> 로 이으면서 인용한 <code>left_text</code> 가 해당 fact 의
+  원문에 존재하지 않는 문구였다. 코드는 어떻게 처리하는가?</p>
+  <button class="opt" data-i="0">그 엣지를 목록에서 삭제한다. 근거가 없는 주장은 남길 가치가 없다.</button>
+  <button class="opt" data-i="1"><code>differs_by</code> 로 뒤집어, 두 fact 가 서로 다른 개념임을 명시한다.</button>
+  <button class="opt" data-i="2"><code>unknown</code> 으로 강등하고, LLM 이 쓴 사유 <strong>앞에</strong> "[거부됨: 근거 인용이 원문에 없음]"을 붙여 남긴다.</button>
+  <button class="opt" data-i="3">인용문을 무시하고 연결은 그대로 인정하되, <code>needs_review</code> 만 켠다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q3. 기준 문서의 <code>공칭용량</code> 은 <code>lower_limit = 1150.0</code>(단위 없음),
+  대상 문서의 <code>공칭용량</code> 은 <code>target_value = 1150 mAh</code> 였다. 코드는 LLM 없이
+  <span class="badge b-match">match</span> 로 확정했다. 그 근거는?</p>
+  <button class="opt" data-i="0"><code>lower_limit</code> 과 <code>target_value</code> 가 <code>_UNIT_ALIASES</code> 사전에 동의어로 등록돼 있어서.</button>
+  <button class="opt" data-i="1">양쪽 모두 속성이 <strong>하나뿐</strong>이라 키 이름이 열 위치에서 온 것으로 보고 이름 차이를 무시했고, 한쪽만 단위가 있는 경우는 호환으로 보기 때문.</button>
+  <button class="opt" data-i="2">개념 그래프가 두 fact 를 같은 개념으로 묶었으므로, 같은 개념이면 값도 같다고 본다.</button>
+  <button class="opt" data-i="3">숫자가 같으면 속성 이름과 단위는 언제나 무시한다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q4. <code>knowledge/ontology.yaml</code> 에 등록된 쌍은 임베딩 recall 결과와 <strong>독립적으로</strong>
+  후보 목록에 추가된다. 왜 이렇게 만들었는가?</p>
+  <button class="opt" data-i="0">임베딩 호출 비용을 아끼기 위해. 온톨로지 쌍이 많아지면 recall 을 아예 건너뛸 수 있다.</button>
+  <button class="opt" data-i="1">온톨로지가 recall 보다 정확한 점수를 내므로, 같은 쌍이라도 온톨로지 점수로 덮어써야 해서.</button>
+  <button class="opt" data-i="2">LLM 배치 크기를 항상 20 으로 고정하기 위해 후보 수를 맞춰야 해서.</button>
+  <button class="opt" data-i="3">승격이 가장 필요한 쌍이 바로 "유사도로는 못 잇는 진짜 동의어"이기 때문. recall 의 부분집합에만 적용하면 사람이 아무리 적어도 그 쌍은 영원히 이어지지 않는다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q5. 개념 판정 프롬프트는 <em>"값이 다른 것은 differs_by 의 근거가 아니다"</em> 라고 못 박는다.
+  이 규칙이 없으면 무슨 일이 생기는가?</p>
+  <button class="opt" data-i="0">LLM 이 "값이 다르니 다른 항목"이라고 판단해 개념 연결을 끊고, 그 결과 우리가 찾으려던 불일치가 <code>missing</code> 으로 사라진다.</button>
+  <button class="opt" data-i="1">근거 인용 검증이 항상 실패해 모든 <code>same_as</code> 가 <code>unknown</code> 으로 강등된다.</button>
+  <button class="opt" data-i="2">LLM 호출 횟수가 예산을 초과해 배치 판정이 중단된다.</button>
+  <button class="opt" data-i="3">단위 사전에 없는 단위가 나올 때 코드가 잘못된 등가 판정을 내린다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="s10-quiz" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문항이 있다면 왜 헷갈렸는지 적어두면 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ 11 -->
+<h2 id="s11"><span class="num">11.</span>부록 — 실측 수치와 더 읽을거리</h2>
+
+<h3>LLM 호출 한눈에</h3>
+
+<table>
+  <tr><th>#</th><th>단계</th><th>입력</th><th>출력</th><th>호출 수</th></tr>
+  <tr><td>①</td><td>Document Profiler</td><td>compact_raw</td><td>문서 목적 + 구조 후보</td><td>문서당 1</td></tr>
+  <tr><td>②</td><td>Schema Inducer</td><td>상위 15행 + 서식 힌트</td><td>헤더 위치 + 열 <code>semantic_role</code></td><td>엑셀 시트당 1</td></tr>
+  <tr><td>③</td><td>Record Normalizer</td><td>데이터 행 배치 + 열 스키마 + carry</td><td>record(entity/attributes/evidence)</td><td>행 배치당 1</td></tr>
+  <tr><td>④</td><td>Fact Extractor</td><td>Word/PPT 블록 <code>[id] 텍스트</code></td><td>fact + <code>source_ids</code></td><td>블록 배치당 1 (엑셀 0)</td></tr>
+  <tr><td>⑤</td><td>Concept Judge</td><td>fact 쌍 20개 + 온톨로지 요약 + 도메인 지식</td><td><code>same_as</code>/<code>differs_by</code>/<code>unknown</code> + 인용</td><td><strong>3</strong></td></tr>
+  <tr><td>⑥</td><td>Fact Comparator</td><td>기준 fact + 후보 + 도메인 지식</td><td><code>match</code>/<code>mismatch</code>/<code>missing</code>/<code>unknown</code> + 사유</td><td><strong>8</strong> (40건 중)</td></tr>
+</table>
+
+<h3>실측 1회 실행 (2026-08-05 기준 artifacts)</h3>
+
+<table>
+  <tr><th>지표</th><th>값</th></tr>
+  <tr><td>fact 수</td><td>엑셀 20 · Word 11 · PPT 12</td></tr>
+  <tr><td>후보 쌍</td><td>65 (전수 460 → 임베딩 recall)</td></tr>
+  <tr><td>관계 확정 주체</td><td>온톨로지 4 · 코드 13 · LLM 48</td></tr>
+  <tr><td>개념 엣지</td><td><code>same_as</code> 20 · <code>differs_by</code> 43 · <code>unknown</code> 2</td></tr>
+  <tr><td>근거 검증 거부</td><td>0 (<code>rejected_evidence</code> / <code>rejected_differs_by</code> 모두 0)</td></tr>
+  <tr><td>판정 결과</td><td><span class="badge b-missing">missing</span> 20 ·
+      <span class="badge b-match">match</span> 17 ·
+      <span class="badge b-mismatch">mismatch</span> 3 (총 40건)</td></tr>
+  <tr><td>LLM 위임률</td><td>8 / 40 = <strong>20%</strong> (개념 3회 + 값대조 8회 = chat 11회)</td></tr>
+</table>
+
+<h3>같은 저장소의 다른 설명 페이지</h3>
+
+<ul>
+  <li><a href="2026-08-03-explanation-how-contentcompare-compares-documents.html">ContentCompare 는 문서를 어떻게 비교하는가</a>
+      — 기존 RAG 엔진과 fact 엔진을 나란히 놓고 비교합니다. 전체 그림이 궁금하면 여기부터.</li>
+  <li><a href="2026-08-05-explanation-fact-pipeline-artifacts.html">fact 파이프라인 해부 — 생성되는 파일들과 LLM 이 개입하는 지점</a>
+      — <code>artifacts/</code> 의 각 파일이 무엇인지 파일 관점에서 자세히 다룹니다.</li>
+  <li><a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 개념 그래프 — 유사도가 못 하는 판정을 어떻게 하는가</a>
+      — 7장의 내용을 훨씬 깊게 파고듭니다. F7 만 따로 보고 싶다면 여기.</li>
+</ul>
+
+<h3>설계 문서</h3>
+
+<ul>
+  <li><code>docs/FACT_PIPELINE_PLAN.md</code> — fact 엔진 전체 계획과 진행 상황</li>
+  <li><code>docs/FACT_F7_DESIGN.md</code> — 개념 그래프 상세 설계 (이 페이지 3·5장의 출처)</li>
+  <li><code>docs/FACT_F3_5_LIVE_REPORT.md</code> — 라이브 실측과 한계 (3장 유사도 표의 출처)</li>
+  <li><code>golden/자표준_골든셋.jsonl</code> — 정답 데이터</li>
+</ul>
+
+<div class="qmemo" data-qid="s11-appendix" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">전체를 읽고 남은 질문을 여기에 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<footer class="page">
+  ContentCompare · <code>docs/understanding/2026-08-05-explanation-fact-llm-io-walkthrough.html</code><br>
+  모든 예시 데이터는 저장소의 <code>artifacts/</code> 산출물에서 그대로 가져왔습니다.
+</footer>
+
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup —
+    // no server needed.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+(function () {
+  var FB = {
+    0: {
+      ok: '정확합니다. 3장에서 봤듯 코사인 점수에는 "무관함"을 뜻하는 지점이 없어 부정 판정을 표현할 수 없습니다. 그래서 유사도는 판정에서 빠지고, 임계값이 느슨해도(기본 0.3) 안전해졌습니다.',
+      no: {
+        0: '아닙니다 — 이것이 바로 F7 이전 방식이고, 정답 0.766 과 오답 0.694 가 겹쳐 실패했습니다. 점수는 판정 근거가 아닙니다.',
+        2: '사후 검증은 인용문이 원문에 실재하는지 보는 근거 검증이 하며, 유사도 점수는 거기 관여하지 않습니다.',
+        3: '값 비교는 코드가 <code>{value, unit}</code> 으로 직접 대조합니다. 임베딩은 값 비교에 쓰이지 않습니다.'
+      }
+    },
+    1: {
+      ok: '맞습니다. 버리지 않고 강등하는 이유는 "판단 못 한 쌍도 사람의 검토 목록에 남아야" 하기 때문이고, 거부 사유를 앞에 붙이는 이유는 LLM 이 쓴 그럴듯한 사유만 보고 사람이 온톨로지로 승격시켜 게이트를 우회하는 걸 막기 위해서입니다.',
+      no: {
+        0: '삭제하지 않습니다. 쌍을 잃으면 그 항목은 조용히 missing 이 되어 추적할 단서가 사라집니다.',
+        1: '뒤집지 않습니다. 인용이 실패했다는 것은 "근거가 없다"는 뜻이지 "다른 개념이다"라는 뜻이 아닙니다 — 코드는 자기가 모르는 것을 단정하지 않습니다.',
+        3: '연결을 인정하지 않습니다. 근거 검증은 연결 성립의 필수 관문이며, 통과 못 하면 개념 병합 자체가 일어나지 않습니다.'
+      }
+    },
+    2: {
+      ok: '정확합니다. 속성이 하나뿐인 fact 는 "이 항목의 값은 X"라는 뜻이고 키 이름은 원본 표의 열 위치에서 온 것이라, 코드가 이름 차이를 무시합니다. 단 <code>lower_limit</code> vs <code>upper_limit</code> 은 의미가 정반대라 예외입니다.',
+      no: {
+        0: '<code>_UNIT_ALIASES</code> 는 <em>단위</em> 표기 사전(℃/도씨 등)이지 속성 이름 사전이 아닙니다.',
+        2: '개념이 같다는 것은 "비교해도 된다"는 뜻일 뿐, 값이 같다는 뜻이 아닙니다. 두 판단은 엄격히 분리돼 있습니다.',
+        3: '언제나는 아닙니다. 속성이 둘 이상이면 공통 키끼리 대조하고, 단위가 양쪽 다 있는데 다르면 코드는 판단을 포기합니다.'
+      }
+    },
+    3: {
+      ok: '정확합니다. 「고객 표준 버전」 ↔ 「적용 규격」처럼 유사도로는 못 잇는 쌍이야말로 사람이 승격해야 할 쌍인데, recall 의 부분집합에만 적용하면 그 쌍은 영영 후보에 오르지 못합니다. 이름 쌍 조회는 dict 룩업이라 전수 확인해도 비용이 거의 없습니다.',
+      no: {
+        0: '온톨로지 보강은 recall 을 대체하지 않고 <em>추가</em>합니다. 그리고 이유는 비용이 아니라 커버리지입니다.',
+        1: '온톨로지로 추가된 쌍은 <code>score=0.0</code> 으로 두고 점수를 만들지 않습니다. 점수는 애초에 판정에 쓰이지 않습니다.',
+        2: '배치 크기는 남은 쌍 수에 따라 자연스럽게 나뉩니다. 후보 수를 맞추려 보강하는 것이 아닙니다.'
+      }
+    },
+    4: {
+      ok: '정확합니다. 값의 차이는 우리가 <em>찾으려는 결과</em>이지 판단 재료가 아닙니다. 개념 단계에서 값을 근거로 쓰면, 값이 다른 쌍일수록 연결이 끊겨서 정작 보고해야 할 mismatch 가 missing 으로 숨어버립니다.',
+      no: {
+        1: '근거 검증은 인용문이 원문에 있는지만 봅니다. 값의 이동과는 무관합니다.',
+        2: '예산 초과는 별개 문제이며, 그때는 <code>budget_exhausted_pairs</code> 로 리포트에 경고가 뜹니다.',
+        3: '단위 사전은 F5 값 대조 단계의 이야기이고, 이 규칙은 F7 개념 판정 단계의 이야기입니다.'
+      }
+    }
+  };
+
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    quiz.querySelectorAll('.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var picked = parseInt(btn.dataset.i, 10);
+        quiz.querySelectorAll('.opt').forEach(function (b) {
+          b.classList.remove('correct', 'wrong');
+        });
+        fb.classList.remove('ok', 'no');
+        if (picked === answer) {
+          btn.classList.add('correct');
+          fb.classList.add('ok');
+          fb.innerHTML = '<strong>정답입니다.</strong> ' + FB[qi].ok;
+        } else {
+          btn.classList.add('wrong');
+          quiz.querySelector('.opt[data-i="' + answer + '"]').classList.add('correct');
+          fb.classList.add('no');
+          fb.innerHTML = '<strong>아쉽습니다.</strong> ' + (FB[qi].no[picked] || '') +
+            ' 초록으로 표시된 것이 정답입니다.';
+        }
+        fb.classList.add('show');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
