@@ -277,8 +277,11 @@ def test_to_dict_carries_both_sides_evidence_and_source():
 # --------------------------------------------------------------------------- #
 # 단위 사전
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("raw,expected", [("℃", "c"), ("도씨", "c"), ("degC", "c"), ("", "")])
+@pytest.mark.parametrize("raw,expected", [
+    ("℃", "c"), ("°C", "c"), ("도씨", "c"), ("degC", "c"), ("", ""),
+])
 def test_canonical_unit_known(raw, expected):
+    """``°C``(도 기호 + C)는 영어 문서에서 흔한 표기 — ``℃``(U+2103)와 다른 문자다."""
     assert canonical_unit(raw) == expected
 
 

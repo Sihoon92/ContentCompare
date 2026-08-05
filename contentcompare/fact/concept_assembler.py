@@ -36,12 +36,17 @@ EVIDENCE_MIN_COVERAGE = 0.8
 """F4a 와 같은 기준. 인용 토큰의 80% 가 원문에 있어야 실재하는 근거로 본다."""
 
 EVIDENCE_MIN_TOKENS = 3
-"""인용이 이보다 짧으면 근거로 인정하지 않는다.
+"""인용이 이보다 짧으면 근거로 인정하지 않는다(**원문 전체 인용은 예외** — 아래 참고).
 
 원문 토큰 집합에는 ``entity_name`` 까지 들어가므로 한 토큰짜리 인용("온도")은
 커버리지 100% 로 통과한다 — 커버리지만으로는 "실재하는 아무 단어나 인용"을 거를 수
-없다. 3 은 "값 하나만 던지는 인용"(예: ``1150``)을 막으면서 실측의 정상 인용
-(``-10.0, 35.0, 80.0`` = 3 토큰)은 통과시키는 최소값이다.
+없다. 3 은 **풍부한 원문에서 한 조각만 떼어내는 인용**(예: ``공칭용량, 1150, mAh``
+에서 ``1150`` 만)을 막으면서 정상 인용(``-10.0, 35.0, 80.0`` = 3 토큰)은 통과시키는
+최소값이다.
+
+이 하한이 막는 것은 **짧은 인용**이 아니라 **부분 인용**이다. 원문 자체가 짧으면
+(엑셀 단일값 행의 ``"1150.0"``) 하한을 채울 방법이 없으므로 :func:`_quote_long_enough`
+가 면제한다 — 자세한 근거는 그 함수 참고.
 
 한글 3글자 이상 토큰은 :func:`tokenize` 가 bigram 으로 부풀리므로 이 하한은
 **퇴화한 인용을 막는 바닥**이지 강한 검사가 아니다(설계 §2.3 참고).
@@ -54,15 +59,36 @@ REJECT_NOTES = {
 }
 
 
+def _quote_long_enough(claim: str, fact: Fact) -> bool:
+    """인용이 근거로 인정할 만큼 긴가. **원문 전체를 인용했으면 하한을 면제한다.**
+
+    하한(:data:`EVIDENCE_MIN_TOKENS`)의 목적은 "풍부한 원문에서 한 조각만 떼어내는
+    인용"을 막는 것이다. 그런데 엑셀 단일값 행의 ``evidence_text`` 는 ``"1150.0"``
+    처럼 토큰이 하나뿐이라, 하한을 그대로 적용하면 **통과할 방법이 없는 조건**이 된다.
+
+    2026-08-05 영어 대상 문서 실측이 이것을 드러냈다 — LLM 이 원문을 정확히 인용한
+    ``same_as`` 10건이 전부 이 하한에 걸려 사라졌고, 그 결과 실제 불일치
+    (공칭전압 3.89 vs 3.85V)를 놓쳤다. 한국어 문서에서는 같은 행들이 이름 완전일치
+    (``BY_CODE``)로 이어져 근거 검증을 건너뛰었기 때문에 가려져 있던 결함이다.
+
+    면제해도 **부분 인용은 계속 막힌다** — ``공칭용량, 1150, mAh`` 에서 ``1150`` 만
+    인용하면 토큰 집합이 원문과 달라 면제 대상이 아니다.
+    """
+    tokens = set(tokenize(claim))
+    if len(tokens) >= EVIDENCE_MIN_TOKENS:
+        return True
+    return bool(tokens) and tokens == set(tokenize(fact.evidence_text))
+
+
 def verify_evidence(edge: ConceptEdge, left: Fact, right: Fact) -> bool:
     """``same_as`` 의 양쪽 인용이 각 fact 원문에 실재하는가."""
     for claim, fact in ((edge.left_text, left), (edge.right_text, right)):
         if not (claim or "").strip():
             return False
-        if len(set(tokenize(claim))) < EVIDENCE_MIN_TOKENS:
-            return False
         source = set(tokenize(f"{fact.evidence_text} {fact.search_text} {fact.entity_name}"))
         if evidence_coverage(claim, source) < EVIDENCE_MIN_COVERAGE:
+            return False
+        if not _quote_long_enough(claim, fact):
             return False
     return True
 

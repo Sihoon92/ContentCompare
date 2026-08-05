@@ -75,15 +75,29 @@ def test_separator_difference_still_passes():
     assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is True
 
 
-def test_one_token_quote_is_rejected_even_though_it_exists():
-    """실재하는 단어 하나만 인용하는 것은 근거가 아니다.
+def test_partial_quote_from_rich_source_is_rejected():
+    """풍부한 원문에서 한 조각만 떼어내는 인용은 근거가 아니다.
 
     원문 토큰 집합에는 ``entity_name`` 까지 들어가므로, 한 토큰짜리 인용은 커버리지
     100% 로 통과해 게이트를 무의미하게 만든다 — 그래서 최소 토큰 수 하한을 둔다.
+    여기서 대상 fact 의 원문은 ``공칭용량, 1150, mAh`` 로 더 인용할 것이 남아 있다.
+    """
+    facts = _facts()
+    edge = _same(right_text="1150")
+    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is False
+
+
+def test_full_quote_of_single_value_source_passes():
+    """원문 자체가 한 토큰이면 하한을 면제한다 — 달성 불가 조건이 되면 안 된다.
+
+    엑셀 단일값 행(``evidence_text = "1150"``)은 3 토큰을 인용할 방법이 없다. 실측에서
+    이 하한이 LLM 의 정확한 인용 10건을 전부 삼켜 실제 불일치를 놓쳤다
+    (2026-08-05 영어 대상 문서). 위 테스트와 짝을 이룬다 — **부분** 인용은 여전히 막고,
+    **전체** 인용만 통과시킨다.
     """
     facts = _facts()
     edge = _same(left_text="1150", right_text="공칭용량, 1150, mAh")
-    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is False
+    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is True
 
 
 def test_normal_length_quote_still_passes():

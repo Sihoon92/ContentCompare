@@ -88,7 +88,7 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 
 비교는 **개념 그래프(F7) → 값 대조(F5)** 2단계다(기본 `use_concept_graph: true`).
 
-1. **F7 개념 그래프**(`concept_builder.py`/`concept_assembler.py`/`concept_models.py`): "두 fact 를 비교해도 되는가"만 답한다. 판정 규칙은 하나 — **개념이 `same_as` 로 이어져 있지 않으면 비교하지 않는다.** 유사도(임베딩/BM25)는 LLM 에 검토시킬 **후보 쌍을 좁히는 recall 용도로만** 남았고 판정에 쓰지 않는다(`concept_recall_min` 은 임계가 아니라 계산량 제한). 연결(`same_as`)은 LLM 이 제안하고 근거 인용 검증을 통과해야 성립하며, 차단(`differs_by`·모순·인용 실패)은 코드가 단독으로 한다 — **권한이 비대칭**이다. 사람이 `knowledge/ontology.yaml` 에 승격한 관계는 LLM 을 건너뛰고 영구 적용된다(recall 과 **독립적으로** 조회한다).
+1. **F7 개념 그래프**(`concept_builder.py`/`concept_assembler.py`/`concept_models.py`): "두 fact 를 비교해도 되는가"만 답한다. 판정 규칙은 하나 — **개념이 `same_as` 로 이어져 있지 않으면 비교하지 않는다.** 유사도(임베딩/BM25)는 LLM 에 검토시킬 **후보 쌍을 좁히는 recall 용도로만** 남았고 판정에 쓰지 않는다(`concept_recall_min` 은 임계가 아니라 계산량 제한). 연결(`same_as`)은 LLM 이 제안하고 근거 인용 검증을 통과해야 성립하며, 차단(`differs_by`·모순·인용 실패)은 코드가 단독으로 한다 — **권한이 비대칭**이다. 사람이 `knowledge/ontology.yaml` 에 승격한 관계는 LLM 을 건너뛰고 영구 적용된다(recall 과 **독립적으로** 조회한다). 같은 개념의 번역어·약칭은 `aliases:` 로 묶으면 관계가 그룹 전체로 확장된다 — `differs_by` 목록에 번역어를 직접 나열하면 동의어까지 '다르다'로 선언되므로 반드시 `aliases` 를 쓸 것.
 2. **F5 값 대조**(`fact_matcher.ConceptMatcher` → `fact_comparator.py`): 개념 그래프가 준 후보에 대해 **코드가 값·단위를 대조해 확정**하고 애매한 것만 LLM 에 위임한다. 이 순서를 뒤집지 말 것 — fact 를 `{value, unit}` 으로 정규화한 이유가 "값 비교는 코드가 한다"이다. 판정 주체는 `decided_by` 로 남는다.
 
 `match_min_score`/`match_review_score`/`match_top_k` 는 **F7 경로에서 쓰이지 않는다**(롤백 `use_concept_graph: false` 전용). `MatchCandidate.needs_review` 는 개념 경로에서 "연결을 LLM 이 만들었는가"로 재정의된다 — 점수 경계가 아니다. 설계는 `docs/FACT_F7_DESIGN.md`. **F4b(LLM 교정 루프)만 미구현**이다.

@@ -1,0 +1,1229 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fact 파이프라인 해부 — 생성되는 파일들과 LLM 이 개입하는 지점</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1c1b19; --muted:#6b6a66; --line:#e2e0dc;
+  --card:#ffffff; --code-bg:#f4f3f0; --accent:#2f6f4e; --accent-soft:#e6f0ea;
+  --excel:#2f6f4e; --excel-bg:#e6f0ea;
+  --word:#2b5c99; --word-bg:#e6edf6;
+  --ppt:#b4581f; --ppt-bg:#f8eae0;
+  --llm:#6b3fa0; --llm-bg:#efe8f8;
+  --code-role:#8a6d1f; --code-role-bg:#f7efd9;
+  --warn:#a33a2a; --warn-bg:#fbeae7;
+  --human:#1f6f78; --human-bg:#e2f0f1;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#16171a; --fg:#e8e6e3; --muted:#a2a09b; --line:#31333a;
+    --card:#1d1f23; --code-bg:#212429; --accent:#7fc9a2; --accent-soft:#1e2f27;
+    --excel:#7fc9a2; --excel-bg:#1e2f27;
+    --word:#8ab4e8; --word-bg:#1c2733;
+    --ppt:#e8a06a; --ppt-bg:#33251a;
+    --llm:#c0a2ec; --llm-bg:#272033;
+    --code-role:#e0c473; --code-role-bg:#2e2818;
+    --warn:#f0958a; --warn-bg:#331f1c;
+    --human:#7fcdd6; --human-bg:#172c2e;
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,-apple-system,"Segoe UI",sans-serif;
+  line-height:1.75; font-size:17px;
+}
+.wrap{max-width:880px; margin:0 auto; padding:32px 20px 150px}
+h1{font-size:2rem; line-height:1.3; margin:0 0 8px}
+h2{font-size:1.45rem; margin:56px 0 12px; padding-top:12px; border-top:1px solid var(--line)}
+h3{font-size:1.15rem; margin:32px 0 8px}
+h4{font-size:1rem; margin:22px 0 6px; color:var(--muted)}
+p{margin:12px 0}
+a{color:var(--accent)}
+ul,ol{padding-left:22px}
+li{margin:6px 0}
+.lede{font-size:1.08rem; color:var(--muted)}
+.meta{color:var(--muted); font-size:.9rem; margin-bottom:24px}
+code{background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:.88em;
+  font-family:"Cascadia Mono",Consolas,"D2Coding",monospace}
+pre{
+  background:var(--code-bg); border:1px solid var(--line); border-radius:8px;
+  padding:14px 16px; overflow-x:auto; white-space:pre; font-size:.82rem; line-height:1.6;
+  font-family:"Cascadia Mono",Consolas,"D2Coding",monospace;
+}
+pre code{background:none; padding:0; font-size:1em}
+.filename{
+  font-family:"Cascadia Mono",Consolas,monospace; font-size:.76rem; color:var(--muted);
+  background:var(--code-bg); border:1px solid var(--line); border-bottom:none;
+  border-radius:8px 8px 0 0; padding:5px 12px; display:inline-block; margin-bottom:-1px;
+}
+.filename + pre{border-radius:0 8px 8px 8px}
+table{border-collapse:collapse; width:100%; font-size:.9rem; margin:16px 0; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+th{background:var(--code-bg); font-weight:600}
+
+.callout{border-left:4px solid var(--accent); background:var(--accent-soft);
+  padding:12px 16px; border-radius:0 8px 8px 0; margin:20px 0}
+.callout.warn{border-color:var(--warn); background:var(--warn-bg)}
+.callout.llm{border-color:var(--llm); background:var(--llm-bg)}
+.callout.human{border-color:var(--human); background:var(--human-bg)}
+.callout .tag{display:block; font-size:.78rem; font-weight:700; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--muted); margin-bottom:4px}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+
+nav.toc{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:28px 0}
+nav.toc ol{margin:6px 0 0; padding-left:20px}
+nav.toc li{margin:3px 0}
+nav.toc a{text-decoration:none}
+nav.toc a:hover{text-decoration:underline}
+
+/* ── 배지 ─────────────────────────────────── */
+.badge{display:inline-block; font-size:.7rem; font-weight:700; padding:3px 8px; border-radius:999px;
+  letter-spacing:.03em; white-space:nowrap; vertical-align:middle}
+.badge.code{background:var(--code-role-bg); color:var(--code-role)}
+.badge.llm{background:var(--llm-bg); color:var(--llm)}
+.badge.embed{background:var(--word-bg); color:var(--word)}
+.badge.human{background:var(--human-bg); color:var(--human)}
+.badge.com{background:var(--excel-bg); color:var(--excel)}
+
+/* ── 파일 카드 ────────────────────────────── */
+.files{display:flex; flex-direction:column; gap:8px; margin:20px 0}
+.filerow{display:flex; align-items:flex-start; gap:12px; border:1px solid var(--line);
+  border-radius:10px; background:var(--card); padding:10px 14px}
+.filerow.excelonly{border-left:4px solid var(--excel)}
+.filerow.runlevel{border-left:4px solid var(--human)}
+.filerow .nm{flex:0 0 190px; font-family:"Cascadia Mono",Consolas,monospace; font-size:.8rem;
+  font-weight:600; overflow-wrap:anywhere}
+.filerow .desc{flex:1 1 auto; font-size:.88rem; min-width:0}
+.filerow .desc .sz{color:var(--muted); font-size:.76rem;
+  font-family:"Cascadia Mono",Consolas,monospace}
+.arrowdown{text-align:center; color:var(--muted); font-size:1rem; line-height:1; margin:-2px 0}
+
+/* ── 파이프라인 레인 ───────────────────────── */
+.lane{display:flex; flex-direction:column; gap:8px; margin:20px 0}
+.step{display:flex; align-items:flex-start; gap:12px; border:1px solid var(--line);
+  border-radius:10px; background:var(--card); padding:10px 14px}
+.step .txt{flex:1 1 auto; font-size:.9rem; min-width:0}
+.step .txt b{font-size:.95rem}
+.step .txt .where{display:block; color:var(--muted); font-size:.78rem;
+  font-family:"Cascadia Mono",Consolas,monospace; margin-top:2px; overflow-wrap:anywhere}
+.step .badge{flex:0 0 auto; margin-top:3px}
+
+/* ── 판정 배지 ────────────────────────────── */
+.verdict{display:inline-block; font-size:.82rem; font-weight:600; padding:2px 9px;
+  border-radius:999px; border:1px solid var(--line); background:var(--card); white-space:nowrap}
+.v-same{background:var(--excel-bg); color:var(--excel); border-color:transparent}
+.v-diff{background:var(--warn-bg); color:var(--warn); border-color:transparent}
+.v-unk {background:var(--llm-bg); color:var(--llm); border-color:transparent}
+.v-nf  {background:var(--code-bg); color:var(--muted); border-color:transparent}
+
+/* ── fact 카드 ────────────────────────────── */
+.fcard{flex:1 1 210px; border:1px solid var(--line); border-left-width:4px; border-radius:8px;
+  background:var(--card); padding:8px 11px; font-size:.85rem; min-width:0}
+.fcard b{display:block; font-size:.92rem}
+.fcard.excel{border-left-color:var(--excel)}
+.fcard.word {border-left-color:var(--word)}
+.fcard.ppt  {border-left-color:var(--ppt)}
+.fcard .src{display:block; font-size:.72rem; color:var(--muted);
+  font-family:"Cascadia Mono",Consolas,monospace; margin-top:1px; overflow-wrap:anywhere}
+.fcard .val{display:block; margin-top:4px; font-family:"Cascadia Mono",Consolas,monospace;
+  font-size:.78rem; background:var(--code-bg); border-radius:4px; padding:2px 6px; overflow-wrap:anywhere}
+.pairfig{display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; margin:16px 0}
+.edgechip{flex:0 1 168px; display:flex; flex-direction:column; justify-content:center;
+  align-items:center; text-align:center; border-radius:8px; padding:6px 8px; font-size:.78rem;
+  border:1px dashed var(--line); background:var(--card)}
+.edgechip .rel{font-weight:700; font-family:"Cascadia Mono",Consolas,monospace; font-size:.8rem}
+.edgechip .sub{font-size:.72rem; line-height:1.4; opacity:.85}
+.edgechip.same{border-style:solid; border-color:var(--excel); background:var(--excel-bg); color:var(--excel)}
+.edgechip.diff{border-color:var(--warn); background:var(--warn-bg); color:var(--warn)}
+.edgechip.unk {border-color:var(--llm); background:var(--llm-bg); color:var(--llm)}
+
+.side{display:flex; gap:14px; flex-wrap:wrap; margin:18px 0}
+.side > div{flex:1 1 280px; border:1px solid var(--line); border-radius:10px; background:var(--card); padding:12px 16px; min-width:0}
+.side h4{margin-top:0}
+.tiny{font-size:.78rem; color:var(--muted)}
+
+figure{margin:22px 0}
+figcaption{font-size:.8rem; color:var(--muted); margin-top:6px; text-align:center}
+svg{max-width:100%; height:auto; display:block; margin:0 auto}
+
+/* ── 질문 메모 ────────────────────────────── */
+.qmemo{border:1.5px dashed var(--line); background:transparent; border-radius:10px;
+  padding:12px 14px; margin:22px 0}
+.qmemo[data-status="answered"]{border:1.5px solid var(--accent); background:var(--accent-soft)}
+.qmemo-head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+.qmemo-label{font-size:.76rem; font-weight:700; color:var(--accent); letter-spacing:.04em}
+.qmemo-hint{font-size:.74rem; color:var(--muted)}
+.qmemo-question{min-height:2.2em; margin-top:8px; padding:8px 10px; border-radius:6px;
+  background:var(--card); border:1px solid var(--line); font-size:.9rem; outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder); color:var(--muted)}
+.qmemo-question:focus{border-color:var(--accent)}
+.qmemo-answer{margin-top:10px; padding:10px 12px; border-radius:6px; background:var(--card);
+  border-left:3px solid var(--accent); font-size:.9rem}
+.qmemo-answer:before{content:"답변"; display:block; font-size:.72rem; font-weight:700;
+  color:var(--accent); letter-spacing:.04em; margin-bottom:4px}
+
+/* ── 퀴즈 ─────────────────────────────────── */
+.quiz{border:1px solid var(--line); border-radius:10px; background:var(--card); padding:16px 18px; margin:20px 0}
+.quiz .q{font-weight:600; margin-bottom:10px}
+.quiz button.opt{display:block; width:100%; text-align:left; margin:6px 0; padding:9px 12px;
+  border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg);
+  font:inherit; font-size:.9rem; cursor:pointer}
+.quiz button.opt:hover{border-color:var(--accent)}
+.quiz button.opt.right{background:var(--accent-soft); border-color:var(--accent)}
+.quiz button.opt.wrong{background:var(--warn-bg); border-color:var(--warn)}
+.quiz .fb{margin-top:10px; font-size:.88rem; padding:10px 12px; border-radius:8px;
+  background:var(--code-bg); display:none}
+.quiz .fb.show{display:block}
+
+#qmemo-bar{position:fixed; left:0; right:0; bottom:0; z-index:50;
+  background:var(--card); border-top:1px solid var(--line);
+  padding:10px 16px; display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap}
+#qmemo-save-btn{font:inherit; font-size:.88rem; padding:7px 16px; border-radius:8px;
+  border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer}
+#qmemo-save-btn:hover{filter:brightness(1.08)}
+#qmemo-saymsg{font-size:.8rem; color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>fact 파이프라인 해부</h1>
+<p class="meta">2026-08-05 · 브랜치 <code>claude/doc-fact-extraction-comparison-wz9x7p</code> · 코드 기준 커밋 <code>d4f97a6</code></p>
+
+<p class="lede">
+질문 두 개에 답하는 글입니다. <b>“20건 판정 중 LLM 위임 2건”은 왜 그렇게 적은가</b>, 그리고
+<b>실행할 때 쏟아지는 그 많은 JSON 파일은 각각 무엇인가</b>. 두 질문은 사실 하나의 답을
+공유합니다 — <em>LLM 에게 문서를 통째로 주지 않고, 잘게 나눠서 “LLM 만 할 수 있는 일”에만
+쓰기 때문</em>입니다.
+</p>
+
+<div class="callout">
+  <span class="tag">이 글을 읽는 법</span>
+  <p>
+  중간중간 <b>“질문 메모”</b> 상자에 궁금한 점을 적으면 브라우저에 자동 저장되고, 맨 아래
+  <b>질문 저장</b> 버튼으로 질문이 박힌 사본을 받을 수 있습니다. 그 파일을
+  <code>docs/understanding/</code> 에 덮어쓴 뒤 Claude 에게 “질문에 답해줘”라고 하면 됩니다.
+  </p>
+  <p class="tiny" style="margin-bottom:0">
+  선행 글: <a href="2026-08-03-explanation-how-contentcompare-compares-documents.html">ContentCompare 는 문서를 어떻게 비교하는가</a> ·
+  <a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 개념 그래프</a>.
+  이 글의 모든 숫자는 <code>artifacts/</code> 폴더의 실제 실행 산출물에서 가져왔습니다.
+  </p>
+</div>
+
+<nav class="toc">
+  <b>목차</b>
+  <ol>
+    <li><a href="#bg">배경 — “파일을 LLM 에 통째로 주지 않는다”는 원칙</a></li>
+    <li><a href="#q1">질문 ① — 왜 LLM 이 2건만 판정하는가</a>
+      <ol style="list-style:lower-alpha">
+        <li><a href="#q1-what">그 “20건”이 정확히 무엇인가</a></li>
+        <li><a href="#q1-funnel">세 겹의 체 — 20건이 어떻게 걸러지는가</a></li>
+        <li><a href="#q1-tree">코드가 판정하는 규칙 (결정 트리)</a></li>
+        <li><a href="#q1-two">LLM 으로 간 2건의 실제 사유</a></li>
+        <li><a href="#q1-ppt">같은 20건인데 PPT 는 왜 6건인가</a></li>
+        <li><a href="#q1-myth">가장 흔한 오해 — 이 숫자는 전체 LLM 사용량이 아니다</a></li>
+      </ol>
+    </li>
+    <li><a href="#q2">질문 ② — 생성되는 파일들의 정체</a>
+      <ol style="list-style:lower-alpha">
+        <li><a href="#q2-map">전체 지도 한 장</a></li>
+        <li><a href="#q2-each">파일별 상세 — 무엇이 어떻게 들어 있나</a></li>
+        <li><a href="#q2-diff">Word·PPT 는 왜 파일이 4개뿐인가</a></li>
+        <li><a href="#q2-run">실행 단위 산출물 3개</a></li>
+        <li><a href="#q2-cache">fingerprint — 재실행이 공짜인 이유</a></li>
+      </ol>
+    </li>
+    <li><a href="#why">왜 이렇게 하면 비교를 잘하는가</a></li>
+    <li><a href="#code">코드 워크스루</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="bg">1. 배경 — “파일을 LLM 에 통째로 주지 않는다”</h2>
+
+<p>
+가장 단순한 접근을 먼저 생각해 봅시다. 엑셀과 워드를 통째로 LLM 에 넣고 “다른 데를 찾아줘”
+라고 하면 안 될까요? 안 됩니다. 세 가지가 동시에 무너집니다.
+</p>
+
+<div class="side">
+  <div>
+    <h4>❌ 통째로 주면</h4>
+    <ul style="margin:0">
+      <li><b>추적 불가</b> — 틀렸을 때 어느 단계에서 틀렸는지 알 수 없다. 전부 한 번의 호출 안에서 벌어진다.</li>
+      <li><b>재현 불가</b> — 같은 입력에 매번 다른 답. 고칠 지점이 없다.</li>
+      <li><b>검수 불가</b> — “3.85V 가 다릅니다”가 진짜 문서에 있는 값인지, 지어낸 값인지 확인할 방법이 없다.</li>
+    </ul>
+  </div>
+  <div>
+    <h4>✅ 잘게 나누면</h4>
+    <ul style="margin:0">
+      <li><b>단계마다 파일이 남는다</b> — 어디서 틀렸는지 열어 보면 안다.</li>
+      <li><b>값 비교는 코드가</b> — 3.89 ≠ 3.85 는 파이썬이 100% 재현한다.</li>
+      <li><b>근거 좌표가 따라다닌다</b> — <code>E20:H20</code> 처럼 셀 주소까지 결과에 실린다.</li>
+    </ul>
+  </div>
+</div>
+
+<p>
+그래서 이 파이프라인은 문서를 <b>여러 단계</b>로 통과시키고, <b>단계마다 산출물을 파일로
+남깁니다.</b> 질문하신 그 많은 JSON 파일들이 바로 이 “단계별 산출물”입니다. 파일이 많은 것은
+부작용이 아니라 <em>설계 목적</em>입니다.
+</p>
+
+<div class="qmemo" data-qid="bg-principle" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“통째로 주면 안 되는 이유”에서 걸리는 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="q1">2. 질문 ① — 왜 LLM 이 2건만 판정하는가</h2>
+
+<h3 id="q1-what">2.1 그 “20건”이 정확히 무엇인가</h3>
+
+<p>리포트에 찍히는 그 줄의 정체부터 봅시다.</p>
+
+<div class="filename">contentcompare/report/fact_report.py — _overview()</div>
+<pre><code>f"- 총 {total}건 판정 — ..."
+f"- 판정 주체: 코드 {total - by_llm}건 / LLM {by_llm}건 (LLM 위임률 {by_llm/total:.0%})"</code></pre>
+
+<p>
+여기서 <code>total</code> 은 <b>기준 fact 개수 × 대상 문서 개수</b>입니다. 엑셀 기준 문서에서
+fact 20 개가 나왔고 대상 문서가 워드 하나였으므로 <b>20 × 1 = 20건</b>입니다. 발표자료까지
+같이 넣었다면 40건이 됩니다.
+</p>
+
+<div class="callout">
+  <span class="tag">핵심</span>
+  <p>
+  “20건 판정”은 <b>기준 항목 하나하나를 대상 문서와 맞춰 본 횟수</b>입니다. 그리고 그 20번
+  중에서 <b>LLM 에게 물어본 것이 2번</b>이라는 뜻입니다. 나머지 18번은 파이썬 코드가
+  결정했습니다.
+  </p>
+</div>
+
+<h3 id="q1-funnel">2.2 세 겹의 체 — 20건이 어떻게 걸러지는가</h3>
+
+<p>
+LLM 까지 도달하려면 후보가 <b>세 개의 체</b>를 통과해야 합니다. 실제 실행(엑셀 ↔ 워드
+규격서)의 숫자를 그대로 넣으면 이렇게 됩니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 720 250" role="img" aria-label="20건이 9건 missing, 9건 코드 확정, 2건 LLM 으로 나뉘는 깔때기">
+  <!-- 1단 -->
+  <rect x="130" y="14" width="460" height="38" rx="8" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".55"/>
+  <text x="360" y="38" font-size="13" text-anchor="middle" fill="currentColor">기준 fact 20 × 대상 문서 1 = <tspan font-weight="700">20건</tspan></text>
+
+  <!-- 체 1 -->
+  <text x="360" y="70" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".7">체 ① 개념이 same_as 로 이어져 있는가?</text>
+  <rect x="30" y="80" width="196" height="42" rx="8" fill="#f4f3f0" stroke="#6b6a66" stroke-width="1.4" opacity=".9"/>
+  <text x="128" y="99" font-size="12.5" text-anchor="middle" fill="#3b3a37" font-weight="700">아니오 → 9건</text>
+  <text x="128" y="115" font-size="11" text-anchor="middle" fill="#3b3a37">⚪ 대상에 없음 · LLM 0회</text>
+  <line x1="360" y1="74" x2="360" y2="82" stroke="currentColor" opacity=".4"/>
+  <path d="M330 82 L128 82" stroke="currentColor" fill="none" opacity=".4"/>
+
+  <!-- 통과 -->
+  <rect x="262" y="80" width="328" height="42" rx="8" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".55"/>
+  <text x="426" y="106" font-size="12.5" text-anchor="middle" fill="currentColor">예 → 11건이 값 대조 단계로</text>
+
+  <!-- 체 2 -->
+  <text x="426" y="142" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".7">체 ② 코드가 값·단위로 단정할 수 있는가?</text>
+  <rect x="262" y="152" width="196" height="42" rx="8" fill="#f7efd9" stroke="#8a6d1f" stroke-width="1.4"/>
+  <text x="360" y="171" font-size="12.5" text-anchor="middle" fill="#8a6d1f" font-weight="700">예 → 9건</text>
+  <text x="360" y="187" font-size="11" text-anchor="middle" fill="#8a6d1f">🟢 8 일치 · 🔴 1 불일치</text>
+
+  <!-- 체 3 -->
+  <rect x="480" y="152" width="200" height="42" rx="8" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".55"/>
+  <text x="580" y="178" font-size="12.5" text-anchor="middle" fill="currentColor">아니오 → 2건</text>
+  <text x="580" y="214" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".7">체 ③ 연결을 사람·코드가 확정했는가?</text>
+  <rect x="480" y="222" width="200" height="24" rx="8" fill="#efe8f8" stroke="#6b3fa0" stroke-width="1.4"/>
+  <text x="580" y="239" font-size="12" text-anchor="middle" fill="#6b3fa0" font-weight="700">LLM 위임 2건</text>
+</svg>
+<figcaption>실측(엑셀 ↔ 자표준_규격서.docx): 20건 = 대상에 없음 9 + 코드 확정 9 + LLM 2</figcaption>
+</figure>
+
+<p>세 체를 말로 풀면 이렇습니다.</p>
+
+<div class="lane">
+  <div class="step"><span class="badge code">체 ①</span><div class="txt">
+    <b>개념 그래프에 연결이 있는가</b> — 없으면 <span class="verdict v-nf">대상에 없음</span> 으로 끝. 애초에 <em>비교 자체를 하지 않으므로</em> LLM 을 부를 일이 없습니다.
+    <span class="where">실측 9건 — deltaOCV·충전방법처럼 워드에 아예 없는 항목 + 온톨로지가 차단한 항목</span></div></div>
+  <div class="arrowdown">↓ 통과한 11건</div>
+  <div class="step"><span class="badge code">체 ②</span><div class="txt">
+    <b>코드가 값·단위로 단정할 수 있는가</b> — 공통 속성이 있고 단위가 호환되면 숫자 비교로 끝. <em>파이썬이 훨씬 잘하는 일</em>입니다.
+    <span class="where">실측 9건 — match 8 + mismatch 1(공칭전압 3.89 vs 3.85V)</span></div></div>
+  <div class="arrowdown">↓ 남은 2건</div>
+  <div class="step"><span class="badge llm">체 ③</span><div class="txt">
+    <b>연결을 사람이나 코드가 확정했는가</b> — LLM 이 만든 연결이면 값 판정도 한 번 더 보게 합니다. 여기까지 온 것만 LLM 이 판정합니다.
+    <span class="where">실측 2건</span></div></div>
+</div>
+
+<div class="qmemo" data-qid="q1-funnel-memo" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">세 개의 체 중 헷갈리는 게 있나요? 체 번호와 함께 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="q1-tree">2.3 코드가 판정하는 규칙 (결정 트리)</h3>
+
+<p>
+체 ②가 이 이야기의 핵심입니다. 코드는 언제 “확실하다”고 말하고, 언제 “모르겠다”며 손을
+드는 걸까요? <code>fact_comparator.py</code> 의 규칙을 그림으로 옮기면 이렇습니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 720 340" role="img" aria-label="값 비교 결정 트리">
+  <!-- root -->
+  <rect x="250" y="8" width="220" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/>
+  <text x="360" y="30" font-size="12.5" text-anchor="middle" fill="currentColor">양쪽에 공통 속성이 있는가?</text>
+
+  <!-- 아니오 -->
+  <line x1="250" y1="25" x2="150" y2="25" stroke="currentColor" opacity=".4"/>
+  <line x1="150" y1="25" x2="150" y2="60" stroke="currentColor" opacity=".4"/>
+  <rect x="30" y="60" width="240" height="46" rx="8" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".55"/>
+  <text x="150" y="79" font-size="12" text-anchor="middle" fill="currentColor">아니오 · 양쪽 다 속성 1개뿐?</text>
+  <text x="150" y="96" font-size="11" text-anchor="middle" fill="currentColor" opacity=".7">→ 단일 값끼리 비교 (아니면 위임)</text>
+
+  <!-- 예 -->
+  <line x1="470" y1="25" x2="570" y2="25" stroke="currentColor" opacity=".4"/>
+  <line x1="570" y1="25" x2="570" y2="60" stroke="currentColor" opacity=".4"/>
+  <rect x="450" y="60" width="240" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".55"/>
+  <text x="570" y="82" font-size="12" text-anchor="middle" fill="currentColor">예 · 속성마다 값을 비교</text>
+
+  <!-- 중앙 판단 -->
+  <line x1="360" y1="106" x2="360" y2="118" stroke="currentColor" opacity=".4"/>
+  <rect x="180" y="118" width="360" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/>
+  <text x="360" y="140" font-size="12.5" text-anchor="middle" fill="currentColor">단위가 호환되는가? (사전에 있는 단위인가)</text>
+
+  <!-- 결과 3갈래 -->
+  <line x1="360" y1="152" x2="360" y2="166" stroke="currentColor" opacity=".4"/>
+  <path d="M120 166 L600 166" stroke="currentColor" opacity=".35"/>
+  <line x1="120" y1="166" x2="120" y2="182" stroke="currentColor" opacity=".35"/>
+  <line x1="360" y1="166" x2="360" y2="182" stroke="currentColor" opacity=".35"/>
+  <line x1="600" y1="166" x2="600" y2="182" stroke="currentColor" opacity=".35"/>
+
+  <rect x="20" y="182" width="200" height="58" rx="8" fill="#e6f0ea" stroke="#2f6f4e" stroke-width="1.5"/>
+  <text x="120" y="203" font-size="12.5" text-anchor="middle" fill="#2f6f4e" font-weight="700">값이 같다</text>
+  <text x="120" y="221" font-size="11" text-anchor="middle" fill="#2f6f4e">🟢 일치 — 코드 확정</text>
+  <text x="120" y="235" font-size="10.5" text-anchor="middle" fill="#2f6f4e" opacity=".8">LLM 0회</text>
+
+  <rect x="260" y="182" width="200" height="58" rx="8" fill="#fbeae7" stroke="#a33a2a" stroke-width="1.5"/>
+  <text x="360" y="203" font-size="12.5" text-anchor="middle" fill="#a33a2a" font-weight="700">값이 다르다</text>
+  <text x="360" y="221" font-size="11" text-anchor="middle" fill="#a33a2a">🔴 불일치 — 코드 확정</text>
+  <text x="360" y="235" font-size="10.5" text-anchor="middle" fill="#a33a2a" opacity=".8">LLM 0회</text>
+
+  <rect x="500" y="182" width="200" height="58" rx="8" fill="#efe8f8" stroke="#6b3fa0" stroke-width="1.5"/>
+  <text x="600" y="203" font-size="12.5" text-anchor="middle" fill="#6b3fa0" font-weight="700">모르겠다</text>
+  <text x="600" y="221" font-size="11" text-anchor="middle" fill="#6b3fa0">→ LLM 에 위임</text>
+  <text x="600" y="235" font-size="10.5" text-anchor="middle" fill="#6b3fa0" opacity=".8">LLM 1회</text>
+
+  <!-- 모르겠다 조건 -->
+  <rect x="440" y="258" width="270" height="72" rx="8" fill="none" stroke="#6b3fa0" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="575" y="277" font-size="11.5" text-anchor="middle" fill="#6b3fa0" font-weight="700">“모르겠다”가 나오는 경우</text>
+  <text x="575" y="294" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">· 사전에 없는 단위 / 양쪽 단위가 다름</text>
+  <text x="575" y="309" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">· 값이 10의 거듭제곱 배수 (1495 ↔ 1.495)</text>
+  <text x="575" y="324" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">· 문자열이 서로 다름</text>
+</svg>
+<figcaption>코드는 “확실할 때만” 단정하고, 애매하면 손을 든다. 손을 든 것만 LLM 이 받는다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">이 설계의 핵심 한 문장</span>
+  <p>
+  <b>코드는 “다르다”고 말할 자신이 없으면 “모르겠다”고 말합니다.</b> 문자열이 다르다고 곧
+  불일치는 아닙니다 — “배터리승인규격 ver 4.7 SEC Req. ver.4.7” 과 “SEC Req. ver.4.7” 은
+  글자가 다르지만 같은 규격입니다. 그래서 문자열은 <b>같을 때만</b> 코드가 단정하고, 다르면
+  LLM 에 넘깁니다.
+  </p>
+</div>
+
+<h3 id="q1-two">2.4 LLM 으로 간 2건의 실제 사유</h3>
+
+<p>실행 결과에서 그 2건을 그대로 꺼내면 이렇습니다.</p>
+
+<h4>① 고객 표준 버전 — 문자열이 달라서 <span class="verdict v-same">일치</span></h4>
+
+<div class="pairfig">
+  <div class="fcard excel"><b>고객 표준 버전</b>
+    <span class="src">fact-row-3 · B3:P3</span>
+    <span class="val">qualitative_spec = "배터리승인규격 ver 4.7\nSEC Req. ver.4.7"</span></div>
+  <div class="edgechip same"><span class="rel">same_as</span>
+    <span class="sub">사람이 승격한 연결<br>(ontology.yaml)</span></div>
+  <div class="fcard word"><b>문서 기준 규격</b>
+    <span class="src">fact-word-1</span>
+    <span class="val">참조규격 = 4.7 ver</span></div>
+</div>
+
+<p>
+코드 입장에서 보면: 공통 속성이 없고(<code>qualitative_spec</code> vs <code>참조규격</code>),
+값도 문자열이며 서로 다릅니다. 규칙대로 <b>“모르겠다”</b>가 나옵니다. LLM 이 받아서 판정했습니다:
+</p>
+<pre><code>"result": "match",  "decided_by": "llm",
+"reason": "기준의 '배터리승인규격 ver 4.7'과 후보의 '4.7 ver'은
+           표기 순서만 다를 뿐 동일한 버전을 의미하므로 일치합니다."</code></pre>
+
+<h4>② 최대충전전류 — 1495 와 1.495 <span class="verdict v-same">일치</span></h4>
+
+<div class="pairfig">
+  <div class="fcard excel"><b>최대충전전류</b>
+    <span class="src">fact-row-12</span>
+    <span class="val">target_value = 1495.0 · unit = "" (엑셀 단위 칸이 비었음)</span></div>
+  <div class="edgechip same"><span class="rel">same_as</span>
+    <span class="sub">코드가 이름 완전일치로 확정</span></div>
+  <div class="fcard word"><b>최대 충전 전류</b>
+    <span class="src">fact-word-5</span>
+    <span class="val">upper_limit = 1.495 A</span></div>
+</div>
+
+<p>
+여기서 코드가 “다르다”고 말하지 <b>않은</b> 것이 중요합니다. 1495 ÷ 1.495 = 1000, 즉 10의
+거듭제곱 배수입니다. 이건 <code>mA</code> ↔ <code>A</code> 같은 <b>단위 접두어 차이의 전형적인
+흔적</b>이고, 한쪽 단위를 모르는 상태에서 “다르다”고 단정하면 거짓 경보가 됩니다.
+</p>
+
+<div class="filename">contentcompare/fact/fact_comparator.py</div>
+<pre><code>def _is_decimal_scaled(a: float, b: float) -> bool:
+    """두 값이 10의 거듭제곱 배수 관계인가(1495 ↔ 1.495 = 1000배)."""
+    ...
+
+# 값이 다른데 한쪽 단위를 모르고 십진 배수 관계면, 단위 접두어 차이일 수
+# 있으므로 코드가 '다르다'고 단정하지 않는다.
+if not (a.unit and b.unit) and _is_decimal_scaled(na, nb):
+    return None   # ← 모르겠다 → LLM 으로</code></pre>
+
+<p>
+LLM 은 “단위(A)를 고려했을 때 실질적으로 동일한 값”이라고 판정했습니다. <b>이것이 LLM 이
+정말로 필요한 종류의 일</b>입니다 — 문맥과 단위 상식이 필요한 판단이죠.
+</p>
+
+<div class="callout">
+  <span class="tag">그래서 2건인 이유</span>
+  <p>
+  20건 중 9건은 <b>비교할 상대가 없었고</b>, 9건은 <b>숫자만 비교하면 끝나는 일</b>이었습니다.
+  진짜로 “사람의 판단력”이 필요한 것은 <em>표기가 다른 같은 버전</em>과 <em>단위가 생략된 배수
+  관계</em> — 딱 2건이었습니다.
+  </p>
+</div>
+
+<h3 id="q1-ppt">2.5 같은 20건인데 PPT 는 왜 6건인가</h3>
+
+<p>
+같은 기준 문서를 발표자료와 비교하면 <b>20건 중 LLM 6건</b>이 됩니다. 항목 수도 같고 규칙도
+같은데 왜 세 배일까요? 체 ③ 때문입니다.
+</p>
+
+<table>
+  <thead><tr><th></th><th>📘 자표준_규격서.docx</th><th>📙 자표준_발표.pptx</th></tr></thead>
+  <tbody>
+    <tr><td>총 판정</td><td>20</td><td>20</td></tr>
+    <tr><td>⚪ 대상에 없음</td><td>9</td><td>11</td></tr>
+    <tr><td>코드 확정</td><td><b>9</b></td><td><b>3</b></td></tr>
+    <tr><td>LLM 위임</td><td><b>2</b></td><td><b>6</b></td></tr>
+    <tr><td>연결을 만든 주체</td><td>코드(이름 완전일치) 10 · 온톨로지 1</td><td>코드 3 · <b>LLM 6</b></td></tr>
+  </tbody>
+</table>
+
+<p>
+워드 규격서는 항목명이 엑셀과 거의 같습니다(<code>공칭용량</code>, <code>표준환경온도</code> …).
+그래서 연결을 <b>코드가 이름 완전일치로</b> 만들었고, 확정된 연결이므로 값 판정도 코드가
+끝냈습니다.
+</p>
+
+<p>
+반면 발표자료는 이름이 자유롭습니다 — <code>Standard ambient temperature</code>,
+<code>1개월 저장 조건</code>, <code>충전 전압</code>. 이 연결들은 <b>LLM 이 만들었고</b>, 아직
+아무도 확인하지 않았습니다. 그래서 <code>needs_review = True</code> 가 붙고,
+<em>확인되지 않은 연결 위에서 코드가 단정하지 않도록</em> 값 판정도 LLM 이 한 번 더 봅니다.
+</p>
+
+<div class="pairfig">
+  <div class="fcard excel"><b>표준환경온도</b>
+    <span class="src">fact-row-15</span>
+    <span class="val">21.0 / 25.0 / 29.0</span></div>
+  <div class="edgechip unk"><span class="rel">same_as</span>
+    <span class="sub">decided_by: <b>llm</b><br>→ needs_review = True</span></div>
+  <div class="fcard ppt"><b>Standard ambient temperature</b>
+    <span class="src">fact-ppt-5</span>
+    <span class="val">21 - 29 degC (target 25 degC)</span></div>
+</div>
+
+<p>
+값은 21/25/29 로 완벽히 같아서 코드만으로도 <span class="verdict v-same">일치</span>가
+나옵니다. 그런데도 LLM 이 다시 봤고, 사유 끝에 <b>“(근거 신뢰도가 낮아 검토 대상입니다.)”</b>가
+붙었습니다. 보수적이지만 의도된 비용입니다.
+</p>
+
+<div class="callout human">
+  <span class="tag">이 비용을 없애는 법</span>
+  <p>
+  <code>knowledge/ontology.yaml</code> 에 그 쌍을 <code>same_as</code> 로 승격하면
+  <code>decided_by</code> 가 <code>ontology</code> 가 되어 <code>needs_review</code> 가 사라집니다.
+  <b>사람이 한 번 확인할 때마다 LLM 위임이 영구히 줄어듭니다.</b>
+  </p>
+</div>
+
+<h3 id="q1-myth">2.6 가장 흔한 오해 — 이 숫자는 전체 LLM 사용량이 아니다</h3>
+
+<p>
+“LLM 위임 2건”을 보고 “이 실행에서 LLM 을 2번 썼구나”라고 읽으면 <b>완전히 틀립니다.</b>
+그 숫자는 <b>마지막 값 대조 단계(F5)</b>의 통계일 뿐입니다. 그 앞에서 LLM 은 이미 여러 번
+일했습니다.
+</p>
+
+<div class="lane">
+  <div class="step"><span class="badge llm">LLM</span><div class="txt"><b>F1 문서 프로파일</b> — 문서마다 1회 <span class="where">“이 문서는 무엇에 대한 것인가”</span></div></div>
+  <div class="step"><span class="badge llm">LLM</span><div class="txt"><b>F2 스키마 유도 + 레코드 정규화</b> — 엑셀만, 표마다 <span class="where">“F열은 하한치, G열은 중심치…”</span></div></div>
+  <div class="step"><span class="badge llm">LLM</span><div class="txt"><b>F3 fact 추출</b> — Word·PPT 는 이 단계가 통째로 LLM <span class="where">“이 문장에서 무엇이 주장인가”</span></div></div>
+  <div class="step"><span class="badge llm">LLM</span><div class="txt"><b>F7-3 개념 관계 유도</b> — 실측 <b>호출 3회</b>로 48쌍 판정 <span class="where">concept_graph.json 의 llm_calls: 3</span></div></div>
+  <div class="step"><span class="badge llm">LLM</span><div class="txt"><b>F5 값 대조</b> — <b>여기가 “LLM 위임 2건”</b> <span class="where">comparison_result.json 의 decided_by_llm</span></div></div>
+</div>
+
+<p>
+정리하면 <b>LLM 은 “문서를 이해하는 일”에 집중적으로 쓰이고, “값을 비교하는 일”에서는 거의
+빠집니다.</b> 위임률 10% 는 “LLM 을 적게 쓴다”가 아니라 <em>“최종 판정의 90% 를 재현 가능한
+코드가 책임진다”</em>는 뜻입니다.
+</p>
+
+<div class="callout warn">
+  <span class="tag">실제 파일에서 확인해 보기</span>
+  <p>
+  <code>artifacts/자표준문서_xlsx/run_stats.json</code> 을 열면 <code>"llm": {"calls": 0}</code>
+  으로 보일 수 있습니다. 이건 LLM 을 안 썼다는 뜻이 아니라 <b>캐시가 적중했다</b>는 뜻입니다
+  (<code>"records": {"cached": true}</code>). 자세한 건 <a href="#q2-cache">5.5절</a>에서.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="q1-wrap" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">질문 ①에 대한 답이 충분한가요? 남은 궁금증을 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="q2">3. 질문 ② — 생성되는 파일들의 정체</h2>
+
+<p>
+이제 두 번째 질문입니다. 실행하면 <code>artifacts/&lt;문서이름&gt;/</code> 폴더에 파일이
+우수수 생깁니다. 각각이 무엇이고, 데이터가 어떻게 흘러가는지 봅시다.
+</p>
+
+<h3 id="q2-map">3.1 전체 지도 한 장</h3>
+
+<p>
+기본 아이디어는 <b>컨베이어 벨트</b>입니다. 문서가 왼쪽에서 들어와 단계를 하나씩 지나며
+점점 “비교하기 좋은 모양”으로 바뀌고, 각 단계가 자기 결과를 파일로 떨어뜨립니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 720 300" role="img" aria-label="원본 문서에서 fact 카드까지의 변환 흐름">
+  <!-- 원본 -->
+  <rect x="14" y="20" width="130" height="86" rx="10" fill="#e6f0ea" stroke="#2f6f4e" stroke-width="1.6"/>
+  <text x="79" y="44" font-size="12.5" text-anchor="middle" fill="#2f6f4e" font-weight="700">📗 원본 파일</text>
+  <text x="79" y="64" font-size="10.5" text-anchor="middle" fill="#2f6f4e">엑셀 · 워드 · PPT</text>
+  <text x="79" y="80" font-size="10.5" text-anchor="middle" fill="#2f6f4e" opacity=".8">서로 완전히</text>
+  <text x="79" y="94" font-size="10.5" text-anchor="middle" fill="#2f6f4e" opacity=".8">다른 모양</text>
+
+  <text x="160" y="66" font-size="18" fill="currentColor" opacity=".45">→</text>
+
+  <!-- raw -->
+  <rect x="184" y="20" width="150" height="86" rx="10" fill="none" stroke="#8a6d1f" stroke-width="1.6"/>
+  <text x="259" y="42" font-size="12.5" text-anchor="middle" fill="#8a6d1f" font-weight="700">물리 정보</text>
+  <text x="259" y="60" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">셀 주소 · 병합 · 서식</text>
+  <text x="259" y="75" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">도형 좌표 · 블록 순서</text>
+  <text x="259" y="94" font-size="10" text-anchor="middle" fill="#8a6d1f">physical_raw → compact_raw</text>
+
+  <text x="350" y="66" font-size="18" fill="currentColor" opacity=".45">→</text>
+
+  <!-- 구조 이해 -->
+  <rect x="374" y="20" width="150" height="86" rx="10" fill="#efe8f8" stroke="#6b3fa0" stroke-width="1.6"/>
+  <text x="449" y="42" font-size="12.5" text-anchor="middle" fill="#6b3fa0" font-weight="700">구조 이해</text>
+  <text x="449" y="60" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">“F열은 하한치”</text>
+  <text x="449" y="75" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">“각 행은 한 항목”</text>
+  <text x="449" y="94" font-size="10" text-anchor="middle" fill="#6b3fa0">profile · schema · records</text>
+
+  <text x="540" y="66" font-size="18" fill="currentColor" opacity=".45">→</text>
+
+  <!-- fact -->
+  <rect x="564" y="20" width="142" height="86" rx="10" fill="none" stroke="#2f6f4e" stroke-width="2"/>
+  <text x="635" y="42" font-size="12.5" text-anchor="middle" fill="#2f6f4e" font-weight="700">fact 카드</text>
+  <text x="635" y="60" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">이름 + {값, 단위}</text>
+  <text x="635" y="75" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">+ 근거 원문 + 좌표</text>
+  <text x="635" y="94" font-size="10" text-anchor="middle" fill="#2f6f4e">facts.json</text>
+
+  <!-- 아래 설명 -->
+  <text x="360" y="140" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75">세 문서가 여기서 <tspan font-weight="700">같은 모양</tspan>이 된다 — 그래야 비교할 수 있다</text>
+
+  <!-- 세 문서가 하나로 -->
+  <rect x="60" y="164" width="170" height="46" rx="8" fill="none" stroke="#2f6f4e" stroke-width="1.4"/>
+  <text x="145" y="182" font-size="11" text-anchor="middle" fill="#2f6f4e">📗 엑셀 20 fact</text>
+  <text x="145" y="199" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">행 → fact</text>
+  <rect x="248" y="164" width="170" height="46" rx="8" fill="none" stroke="#2b5c99" stroke-width="1.4"/>
+  <text x="333" y="182" font-size="11" text-anchor="middle" fill="#2b5c99">📘 워드 11 fact</text>
+  <text x="333" y="199" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">문장 → fact</text>
+  <rect x="436" y="164" width="170" height="46" rx="8" fill="none" stroke="#b4581f" stroke-width="1.4"/>
+  <text x="521" y="182" font-size="11" text-anchor="middle" fill="#b4581f">📙 PPT 12 fact</text>
+  <text x="521" y="199" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">도형 → fact</text>
+
+  <path d="M145 214 L333 236 M333 214 L333 236 M521 214 L333 236" stroke="currentColor" fill="none" opacity=".35"/>
+  <rect x="200" y="240" width="266" height="46" rx="8" fill="#e2f0f1" stroke="#1f6f78" stroke-width="1.6"/>
+  <text x="333" y="259" font-size="12" text-anchor="middle" fill="#1f6f78" font-weight="700">개념 그래프 + 비교 (실행 전체에 하나)</text>
+  <text x="333" y="277" font-size="10.5" text-anchor="middle" fill="#1f6f78">concept_graph.json · comparison_result.json</text>
+</svg>
+<figcaption>서로 다른 세 형식이 “fact 카드”라는 공통 모양으로 수렴한 뒤에야 비교가 시작된다.</figcaption>
+</figure>
+
+<h3 id="q2-each">3.2 파일별 상세 — 무엇이 어떻게 들어 있나</h3>
+
+<p>
+아래는 <b>엑셀 기준 문서</b>(<code>artifacts/자표준문서_xlsx/</code>)의 실제 파일 목록입니다.
+크기는 실제 값이며, 만든 주체를 배지로 표시했습니다.
+</p>
+
+<div class="files">
+  <div class="filerow"><span class="nm">physical_raw.json</span><div class="desc">
+    <span class="badge com">COM</span> <b>해석하지 않은 물리 정보.</b> 셀 119개 각각의 주소·값·타입·숫자서식·병합범위·굵기·글자크기·배경색.
+    <span class="sz">37,577 bytes — 가장 큼. 사람이 “원본이 실제로 어땠는지” 되짚는 최종 근거.</span></div></div>
+  <div class="arrowdown">↓ 압축(코드) — LLM 이 읽을 수 있는 크기로</div>
+  <div class="filerow"><span class="nm">compact_raw.json</span><div class="desc">
+    <span class="badge code">코드</span> <b>서식을 버리고 값만 남긴 요약.</b> 행별 <code>{"r": 3, "cells": {"B": 10.0, "E": "고객 표준 버전", ...}}</code> 형태.
+    <span class="sz">10,723 bytes (원본의 28%) — <b>LLM 에게 실제로 보여주는 것은 이것</b>이다.</span></div></div>
+  <div class="arrowdown">↓</div>
+  <div class="filerow"><span class="nm">document_profile.json</span><div class="desc">
+    <span class="badge llm">LLM</span> <b>“이 문서는 무엇인가”.</b> <code>main_purpose</code>, 표 후보 위치, 행 하나의 의미 힌트, 확신도.
+    <span class="sz">528 bytes — 뒤 단계(특히 개념 판정)에 <b>도메인 문맥</b>으로 주입된다.</span></div></div>
+  <div class="filerow excelonly"><span class="nm">table_profile.json</span><div class="desc">
+    <span class="badge llm">LLM</span> <b>표의 뼈대.</b> 헤더가 몇 행인지(2행), 데이터가 몇 행부터인지(3행), 항목 이름이 어느 열인지(D·E).
+    <span class="sz">378 bytes · <b>엑셀 전용</b></span></div></div>
+  <div class="filerow excelonly"><span class="nm">column_schema.json</span><div class="desc">
+    <span class="badge llm">LLM</span> <b>열의 의미 사전.</b> 열마다 <code>semantic_role</code> 을 부여 — F=하한치, G=중심치, H=상한치, J=정성규격, K=단위.
+    <span class="sz">3,097 bytes · <b>엑셀 전용</b> — 이 파일이 “표를 읽는 법”이다.</span></div></div>
+  <div class="filerow excelonly"><span class="nm">records.json</span><div class="desc">
+    <span class="badge code">코드</span>+<span class="badge llm">LLM</span> <b>행 → 구조화된 레코드.</b> 스키마를 적용해 각 행을 <code>{entity, attributes, source, evidence_text}</code> 로.
+    <span class="sz">14,043 bytes · 20 records · <b>엑셀 전용</b></span></div></div>
+  <div class="arrowdown">↓</div>
+  <div class="filerow"><span class="nm">facts.json</span><div class="desc">
+    <span class="badge code">코드</span>(엑셀) / <span class="badge llm">LLM</span>(Word·PPT) <b>비교의 최소 단위.</b> 문서 종류와 무관하게 <b>모두 같은 모양</b>이 된다.
+    <span class="sz">14,012 bytes · 20 facts — 여기서부터 “엑셀이었는지 PPT였는지”는 중요하지 않다.</span></div></div>
+  <div class="arrowdown">↓</div>
+  <div class="filerow"><span class="nm">validation_report.json</span><div class="desc">
+    <span class="badge code">코드</span> <b>추출 결과 자가 점검.</b> 인용이 원문에 실재하는지, 단위가 비었는지, 속성이 하나도 없는지.
+    <span class="sz">6,585 bytes — 실측 warn 20건(<code>unit_missing</code> 16 · <code>no_attributes</code> 3 · <code>role_duplicated</code> 1)</span></div></div>
+  <div class="filerow"><span class="nm">run_stats.json</span><div class="desc">
+    <span class="badge code">코드</span> <b>이 문서의 처리 이력.</b> 거친 단계 목록, LLM 호출/재시도/파싱실패 수, 입력 행 수 vs 출력 fact 수, 캐시 적중 여부.
+    <span class="sz">615 bytes — <b>“20행 넣었는데 fact 18개면 2개는 어디 갔나”를 추적하는 파일</b></span></div></div>
+</div>
+
+<div class="callout">
+  <span class="tag">한 줄로 외운다면</span>
+  <p>
+  <code>physical_raw</code>(다 담는다) → <code>compact_raw</code>(LLM 이 읽을 크기로) →
+  <code>profile·schema</code>(구조를 이해한다) → <code>records</code>(구조를 적용한다) →
+  <code>facts</code>(<b>모든 문서가 같은 모양</b>) → <code>validation</code>(자가 점검).
+  </p>
+</div>
+
+<h4>실제로 어떻게 변해 가는가 — 한 항목 따라가기</h4>
+
+<p>엑셀 20행의 <code>1개월저장온도</code> 가 각 파일에서 어떤 모습인지 나란히 보면 흐름이 한눈에 들어옵니다.</p>
+
+<div class="filename">① physical_raw.json — 셀 하나하나, 서식까지</div>
+<pre><code>{"address": "E20", "row": 20, "column": "E", "value": "1개월저장온도",
+ "value_type": "str", "number_format": "G/표준", "font_bold": false,
+ "font_size": 10.0, "fill_color": null}</code></pre>
+
+<div class="filename">② compact_raw.json — 서식을 버리고 값만</div>
+<pre><code>{"r": 20, "cells": {"B": 180.0, "C": "기본사양", "D": "기본사양",
+                    "E": "1개월저장온도", "F": -10.0, "G": 35.0, "H": 80.0,
+                    "O": "C001D001"}}</code></pre>
+
+<div class="filename">③ column_schema.json — 열의 의미를 LLM 이 붙인다</div>
+<pre><code>{"column": "F", "field_name": "정량규격", "semantic_role": "quantitative_lower_bound"},
+{"column": "G", "field_name": "중심치",   "semantic_role": "quantitative_target"},
+{"column": "H", "field_name": "상한치",   "semantic_role": "quantitative_upper_bound"}</code></pre>
+
+<div class="filename">④ records.json — 스키마를 적용해 행을 해석</div>
+<pre><code>{"record_id": "row-20",
+ "entity": {"category": "기본사양", "subcategory": "C001D001",
+            "display_name": "1개월저장온도"},
+ "attributes": {"lower_limit":  {"value": -10.0, "unit": ""},
+                "target_value": {"value":  35.0, "unit": ""},
+                "upper_limit":  {"value":  80.0, "unit": ""}},
+ "source": {"sheet": "데이터", "row": 20, "cell_range": "E20:H20"},
+ "evidence_text": "-10.0, 35.0, 80.0"}</code></pre>
+
+<div class="filename">⑤ facts.json — 비교의 최소 단위(+ 검색용 텍스트)</div>
+<pre><code>{"fact_id": "fact-row-20", "fact_type": "quantitative_spec",
+ "entity_name": "1개월저장온도",
+ "attributes": {"lower_limit": {"value": -10.0, "unit": ""}, ...},
+ "search_text": "1개월저장온도 기본사양 C001D001 -10.0 35.0 80.0",
+ "evidence_text": "-10.0, 35.0, 80.0",
+ "source": {"doc_type": "excel", "sheet": "데이터", "row": 20, "cell_range": "E20:H20"},
+ "confidence": 1.0}</code></pre>
+
+<p class="tiny">
+<code>records</code> 와 <code>facts</code> 가 비슷해 보이지만 역할이 다릅니다.
+<code>records</code> 는 <b>엑셀 표의 행</b>이고, <code>facts</code> 는 <b>문서 종류와 무관한
+공통 형식</b>입니다. 워드·PPT 는 <code>records</code> 없이 곧장 <code>facts</code> 를 만듭니다 —
+표가 아니니까요. <code>search_text</code> 가 추가된 것도 눈여겨보세요. 후보를 좁힐 때
+임베딩이 읽는 문자열입니다.
+</p>
+
+<div class="qmemo" data-qid="q2-files" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">파일 하나를 골라 “이건 왜 필요한가?”가 안 풀리면 여기에 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="q2-diff">3.3 Word·PPT 는 왜 파일이 4개뿐인가</h3>
+
+<p>실제 폴더를 비교하면 이렇게 다릅니다.</p>
+
+<div class="side">
+  <div>
+    <h4>📗 자표준문서_xlsx — 8단계</h4>
+    <pre><code>physical_raw
+compact_raw
+document_profile
+table_profile      ← 엑셀만
+column_schema      ← 엑셀만
+records            ← 엑셀만
+facts
+validation_report</code></pre>
+  </div>
+  <div>
+    <h4>📘 자표준_규격서_docx — 5단계</h4>
+    <pre><code>physical_raw
+compact_raw
+document_profile
+
+
+facts              ← LLM 이 곧장 추출
+validation_report</code></pre>
+  </div>
+</div>
+
+<p>
+차이는 <b>“표인가 아닌가”</b> 하나입니다. 엑셀은 <em>격자</em>라서 “F열이 무슨 뜻인지”만 알면
+나머지 20행은 코드가 기계적으로 처리할 수 있습니다 — 그래서 스키마를 한 번 유도해
+(<code>column_schema</code>) 전 행에 적용합니다(<code>records</code>). <b>LLM 을 20번 부르지 않고
+한 번만 부르는 구조</b>입니다.
+</p>
+
+<p>
+워드와 PPT 는 “표”가 없습니다. “최대 충전 전류는 1.495A 를 초과하지 않는다”라는 문장에서
+무엇이 항목이고 무엇이 값인지는 규칙으로 뽑을 수 없습니다. 그래서 <code>facts</code> 추출
+단계 자체를 LLM 이 맡습니다.
+</p>
+
+<table>
+  <thead><tr><th>문서</th><th>fact 를 만드는 주체</th><th>왜</th></tr></thead>
+  <tbody>
+    <tr><td>📗 Excel</td><td><span class="badge code">코드</span> (스키마는 <span class="badge llm">LLM</span> 이 한 번)</td><td>격자라서 규칙 적용이 가능 — 20행을 코드가 처리</td></tr>
+    <tr><td>📘 Word</td><td><span class="badge llm">LLM</span></td><td>자연어 문장에서 주장을 뽑는 일</td></tr>
+    <tr><td>📙 PPT</td><td><span class="badge llm">LLM</span></td><td>도형·표·스피커노트가 뒤섞인 자유 형식</td></tr>
+  </tbody>
+</table>
+
+<h3 id="q2-run">3.4 실행 단위 산출물 3개</h3>
+
+<p>
+위 파일들은 전부 <b>문서마다</b> 생깁니다. 반면 아래 셋은 <b>실행 전체에 하나</b>뿐이고,
+기준 문서 폴더에 저장됩니다.
+</p>
+
+<div class="files">
+  <div class="filerow runlevel"><span class="nm">concept_graph.json</span><div class="desc">
+    <b>“무엇과 무엇이 같은 항목인가”의 지도.</b> 노드 23개(개념) + 엣지 65개(fact 쌍 관계) + 통계.
+    <span class="sz">46,741 bytes — 세 문서의 fact 43개가 23개 개념으로 묶인 결과</span></div></div>
+  <div class="filerow runlevel"><span class="nm">concept_validation.json</span><div class="desc">
+    <b>그래프 무결성 점검.</b> 같은 쌍에 모순된 관계가 붙었는지, 판정 못 한 쌍이 있는지.
+    <span class="sz">855 bytes — 실측 warn 2건(<code>concept_unknown_pair</code>)</span></div></div>
+  <div class="filerow runlevel"><span class="nm">comparison_result.json</span><div class="desc">
+    <b>최종 판정 전체.</b> 항목별 <code>result</code>, 어긋난 속성, <b>양쪽 근거 원문과 좌표</b>, 판정 주체(<code>decided_by</code>).
+    <span class="sz">47,282 bytes · 40건 — 리포트(.md)는 이 파일을 사람이 읽게 렌더링한 것</span></div></div>
+</div>
+
+<p>
+<code>comparison_result.json</code> 의 한 건은 이렇게 생겼습니다. <b>양쪽 근거가 나란히</b>
+실려 있어서, 사람이 리포트만 보고도 원문 대조로 검수할 수 있습니다.
+</p>
+
+<pre><code>{"entity_name": "공칭전압", "target_doc": "자표준_규격서.docx",
+ "result": "mismatch", "mismatch_attributes": ["target_value"],
+ "match_method": "concept", "decided_by": "code",
+ "reason": "값이 다릅니다: target_value(기준 3.89 vs 대상 3.85V)",
+ "reference": {"fact_id": "fact-row-7", "evidence_text": "3.89",
+               "source": {"sheet": "데이터", "row": 7, "cell_range": "B7:O7"}},
+ "target":    {"fact_id": "fact-word-4", "evidence_text": "공칭전압은 3.85V 이다.",
+               "source": {"doc_type": "word", "block_ids": ["w_b007"]}}}</code></pre>
+
+<h3 id="q2-cache">3.5 fingerprint — 재실행이 공짜인 이유</h3>
+
+<p>
+폴더에는 <code>.json</code> 말고 <code>.fingerprint</code> 파일도 있습니다(12 bytes 짜리들).
+이게 캐시 열쇠입니다.
+</p>
+
+<div class="filename">contentcompare/fact/artifacts.py</div>
+<pre><code>def cached_or_compute(self, stage, compute, *, fingerprint=None):
+    """캐시가 유효하면 디스크 산출물을 재사용, 아니면 compute() 후 저장."""
+    if self.cache and self.exists(stage) and self._fingerprint_ok(stage, fingerprint):
+        cached = self.load(stage)
+        if cached is not None:
+            return cached          # ← LLM 호출 0
+    data = compute()               # ← 여기서만 LLM 을 부른다
+    self.save(stage, data)
+    if fingerprint is not None:
+        self._write_fingerprint(stage, fingerprint)
+    return data</code></pre>
+
+<p>
+지문은 <b>입력 + 프롬프트 버전</b>으로 만듭니다. 같은 문서를 다시 돌리면 지문이 일치해
+디스크 산출물을 그대로 읽고 <b>LLM 을 한 번도 부르지 않습니다.</b> 반대로 프롬프트를 고치면
+버전 상수가 바뀌어 지문이 어긋나고 자동으로 재계산됩니다.
+</p>
+
+<p>
+지문을 산출물 안이 아니라 <b>사이드카 파일</b>로 분리한 것도 의도입니다 — 산출물 JSON 은
+다운스트림이 그대로 읽는 <em>순수 데이터</em>여야 하고, 캐시 메타데이터가 섞이면 안 되기
+때문입니다.
+</p>
+
+<div class="callout warn">
+  <span class="tag">그래서 run_stats 의 llm.calls 가 0 이었다</span>
+  <p>
+  <code>{"llm": {"calls": 0}, "records": {"cached": true}, "facts": {"cached": true}}</code> —
+  “LLM 을 안 쓰는 문서”가 아니라 <b>“이번 실행에서는 캐시가 다 맞아서 부를 필요가 없었다”</b>는
+  뜻입니다. 처음 돌렸을 때는 이 문서에서 프로파일·스키마·레코드·fact 를 위해 LLM 을 여러 번
+  불렀습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="q2-cache-memo" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">캐시가 언제 무효화되는지 등, 더 알고 싶은 게 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="why">4. 왜 이렇게 하면 비교를 잘하는가</h2>
+
+<p>
+파일이 많고 단계가 많은 것은 분명 복잡합니다. 그 복잡함이 사 오는 것이 무엇인지 다섯 가지로
+정리하면 이렇습니다.
+</p>
+
+<h4>① 형식 차이를 초반에 흡수한다</h4>
+<p>
+엑셀의 <em>행</em>, 워드의 <em>문장</em>, PPT 의 <em>도형</em>은 서로 비교할 수 없습니다.
+<code>facts.json</code> 단계에서 셋이 <b>같은 모양</b>이 되고, 그 이후 코드는 “이게 원래 엑셀
+이었는지”를 알 필요가 없습니다. <b>비교 로직이 문서 형식과 분리</b>됩니다.
+</p>
+
+<h4>② 값 비교를 결정적으로 만든다</h4>
+<p>
+<code>{value, unit}</code> 으로 정규화했기 때문에 “3.89 vs 3.85”는 파이썬이 판정합니다.
+같은 입력이면 <b>언제나 같은 답</b>이 나오고, 틀렸다면 규칙을 고치면 됩니다. LLM 판정은
+그렇게 고칠 수 없습니다.
+</p>
+
+<h4>③ LLM 을 “LLM 만 할 수 있는 일”에 남겨 둔다</h4>
+<p>
+실측에서 LLM 이 최종 판정을 맡은 것은 40건 중 8건이고, 그 8건은 전부 <em>표기 차이·단위
+상식·교차언어</em> 같은 판단이었습니다. 값을 세는 일에 LLM 을 쓰면 비싸고 흔들립니다.
+</p>
+
+<h4>④ 오판을 <em>추적</em>할 수 있다</h4>
+<p>
+리포트가 이상하면 파일을 거슬러 올라가면 됩니다. 이건 실제로 쓰는 절차입니다:
+</p>
+<ol>
+  <li><code>comparison_result.json</code> — 판정과 사유, 판정 주체는?</li>
+  <li><code>concept_graph.json</code> — 애초에 연결이 있었나? 누가 만들었나?</li>
+  <li><code>facts.json</code> — fact 가 제대로 추출됐나? 값이 맞나?</li>
+  <li><code>records.json</code> / <code>column_schema.json</code> — 열의 의미를 잘못 잡았나?</li>
+  <li><code>compact_raw.json</code> — LLM 이 본 입력이 원본과 같았나?</li>
+  <li><code>physical_raw.json</code> — 원본이 실제로 어땠나?</li>
+</ol>
+<p>
+어느 단계에서 틀렸는지 <b>눈으로 확인</b>할 수 있고, 그 단계만 고치면 됩니다. 통짜 LLM
+호출에는 이 사다리가 없습니다.
+</p>
+
+<h4>⑤ 사람이 고친 것이 축적된다</h4>
+<p>
+<code>knowledge/ontology.yaml</code>(같다/다르다 확정)과 <code>knowledge/*.md</code>(도메인 용어)에
+사람의 판단이 쌓입니다. 실행을 거듭할수록 LLM 이 새로 판단할 몫이 줄어들어 <b>결과가 점점
+안정</b>됩니다.
+</p>
+
+<div class="callout">
+  <span class="tag">정리</span>
+  <p>
+  이 파이프라인의 목표는 “LLM 을 적게 쓰는 것”이 아닙니다. <b>판정의 책임을 최대한 코드로
+  옮기고, 남은 애매함만 LLM 에 맡기며, 그 경계를 파일로 남겨 사람이 검수할 수 있게 하는
+  것</b>입니다. “LLM 위임 2건”은 그 설계가 의도대로 작동하고 있다는 신호입니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="why-tradeoff" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 복잡함이 값어치를 한다고 보시나요? 반론이 있으면 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="code">5. 코드 워크스루</h2>
+
+<h3>5.1 전체 흐름은 <code>FactPipeline.run()</code> 한 곳에</h3>
+
+<div class="filename">contentcompare/fact/pipeline.py</div>
+<pre><code>def run(self, reference, targets, progress=None):
+    docs = [reference, *targets]
+    store = FactStore()
+    try:
+        for i, path in enumerate(docs, start=1):
+            summary = self._process_one_safe(path, store, is_reference=(i == 1))
+            result.summaries.append(summary)      # ← 문서마다 격리 처리
+        self._compare_and_report(store, reference, targets, result)
+        return result
+    finally:
+        close_all_office()                        # ← 열린 COM 문서 정리</code></pre>
+
+<p>
+<code>_process_one_<b>safe</b></code> 라는 이름이 설계를 말해 줍니다 — 문서 하나가 실패해도
+(COM 오류·LLM 예산 초과·JSON 파싱 실패) 나머지는 계속 처리하고, 그 문서의 summary 에
+<code>status="error"</code> 와 사유를 남깁니다.
+</p>
+
+<h3>5.2 판정 분기는 <code>FactComparator.compare()</code> 12줄에</h3>
+
+<pre><code>if not candidates:                       # 체 ① — 개념 연결 없음
+    return FactComparison(..., result=MISSING, reason=missing_reason)
+
+best = candidates[0]
+verdict = self._decide_by_code(ref, best.fact)      # 체 ② — 코드가 시도
+uncertain = (best.needs_review                      # 체 ③ — 연결을 LLM 이 만들었나
+             or ref_low_confidence                  #        F4a 가 의심한 fact 인가
+             or target.is_low_confidence(best.fact))
+
+if verdict is not None and not uncertain:
+    out.result, out.mismatch_attributes, out.reason = verdict
+    return out                                      # ← 여기서 끝나면 LLM 0회
+
+return self._decide_by_llm(out, ref, candidates, verdict, uncertain)</code></pre>
+
+<p>
+“20건 중 LLM 2건”의 정체가 이 12줄입니다. <code>verdict is not None and not uncertain</code>
+을 통과하지 못한 건수가 곧 위임 건수입니다.
+</p>
+
+<h3>5.3 LLM 이 실패해도 결과를 버리지 않는다</h3>
+
+<pre><code>@staticmethod
+def _fallback(out, code_verdict, note):
+    """LLM 을 못 쓸 때 — 코드 판정이 있으면 그대로, 없으면 unknown."""
+    if code_verdict is not None:
+        out.result, out.mismatch_attributes, out.reason = code_verdict
+        out.reason += f" {note}"
+        return out
+    out.result = UNKNOWN
+    ...</code></pre>
+
+<p>
+LLM 예산이 끊기거나 응답이 깨져도 코드 판정이 있으면 그것을 쓰고, 없으면
+<span class="verdict v-unk">판단보류</span>로 남깁니다. <b>조용히 사라지는 항목이 없다</b>는
+것이 이 파이프라인 전체의 규칙입니다.
+</p>
+
+<p>
+그리고 LLM 이 후보 밖의 fact 를 지목하면 무시합니다 — <code>_pick_target()</code> 이 코드가 준
+후보 안에서만 고르게 해 할루시네이션을 막습니다.
+</p>
+
+<div class="qmemo" data-qid="code-memo" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">더 파고들고 싶은 함수가 있나요?</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="quiz">6. 퀴즈</h2>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q1. 기준 엑셀에서 fact 20개가 나왔고 대상 문서를 3개 넣었다. 리포트의 “총 N건 판정”에서 N 은?</div>
+  <button class="opt" data-i="0">20 — 기준 항목 수</button>
+  <button class="opt" data-i="1">23 — 기준 20 + 대상 3</button>
+  <button class="opt" data-i="2">60 — 기준 fact 20 × 대상 문서 3</button>
+  <button class="opt" data-i="3">대상 문서들의 fact 총합</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q2. 기준에 <code>최대충전전류 = 1495</code>(단위 없음), 대상에 <code>1.495 A</code> 가 있다. 코드가 “값이 다르다”고 단정하지 <b>않는</b> 이유는?</div>
+  <button class="opt" data-i="0">숫자 비교는 항상 LLM 이 하도록 설계돼 있어서.</button>
+  <button class="opt" data-i="1">두 값이 10의 거듭제곱 배수(1000배)이고 한쪽 단위를 모르므로, mA↔A 같은 접두어 차이일 수 있기 때문. 단정하면 거짓 경보가 된다.</button>
+  <button class="opt" data-i="2">속성 이름이 <code>target_value</code> 와 <code>upper_limit</code> 로 달라서. 이름이 다르면 무조건 위임한다.</button>
+  <button class="opt" data-i="3">유사도 점수가 임계값 미만이라서.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. 워드 대상은 20건 중 LLM 2건인데 PPT 대상은 6건이었다. 가장 큰 원인은?</div>
+  <button class="opt" data-i="0">PPT 의 fact 수가 더 많아서(12 vs 11).</button>
+  <button class="opt" data-i="1">PPT 에는 값이 다른 항목이 더 많아서.</button>
+  <button class="opt" data-i="2">PPT 는 도형 좌표 때문에 <code>evidence_text</code> 가 부정확해서.</button>
+  <button class="opt" data-i="3">PPT 는 항목명이 자유로워 개념 연결을 <b>LLM 이</b> 만들었고(<code>needs_review=True</code>), 확인되지 않은 연결 위에서는 값 판정도 LLM 이 한 번 더 보기 때문.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q4. 워드·PPT 폴더에는 <code>column_schema.json</code> 과 <code>records.json</code> 이 없다. 왜?</div>
+  <button class="opt" data-i="0">그 둘은 <b>표(격자)를 읽는 법</b>을 담는 엑셀 전용 단계이기 때문. 워드·PPT 는 LLM 이 곧장 <code>facts.json</code> 을 만든다.</button>
+  <button class="opt" data-i="1">워드·PPT 는 아직 미구현이라 나중에 추가될 예정이라서.</button>
+  <button class="opt" data-i="2">용량을 아끼려고 워드·PPT 는 중간 산출물을 저장하지 않아서.</button>
+  <button class="opt" data-i="3">워드·PPT 는 기준 문서가 될 수 없어서 스키마가 필요 없어서.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q5. <code>run_stats.json</code> 에 <code>"llm": {"calls": 0}</code> 이 찍혔다. 올바른 해석은?</div>
+  <button class="opt" data-i="0">이 문서는 LLM 없이 코드만으로 처리되는 종류다.</button>
+  <button class="opt" data-i="1">LLM 연결에 실패해 모든 단계가 건너뛰어졌다.</button>
+  <button class="opt" data-i="2"><code>.fingerprint</code> 가 일치해 디스크 산출물을 재사용했다는 뜻이다. 첫 실행에서는 LLM 을 여러 번 불렀다.</button>
+  <button class="opt" data-i="3">개념 그래프 단계의 호출만 세므로 값 대조의 LLM 은 포함되지 않는다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">헷갈린 문제가 있으면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="more">더 읽을거리</h2>
+
+<ul>
+  <li><a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 개념 그래프</a> — 이 글의 “체 ①”이 어떻게 만들어지는지 전부.</li>
+  <li><a href="2026-08-03-explanation-how-contentcompare-compares-documents.html">ContentCompare 는 문서를 어떻게 비교하는가</a> — RAG 경로와 fact 엔진의 큰 그림.</li>
+  <li><code>docs/FACT_PIPELINE_PLAN.md</code> — 단계별 설계와 진행 현황.</li>
+  <li><code>docs/FACT_F3_5_LIVE_REPORT.md</code> — 라이브 실측과 한계.</li>
+  <li>직접 열어 보기: <code>artifacts/자표준문서_xlsx/</code> 의 파일들. 이 글의 모든 인용이 거기서 왔습니다.</li>
+</ul>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+(function () {
+  var FEEDBACK = {
+    1: ['기준 항목 수는 맞지만 대상 문서마다 한 번씩 판정하므로 곱해야 합니다.',
+        '더하는 것이 아니라 곱합니다. 기준 항목 하나가 대상 문서 3개와 각각 대조됩니다.',
+        '정확합니다. 실측에서도 fact 20 × 문서 2 = 40건이었고, 문서 하나만 넣으면 20건이 됩니다.',
+        '대상 문서의 fact 수는 판정 건수에 직접 영향을 주지 않습니다. 판정은 <b>기준 항목 기준</b>으로 셉니다.'],
+    2: ['반대입니다. 숫자 비교는 원칙적으로 코드가 하고, 애매할 때만 LLM 에 넘깁니다.',
+        '정확합니다. <code>_is_decimal_scaled()</code> 가 이 경우를 잡아 <code>None</code>(모르겠다)을 반환하고, LLM 이 “단위를 고려하면 동일”이라고 판정했습니다.',
+        '속성 이름이 달라도 양쪽 다 속성이 하나뿐이면 <code>_compare_single_attributes()</code> 가 단일 값으로 비교합니다. 이름 차이만으로 위임하지는 않습니다.',
+        '유사도는 F7 경로의 판정에 쓰이지 않습니다. 후보를 좁히는 용도일 뿐입니다.'],
+    3: ['fact 수 차이(12 vs 11)로는 2건과 6건의 차이를 설명할 수 없습니다.',
+        '값이 다른 항목은 오히려 <b>코드</b>가 판정합니다(mismatch). LLM 위임과 직접 관계가 없습니다.',
+        '<code>evidence_text</code> 품질 문제는 아닙니다. PPT 의 <code>validation_report</code> 는 error·warn 0건이었습니다.',
+        '정확합니다. 워드는 이름이 같아 <b>코드</b>가 연결을 만들었고(확정), PPT 는 <code>Standard ambient temperature</code> 처럼 이름이 달라 LLM 이 연결을 만들었습니다.'],
+    4: ['정확합니다. 엑셀은 스키마를 한 번 유도해 전 행에 적용하므로 LLM 을 20번 부르지 않아도 됩니다.',
+        '미구현이 아닙니다. 워드·PPT 는 표가 아니므로 <b>필요하지 않은</b> 단계입니다.',
+        '용량 때문이 아닙니다. 워드·PPT 도 <code>physical_raw</code>·<code>compact_raw</code> 등은 그대로 저장합니다.',
+        '기준/대상 여부와 무관합니다. 문서가 <b>표인가 아닌가</b>가 기준입니다.'],
+    5: ['문서 종류로 정해지는 것이 아닙니다. 엑셀도 첫 실행에서는 프로파일·스키마·레코드에 LLM 을 씁니다.',
+        '연결 실패였다면 <code>status="error"</code> 와 사유가 summary 에 남습니다.',
+        '정확합니다. <code>cached_or_compute()</code> 가 지문을 확인해 디스크 산출물을 재사용한 것이고, 같은 파일의 <code>"records": {"cached": true}</code> 가 그 증거입니다.',
+        '<code>run_stats.json</code> 은 <b>문서 단위</b> 계측이라 개념 그래프(실행 단위)나 값 대조 통계는 애초에 들어가지 않습니다. calls 0 의 원인은 캐시입니다.']
+  };
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    var key = qi + 1;
+    quiz.querySelectorAll('button.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.dataset.i, 10);
+        quiz.querySelectorAll('button.opt').forEach(function (b) {
+          b.classList.remove('right', 'wrong');
+        });
+        btn.classList.add(i === answer ? 'right' : 'wrong');
+        if (i !== answer) {
+          quiz.querySelectorAll('button.opt')[answer].classList.add('right');
+        }
+        var texts = FEEDBACK[key] || [];
+        fb.innerHTML = (i === answer ? '✅ ' : '❌ ') + (texts[i] || '');
+        fb.classList.add('show');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
