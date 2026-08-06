@@ -44,143 +44,30 @@
 
 ``ensure_css`` 는 :data:`CSS_MARKER` 를 보고 이미 주입된 페이지는 건너뛴다(멱등).
 블록 삽입은 멱등이 아니므로 같은 블록을 두 번 넣지 않도록 호출자가 확인할 것.
+
+.. note::
+   CSS·배지·렌더러는 :mod:`contentcompare.ui.diagram` 으로 옮겼다 — ``scripts/`` 는
+   패키지가 아니라 Streamlit 앱에서 import 할 수 없는데, 파이프라인 현미경이 설명
+   페이지와 **같은 시각 언어**를 써야 하기 때문이다. 이 파일에는 **서술 데이터**
+   (:data:`STOPS`/:data:`FATES`/:data:`MAP_ITEMS`)와 페이지 삽입 엔진, 그리고 문서
+   전용 SVG(:func:`lanes`/:func:`tools`/:func:`vs`)만 남는다. 출력은 이식 전과
+   **바이트 단위로 동일**하다(회귀: ``tests/test_ui_diagram.py``).
 """
 from __future__ import annotations
-import re, html, sys
+import os, re, sys
 
-CSS_MARKER = "/* === dv-components v1 === */"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-CSS = CSS_MARKER + """
-.dv{--dv-fg:#1c1c1a;--dv-mut:#6b6b66;--dv-line:#dcdcd6;--dv-card:#fff;--dv-bg:#f6f6f4;
-    --dv-code:#1565c0;--dv-code-bg:#e8f1fb;--dv-llm:#e65100;--dv-llm-bg:#fdf0e3;
-    --dv-emb:#00796b;--dv-emb-bg:#e2f2f0;--dv-human:#6a1b9a;--dv-human-bg:#f4e9f7;
-    --dv-ok:#2e7d32;--dv-ok-bg:#e9f5ea;--dv-bad:#c62828;--dv-bad-bg:#fbeaea;
-    --dv-gray:#607d8b;--dv-gray-bg:#eceff1;--dv-amber:#ef6c00;--dv-amber-bg:#fdf0e0;
-    --dv-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace;
-    margin:26px 0;font-size:15px;line-height:1.6;color:var(--dv-fg)}
-@media (prefers-color-scheme:dark){.dv{--dv-fg:#e8e8e4;--dv-mut:#a2a29c;--dv-line:#3a3d44;
-    --dv-card:#1f2229;--dv-bg:#191c21;
-    --dv-code:#8ec5f5;--dv-code-bg:#16283a;--dv-llm:#ffb074;--dv-llm-bg:#3a2412;
-    --dv-emb:#6fc9bd;--dv-emb-bg:#123430;--dv-human:#d09ada;--dv-human-bg:#2c1936;
-    --dv-ok:#83c98a;--dv-ok-bg:#173620;--dv-bad:#ef9a9a;--dv-bad-bg:#3a1e1e;
-    --dv-gray:#a8bcc6;--dv-gray-bg:#272d33;--dv-amber:#ffb74d;--dv-amber-bg:#3a2a12}}
-.dv *{box-sizing:border-box}
-.dv-title{font-weight:700;font-size:.95rem;margin:0 0 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dv-title .dv-tag{font-size:.68rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:99px;background:var(--dv-gray-bg);color:var(--dv-gray)}
-.dv-sub{font-size:.83rem;color:var(--dv-mut);margin:0 0 14px}
-.dv-cap{font-size:.8rem;color:var(--dv-mut);margin-top:12px;line-height:1.6}
+from contentcompare.ui import diagram as _dv                       # noqa: E402
+from contentcompare.ui.diagram import (                            # noqa: E402,F401
+    CSS,
+    CSS_MARKER,
+    WHO,
+    _esc,
+    legend,
+    who,
+)
 
-/* 주체 배지 */
-.dv-who{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;
-  padding:2px 9px;border-radius:99px;white-space:nowrap;border:1px solid transparent}
-.dv-who.dv-c{background:var(--dv-code-bg);color:var(--dv-code);border-color:var(--dv-code)}
-.dv-who.dv-l{background:var(--dv-llm-bg);color:var(--dv-llm);border-color:var(--dv-llm)}
-.dv-who.dv-e{background:var(--dv-emb-bg);color:var(--dv-emb);border-color:var(--dv-emb)}
-.dv-who.dv-h{background:var(--dv-human-bg);color:var(--dv-human);border-color:var(--dv-human)}
-.dv-who.dv-f{background:var(--dv-gray-bg);color:var(--dv-gray);border-color:var(--dv-gray)}
-.dv-legend{display:flex;gap:9px;flex-wrap:wrap;margin:0 0 14px}
-
-/* 판정 알약 */
-.dv-v{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
-.dv-v.dv-ok{background:var(--dv-ok-bg);color:var(--dv-ok)}
-.dv-v.dv-bad{background:var(--dv-bad-bg);color:var(--dv-bad)}
-.dv-v.dv-gray{background:var(--dv-gray-bg);color:var(--dv-gray)}
-.dv-v.dv-amber{background:var(--dv-amber-bg);color:var(--dv-amber)}
-
-/* ---- 여정(journey) ---- */
-.dv-jrn{position:relative;padding-left:30px}
-.dv-jrn:before{content:"";position:absolute;left:9px;top:14px;bottom:14px;width:2px;background:var(--dv-line)}
-.dv-stop{position:relative;margin:0 0 12px}
-.dv-stop:before{content:"";position:absolute;left:-25px;top:14px;width:12px;height:12px;border-radius:50%;
-  background:var(--dv-card);border:2.5px solid var(--dv-line)}
-.dv-stop.dv-c:before{border-color:var(--dv-code)}
-.dv-stop.dv-l:before{border-color:var(--dv-llm)}
-.dv-stop.dv-e:before{border-color:var(--dv-emb)}
-.dv-stop.dv-f:before{border-color:var(--dv-gray);background:var(--dv-gray)}
-.dv-box{background:var(--dv-card);border:1px solid var(--dv-line);border-radius:10px;overflow:hidden}
-.dv-hd{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:9px 13px;background:var(--dv-bg);border-bottom:1px solid var(--dv-line)}
-.dv-hd .dv-nm{font-weight:700;font-size:.88rem}
-.dv-hd .dv-fn{font-family:var(--dv-mono);font-size:.74rem;color:var(--dv-mut);margin-left:auto}
-.dv-bd{padding:11px 13px}
-.dv-io{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
-.dv-io>div{flex:1 1 230px;min-width:0}
-.dv-io .dv-lb{font-size:.7rem;font-weight:700;color:var(--dv-mut);letter-spacing:.05em;margin-bottom:3px}
-.dv-data{font-family:var(--dv-mono);font-size:.73rem;line-height:1.55;background:var(--dv-bg);
-  border:1px solid var(--dv-line);border-radius:7px;padding:8px 10px;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
-.dv-note{font-size:.8rem;color:var(--dv-mut);margin-top:9px;padding-left:10px;border-left:2px solid var(--dv-line)}
-.dv-hi{background:rgba(230,81,0,.15);border-radius:3px;padding:0 3px;font-weight:700}
-
-/* ---- 갈림길(fates) ---- */
-.dv-fates{display:flex;gap:12px;flex-wrap:wrap}
-.dv-fate{flex:1 1 250px;background:var(--dv-card);border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
-.dv-fate .dv-fh{padding:9px 13px;font-size:.83rem;font-weight:700;border-bottom:1px solid var(--dv-line)}
-.dv-fate.dv-a .dv-fh{background:var(--dv-code-bg);color:var(--dv-code)}
-.dv-fate.dv-b .dv-fh{background:var(--dv-llm-bg);color:var(--dv-llm)}
-.dv-fate.dv-c2 .dv-fh{background:var(--dv-emb-bg);color:var(--dv-emb)}
-.dv-fate .dv-fs{padding:9px 13px;border-bottom:1px dashed var(--dv-line);font-size:.81rem}
-.dv-fate .dv-fs:last-child{border-bottom:none;margin-top:auto}
-.dv-fate .dv-fs .dv-st{font-size:.68rem;font-weight:700;color:var(--dv-mut);letter-spacing:.04em;display:block;margin-bottom:3px}
-.dv-fate .dv-mono{font-family:var(--dv-mono);font-size:.73rem;word-break:break-word}
-
-/* ---- 파이프라인 지도(map) ---- */
-.dv-map{display:flex;gap:0;flex-wrap:wrap;align-items:stretch}
-.dv-mi{flex:1 1 120px;min-width:118px;background:var(--dv-card);border:1px solid var(--dv-line);
-  border-radius:9px;padding:9px 10px;margin:3px;position:relative}
-.dv-mi .dv-n{font-size:.68rem;color:var(--dv-mut);font-weight:700}
-.dv-mi .dv-t{font-size:.82rem;font-weight:700;margin:2px 0 5px;line-height:1.35}
-.dv-mi .dv-f{font-family:var(--dv-mono);font-size:.68rem;color:var(--dv-mut);word-break:break-all;margin-top:5px}
-.dv-mi.dv-on{box-shadow:0 0 0 2px var(--dv-llm)}
-
-/* ---- 저울(before/after) ---- */
-.dv-ba{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
-.dv-ba>div{flex:1 1 240px;border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;background:var(--dv-card)}
-.dv-ba .dv-h{padding:8px 13px;font-weight:700;font-size:.84rem;border-bottom:1px solid var(--dv-line)}
-.dv-ba .dv-before .dv-h{background:var(--dv-bad-bg);color:var(--dv-bad)}
-.dv-ba .dv-after .dv-h{background:var(--dv-ok-bg);color:var(--dv-ok)}
-.dv-ba .dv-b{padding:10px 13px;font-size:.83rem}
-.dv-ba ul{margin:0;padding-left:1.15em}
-.dv-ba li{margin:4px 0}
-
-/* ---- 막대(비율) ---- */
-.dv-bar{margin:9px 0 4px}
-.dv-bar .dv-bl{display:flex;justify-content:space-between;font-size:.79rem;color:var(--dv-mut);margin-bottom:4px}
-.dv-bar .dv-bt{display:flex;height:32px;border-radius:7px;overflow:hidden;border:1px solid var(--dv-line)}
-.dv-bar .dv-sg{display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;min-width:0}
-.dv-bar .dv-sg.dv-c{background:#1565c0}.dv-bar .dv-sg.dv-h{background:#6a1b9a}
-.dv-bar .dv-sg.dv-l{background:#e65100}.dv-bar .dv-sg.dv-e{background:#00796b}
-.dv-bar .dv-sg.dv-g{background:#78909c}
-
-.dv-scroll{overflow-x:auto}
-.dv-tbl{border-collapse:collapse;width:100%;font-size:.83rem;min-width:340px}
-.dv-tbl th,.dv-tbl td{border:1px solid var(--dv-line);padding:7px 10px;text-align:left;vertical-align:top}
-.dv-tbl th{background:var(--dv-bg);font-size:.78rem}
-.dv-tbl td.dv-n,.dv-tbl th.dv-n{text-align:right;font-variant-numeric:tabular-nums}
-@media (max-width:640px){.dv{font-size:14px}.dv-hd .dv-fn{margin-left:0;flex-basis:100%}}
-"""
-
-# --------------------------------------------------------------------------- #
-# 배지
-# --------------------------------------------------------------------------- #
-WHO = {
-    "c": ("c", "⚙️ 코드"),
-    "l": ("l", "🤖 LLM"),
-    "e": ("e", "🔢 임베딩"),
-    "h": ("h", "👤 사람"),
-    "f": ("f", "📄 파일"),
-}
-
-
-def who(k: str, label: str | None = None) -> str:
-    cls, txt = WHO[k]
-    return f'<span class="dv-who dv-{cls}">{label or txt}</span>'
-
-
-def legend(keys=("f", "c", "l", "e", "h")) -> str:
-    return '<div class="dv-legend">' + "".join(who(k) for k in keys) + "</div>"
-
-
-def _esc(s: str) -> str:
-    return html.escape(s, quote=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -229,30 +116,12 @@ def journey(stops=None, title="추적 여행 — 값 <code>3.89</code> 하나가
             sub="엑셀 7번째 줄의 공칭전압이 카드가 되기까지. 데이터는 전부 실제 <code>artifacts/자표준문서_xlsx/</code> 산출물이다.",
             cap="여기까지는 <b>모든 대상 문서에 공통</b>이다. 기준 문서를 카드로 만드는 일이므로 상대가 누구든 한 번만 하면 된다. "
                 "갈라지는 것은 다음 단계, 짝을 찾는 순간부터다.") -> str:
-    """값 3.89 하나가 문서→카드로 변해 가는 단계별 입출력 추적."""
+    """값 3.89 하나가 문서→카드로 변해 가는 단계별 입출력 추적.
+
+    ``stops`` 는 :data:`STOPS` 의 **인덱스 목록**이다(일부만 넣고 싶을 때).
+    """
     sel = STOPS if stops is None else [STOPS[i] for i in stops]
-    out = [f'<div class="dv"><div class="dv-title">{title}</div>',
-           f'<div class="dv-sub">{sub}</div>', legend(("f", "c", "l")),
-           '<div class="dv-jrn">']
-    for s in sel:
-        out.append(f'<div class="dv-stop dv-{s["k"]}"><div class="dv-box">')
-        out.append('<div class="dv-hd">' + who(s["k"]) +
-                   f'<span class="dv-nm">{s["n"]} · {s["nm"]}</span>'
-                   f'<span class="dv-fn">{_esc(s["fn"])}</span></div>')
-        out.append('<div class="dv-bd"><div class="dv-io">')
-        if s.get("inp"):
-            out.append(f'<div><div class="dv-lb">받는 것</div><div class="dv-data">{_esc(s["inp"])}</div></div>')
-        out.append(f'<div><div class="dv-lb">{"내놓는 것" if s.get("inp") else "이렇게 생겼다"}</div>'
-                   f'<div class="dv-data">{_esc(s["out"])}</div></div>')
-        out.append('</div>')
-        if s.get("note"):
-            out.append(f'<div class="dv-note">{s["note"]}</div>')
-        out.append('</div></div></div>')
-    out.append('</div>')
-    if cap:
-        out.append(f'<div class="dv-cap">{cap}</div>')
-    out.append('</div>')
-    return "\n".join(out)
+    return _dv.journey(sel, title=title, sub=sub, cap=cap, legend_keys=("f", "c", "l"))
 
 
 # --------------------------------------------------------------------------- #
@@ -303,18 +172,7 @@ def fates(title="같은 카드 하나, 세 갈래 운명",
               "이름이 다를수록 LLM 이 개입하고 검문소가 걸린다. <b>영어 문서가 어려운 이유가 여기에 다 들어 있다</b> — "
               "언어가 다르면 첫 칸(이름 일치)이 절대 성립하지 않아 항상 가장 험한 길로만 간다.") -> str:
     """같은 카드가 대상 문서 3종에서 각각 어떤 길을 가고 누가 판정했나."""
-    out = [f'<div class="dv"><div class="dv-title">{title}</div>',
-           f'<div class="dv-sub">{sub}</div>', '<div class="dv-fates">']
-    for f in FATES:
-        out.append(f'<div class="dv-fate dv-{f["cls"]}"><div class="dv-fh">{f["doc"]}</div>')
-        for st, body in f["rows"]:
-            out.append(f'<div class="dv-fs"><span class="dv-st">{st}</span>{body}</div>')
-        out.append('</div>')
-    out.append('</div>')
-    if cap:
-        out.append(f'<div class="dv-cap">{cap}</div>')
-    out.append('</div>')
-    return "\n".join(out)
+    return _dv.fates(FATES, title=title, sub=sub, cap=cap)
 
 
 # --------------------------------------------------------------------------- #
@@ -341,19 +199,8 @@ def pipemap(title="전체 지도 — 어느 단계에서 누가 일하고, 무�
                 "그리고 LLM 은 어디서도 '제어 흐름'을 정하지 않는다 — 언제나 <b>단일 목적 JSON 만 만들고 끝</b>이며, "
                 "다음에 무엇을 할지는 100% 코드가 정한다.") -> str:
     """10단계 파이프라인 지도 — 단계별 주체 배지와 산출 파일명."""
-    out = [f'<div class="dv"><div class="dv-title">{title}</div>',
-           f'<div class="dv-sub">{sub}</div>', legend(("c", "l", "e", "h")),
-           '<div class="dv-map">']
-    for phase, name, kinds, files in MAP_ITEMS:
-        badges = "".join(who(k) for k in kinds)
-        out.append(f'<div class="dv-mi"><div class="dv-n">{phase}</div>'
-                   f'<div class="dv-t">{name}</div>{badges}'
-                   f'<div class="dv-f">{files}</div></div>')
-    out.append('</div>')
-    if cap:
-        out.append(f'<div class="dv-cap">{cap}</div>')
-    out.append('</div>')
-    return "\n".join(out)
+    return _dv.pipemap(MAP_ITEMS, title=title, sub=sub, cap=cap,
+                       legend_keys=("c", "l", "e", "h"))
 
 
 # --------------------------------------------------------------------------- #
