@@ -96,6 +96,23 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 
 설계·진행은 `docs/FACT_PIPELINE_PLAN.md`, 라이브 실측·한계는 `docs/FACT_F3_5_LIVE_REPORT.md`, 정답 데이터는 `golden/` 참고. 엔진 비교는 `python scripts/compare_engines.py`.
 
+### 진단 — `⚪ 대상에 없음` 의 원인 가리기
+
+`missing` 판정의 원인은 **여섯 가지**이고 조치가 각각 다르다: ①recall 실패 ②LLM 미판정 ③근거 게이트 강등 ④F3 추출 누락 ⑤의도된 차단 ⑥F5 LLM 판정. `fact/missing_trace.py` 가 산출물만으로 이것을 가른다.
+
+**핵심 판별**: `comparison_result.json` 의 `decided_by` 가 후보 유무를 말해 준다 — `FactComparator.compare` 는 후보가 없으면 LLM 을 부르지 않고 즉시 반환하므로 `code` 로 남고, 후보가 있는데 LLM 이 `missing` 이라 답한 경우에만 `llm` 이 된다(`_fallback` 은 `missing` 을 만들지 않는다).
+
+분류 순서를 바꾸지 말 것 — **구체적인 것부터** 본다(`rejected` → `undecided` → `differs_by`). `differs_by` 는 후보마다 흔히 붙어서 먼저 보면 진짜 원인을 덮는다(실측 `_runs/en_word` 에서 근거 게이트 강등 8건이 전부 '차단'으로 오분류됐다).
+
+두 진단 산출물이 ①④를 가능하게 한다. 둘 다 LLM 을 안 불러 비용이 0 이므로 **끄지 말 것**:
+
+- `candidate_pairs.json` — 후보 랭킹 + **탈락 사유**(`cut_by`: `min_score`=임계 미달 / `top_k`=순위 밀림). 컷 당한 후보가 남지 않으면 "정답 쌍이 후보에 들어오긴 했는가"를 영영 확인할 수 없다.
+- `facts_by_block.json` — 블록/행 → fact 매핑. `cited=false` 인 블록이 F3 추출 누락 후보다. **추출 결과에서 역산**하므로 캐시 히트에도 남는다.
+
+`llm.trace_local: true` 면 LLM 프롬프트/응답 원문이 `artifacts/_traces/<실행>/` 에 남는다(`JsonlTracer`). Langfuse 와 **독립적으로** 켜지고 둘 다 켜면 `MultiTracer` 가 양쪽에 기록한다. ⚠️ 기본 off — 켜면 문서 원문이 평문으로 디스크에 남는다.
+
+CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [--all] [--diff 다른라벨]`.
+
 > ⚠️ Ollama 는 컨텍스트가 모자라면 오류가 아니라 **빈 응답**을 준다. fact 프롬프트는 기본 `num_ctx`(4096)를 쉽게 넘으므로 `config.llm.ollama.num_ctx`(권장 16384)를 올리고, thinking 모델이면 `think: false` 로 두는 편이 훨씬 빠르다.
 
 ### 설정 (`config.py`)
@@ -109,7 +126,19 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 ### 진입점
 
 - **CLI** `cli.py`(`contentcompare` 스크립트): `--check` 연결점검 / `--reference`+`--targets` 비교.
-- **Streamlit** `app/streamlit_app.py`: 사이드바=설정(백엔드/모델/검색 파라미터), 3탭=비교 실행 / 리포트 보기 / 도메인 지식. COM 은 데스크톱 세션이 필요하므로 **사용자 PC localhost** 전용. 입력은 업로드보다 **로컬 경로 직접 지정**을 권장(COM 은 실제 파일 경로 필요; 사내 보안/DRM 친화적). 비화면 로직은 `ui/runner.py` 에 분리해 streamlit 없이 단위테스트 가능.
+- **Streamlit** `app/streamlit_app.py`: 사이드바=설정(백엔드/모델/검색 파라미터), 4탭=비교 실행(엔진 `rag|fact` 선택) / 리포트 보기 / **🔬 파이프라인 현미경** / 도메인 지식. COM 은 데스크톱 세션이 필요하므로 **사용자 PC localhost** 전용. 입력은 업로드보다 **로컬 경로 직접 지정**을 권장(COM 은 실제 파일 경로 필요; 사내 보안/DRM 친화적).
+
+**UI 3층 분리** — `ui/runner.py` 의 "streamlit 없이 단위테스트 가능" 원칙을 시각화까지 확장했다. **HTML 문자열 생성까지가 순수 함수**이고 Streamlit 은 그것을 iframe 에 넣기만 한다:
+
+| 층 | 위치 | 책임 |
+|---|---|---|
+| 도메인 | `fact/artifact_reader.py` · `fact/missing_trace.py` | 실행 산출물 읽기(`RunSnapshot`) · 원인 분류 |
+| 표현 | `ui/diagram.py` · `ui/graph_layout.py` · `ui/micro_world.py` | 뷰모델 → HTML/SVG 문자열 |
+| 화면 | `app/streamlit_app.py` | 위젯 · `components.v1.html` 호출 |
+
+- `ui/diagram.py` 는 `scripts/doc_diagrams.py` 에서 이식한 **공용 시각 언어**다(⚙️코드=파랑 `#1565c0` · 🤖LLM=주황 `#e65100` · 🔢임베딩=청록 `#00796b` · 👤사람=보라 `#6a1b9a`). 설명 페이지와 화면이 같은 색·배지를 쓰게 하려는 것이므로 색을 바꾸지 말 것. `scripts/doc_diagrams.py` 에는 서술 데이터와 삽입 엔진만 남았고 출력은 이식 전과 바이트 동일하다.
+- 판정 라벨은 `report/fact_report.py` 의 `LABEL`/`ORDER` 가 **단일 출처**다. RAG 의 `runner.VERDICT_LABEL` 과 섞지 말 것 — 같은 이모지, 다른 뜻이다(RAG ✅=같음 / fact ✅=일치).
+- 현미경은 **읽기 전용**이고 `artifacts/` 만 본다. `_runs/*` 스냅샷도 열리지만 대상 문서 폴더는 붙이지 않는다 — `fact_id` 는 실행마다 다시 매겨져 현재 폴더와 섞으면 엉뚱한 fact 를 가리킨다.
 
 ### 로깅
 
