@@ -263,6 +263,47 @@ def use_os_trust_store(lf: Any) -> bool:
     return True
 
 
+def trust_source(lf: Any) -> str:
+    """지금 무엇을 신뢰하는지 한 줄로. ``--check`` 가 사람에게 그대로 보여 준다.
+
+    설정과 실제가 어긋날 때(인증서를 지정했는데 형식이 틀려 무시됐다, truststore 를
+    안 깔았다) 그 사실이 화면에 드러나야 한다 — 안 그러면 "설정은 했는데 왜 여전히
+    SSL 오류지"를 반복한다. **상태를 바꾸지 않는다**(주입은 하지 않는다).
+    """
+    bundle = ca_bundle(lf)
+    if bundle is False:
+        return "⚠️ 인증서 검증 꺼짐"
+    if isinstance(bundle, str):
+        return f"ca={os.path.basename(bundle)}"
+    # 여기부터는 ca_bundle 이 None — 지정이 없거나, 있었지만 못 쓸 파일이었다.
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("truststore") is not None:
+            return "ca=OS 인증서 저장소(truststore)"
+    except (ImportError, ValueError):
+        pass
+    return "ca=certifi(공인 CA 만) — 사내 CA 면 pip install truststore"
+
+
+def import_langfuse(lf: Any) -> Any:
+    """``Langfuse`` 클래스를 돌려준다. **반드시 이 함수로만 import 할 것.**
+
+    순서가 load-bearing 이다 — :func:`use_os_trust_store` 를 **먼저** 부른 뒤에
+    SDK 를 import 한다. truststore 는 ``ssl.SSLContext`` 를 갈아끼우는 방식이라
+    다른 모듈이 컨텍스트를 만든 뒤에 주입하면 그 컨텍스트는 옛것(certifi)을 그대로
+    쓴다. langfuse import 는 httpx 와 OTLP 익스포터를 끌고 오므로 정확히 그 함정에
+    걸린다 — 실측: 단독 스크립트(주입 후 import)는 통과하는데 ``--check``
+    (import 후 주입)만 ConnectError 로 죽었다.
+
+    미설치 ``ImportError`` 는 삼키지 않는다. 호출부가 "SDK 미설치" 안내로 바꾼다.
+    """
+    use_os_trust_store(lf)
+    from langfuse import Langfuse  # type: ignore[import-not-found]
+
+    return Langfuse
+
+
 def apply_ssl_env(lf: Any) -> None:
     """CA 번들을 환경변수로도 깔아둔다 — SDK 내부가 무엇을 쓰든 타도록.
 
@@ -519,7 +560,7 @@ def _build_langfuse_tracer(config: AppConfig) -> Optional[Any]:
         return None
     host, public, secret = lf.resolved()
     try:
-        from langfuse import Langfuse  # type: ignore[import-not-found]
+        Langfuse = import_langfuse(lf)   # truststore 주입 → SDK import (순서 중요)
     except ImportError:
         logger.warning(
             "Langfuse 설정이 켜져 있으나 SDK 가 없어 추적을 건너뜁니다 "

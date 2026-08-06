@@ -112,14 +112,16 @@ def _langfuse_result(config: AppConfig) -> Optional[CheckResult]:
                                   ("secret_key", secret)) if not v]
         return CheckResult("Langfuse", False,
                            f"설정이 불완전합니다 — 누락: {', '.join(missing)}")
+    from .tracing import import_langfuse, new_langfuse_client
+
     try:
-        from langfuse import Langfuse  # type: ignore[import-not-found]
+        # import 전에 truststore 를 주입해야 SDK 내부 httpx 가 OS 저장소를 본다.
+        # 순서가 뒤집히면 이 점검만 ConnectError 로 죽는다(tracing.import_langfuse 참고).
+        Langfuse = import_langfuse(lf)
     except ImportError:
         return CheckResult("Langfuse", False,
                            'SDK 미설치 — pip install -e ".[langfuse]"')
     try:
-        from .tracing import new_langfuse_client
-
         client = new_langfuse_client(lf, Langfuse)   # 사내 CA 적용 포함
         auth = getattr(client, "auth_check", None)
         if auth is not None and auth() is False:
@@ -137,10 +139,9 @@ def _langfuse_result(config: AppConfig) -> Optional[CheckResult]:
                 "\n       원인 격리: python scripts/langfuse_test.py [--insecure]"
             )
         return CheckResult("Langfuse", False, detail)
-    ca = "" if not lf.ssl_cert else f", ca={os.path.basename(lf.ssl_cert)}"
-    if not lf.verify_ssl and not lf.ssl_cert:
-        ca = ", ⚠️ 인증서 검증 꺼짐"
-    return CheckResult("Langfuse", True, f"host={host}{ca}")
+    from .tracing import trust_source
+
+    return CheckResult("Langfuse", True, f"host={host}, {trust_source(lf)}")
 
 
 def all_ok(results: list[CheckResult]) -> bool:
