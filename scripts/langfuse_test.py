@@ -127,6 +127,17 @@ def step2_sdk() -> bool:
     os.environ["LANGFUSE_PUBLIC_KEY"] = PUBLIC_KEY
     os.environ["LANGFUSE_SECRET_KEY"] = SECRET_KEY
 
+    # 1단계가 통과했는데 여기서 SSL 로 막히는 이유: SDK 가 **내부에서 자기 httpx
+    # 클라이언트를 만들고**, httpx 는 SSL_CERT_FILE 을 읽지 않고 certifi 를 쓴다.
+    # inject_into_ssl() 은 ssl.SSLContext 자체를 갈아끼워 그 경로까지 덮는다.
+    if not INSECURE:
+        try:
+            import truststore
+            truststore.inject_into_ssl()
+            print("    (truststore 주입 — SDK 내부 클라이언트까지 OS 저장소 사용)")
+        except ImportError:
+            print("    ⚠️  truststore 미설치 — SSL 로 막히면 pip install truststore")
+
     from langfuse import Langfuse
 
     try:

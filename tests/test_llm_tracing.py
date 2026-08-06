@@ -428,6 +428,92 @@ def test_verify_ssl_false_is_the_last_resort(tmp_path):
     assert ca_bundle(cfg) is False        # False = 검증 끔 (None = 기본 동작)
 
 
+# --------------------------------------------------------------------------- #
+# OS 인증서 저장소 (truststore)
+#
+# 사내 PC 는 브라우저가 붙으므로 루트 CA 가 이미 Windows 저장소에 있다. 파이썬만
+# certifi(공인 CA)를 봐서 실패하는 것이라, 저장소를 쓰게 하면 PEM 파일을 손으로
+# 만드는 절차 자체가 사라진다. 실측: 이걸 넣기 전에는 SDK 가 자기 httpx 클라이언트를
+# certifi 로 만들어 CERTIFICATE_VERIFY_FAILED 가 났다.
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def fake_truststore(monkeypatch):
+    """``truststore`` 설치 여부와 무관하게 돌도록 가짜 모듈을 꽂는다."""
+    import types
+
+    mod = types.ModuleType("truststore")
+    mod.calls = []
+    mod.inject_into_ssl = lambda: mod.calls.append("injected")
+    monkeypatch.setitem(sys.modules, "truststore", mod)
+    return mod
+
+
+def test_os_trust_store_is_used_when_no_certificate_is_given(fake_truststore):
+    """인증서를 지정하지 않은 사람이 기본으로 얻어야 하는 동작."""
+    from contentcompare.llm.tracing import use_os_trust_store
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC)
+    assert use_os_trust_store(cfg) is True
+    assert fake_truststore.calls == ["injected"]
+
+
+def test_explicit_certificate_wins_over_the_os_trust_store(fake_truststore, real_cert):
+    """사람이 ssl_cert 를 명시했으면 그 의도를 덮지 않는다."""
+    from contentcompare.llm.tracing import use_os_trust_store
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC, ssl_cert=real_cert)
+    assert use_os_trust_store(cfg) is False
+    assert fake_truststore.calls == []
+
+
+def test_os_trust_store_is_skipped_when_verification_is_off(fake_truststore):
+    """검증을 끄기로 한 사람에게 신뢰 저장소를 들이밀 이유가 없다."""
+    from contentcompare.llm.tracing import use_os_trust_store
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC, verify_ssl=False)
+    assert use_os_trust_store(cfg) is False
+    assert fake_truststore.calls == []
+
+
+def test_missing_truststore_does_not_crash_the_run(monkeypatch):
+    """선택 의존성이다 — 없으면 예전대로 certifi 로 돈다."""
+    from contentcompare.llm.tracing import use_os_trust_store
+
+    monkeypatch.setitem(sys.modules, "truststore", None)   # import 시 ImportError
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC)
+    assert use_os_trust_store(cfg) is False
+
+
+def test_broken_truststore_does_not_crash_the_run(monkeypatch, caplog):
+    """관측 기능의 실패가 비교 실행을 막으면 안 된다 — 이 원칙이 여기에도 적용된다."""
+    import types
+
+    from contentcompare.llm.tracing import use_os_trust_store
+
+    mod = types.ModuleType("truststore")
+
+    def boom():
+        raise RuntimeError("이 플랫폼에서는 못 씁니다")
+
+    mod.inject_into_ssl = boom
+    monkeypatch.setitem(sys.modules, "truststore", mod)
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC)
+    assert use_os_trust_store(cfg) is False
+
+
+def test_client_creation_reaches_for_the_os_trust_store(fake_truststore):
+    """배선 확인 — 클라이언트를 만들기 **전에** 주입돼야 SDK 내부가 그걸 본다."""
+    from contentcompare.llm.tracing import new_langfuse_client
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC)
+
+    def factory(**kwargs):
+        assert fake_truststore.calls == ["injected"]   # 생성 시점엔 이미 끝나 있어야
+        return "client"
+
+    assert new_langfuse_client(cfg, factory) == "client"
+
+
 # --------------------------------------------------------------------- #
 # 연결 점검(--check)
 # --------------------------------------------------------------------- #

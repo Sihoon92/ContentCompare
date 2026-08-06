@@ -38,6 +38,10 @@ onnx = [
 # 설치하지 않아도 동작에 영향이 없다.
 langfuse = [
     "langfuse>=3.0,<4",
+    # 사내 사설 CA 대응. 파이썬은 certifi(공인 CA)만 믿어서 자체호스팅 Langfuse 에
+    # CERTIFICATE_VERIFY_FAILED 가 나는데, 브라우저가 붙는 PC 는 루트 CA 가 이미 OS
+    # 저장소에 있다. truststore 가 그걸 쓰게 해 PEM 파일을 손으로 만들 필요를 없앤다.
+    "truststore>=0.9",
 ]
 dev = [
     "pytest>=7.0",

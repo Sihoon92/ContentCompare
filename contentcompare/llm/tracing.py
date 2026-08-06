@@ -213,6 +213,56 @@ def ca_bundle(lf: Any) -> Any:
     return path
 
 
+_trust_store_logged = False
+
+
+def use_os_trust_store(lf: Any) -> bool:
+    """OS(Windows) 인증서 저장소를 파이썬 전역 SSL 에 주입한다. 성공하면 ``True``.
+
+    **왜 필요한가.** 사내 PC 는 브라우저로 Langfuse 웹이 열린다 = 루트 CA 가 이미
+    Windows 저장소에 있다. 그런데 파이썬은 ``certifi`` 의 공인 CA 만 믿어서 혼자
+    실패한다. :func:`apply_ssl_env` 로 ``SSL_CERT_FILE`` 을 깔아도 부족한데,
+    **httpx 는 그 환경변수를 읽지 않고** certifi 로 기본 컨텍스트를 만들기 때문이다
+    — Langfuse SDK 가 내부에서 자기 httpx 클라이언트를 만들면 우리가 넘긴 CA 를
+    전부 우회한다. ``truststore`` 는 ``ssl.SSLContext`` 자체를 갈아끼우므로 그
+    경로까지 덮는다(실측: 이것만이 사내 자체호스팅 접속을 통과시켰다).
+
+    ``disable_proxy`` / :func:`apply_ssl_env` 와 같이 **프로세스 전역**을 바꾸며
+    복원하지 않는다. 그래서 사람이 의도를 밝힌 경우엔 손대지 않는다:
+
+    - ``ssl_cert`` 를 명시했다 → 그 인증서가 우선이다
+    - ``verify_ssl: false`` → 검증할 게 없다
+
+    선택 의존성이라 없으면 예전대로 certifi 로 돈다. 관측 기능의 실패가 비교 실행을
+    막아선 안 되므로 어떤 예외도 삼킨다.
+    """
+    global _trust_store_logged
+
+    if (getattr(lf, "ssl_cert", "") or "").strip():
+        return False
+    if not getattr(lf, "verify_ssl", True):
+        return False
+    try:
+        import truststore  # noqa: WPS433 — 지연 import (선택 의존성)
+
+        truststore.inject_into_ssl()
+    except ImportError:
+        if not _trust_store_logged:
+            _trust_store_logged = True
+            logger.info(
+                "사내 CA 를 쓰는 환경이면 `pip install truststore` 를 권합니다 "
+                "— OS 인증서 저장소를 그대로 써서 PEM 파일이 필요 없어집니다."
+            )
+        return False
+    except Exception as exc:  # noqa: BLE001 — 관측 실패가 실행을 막으면 안 된다
+        logger.warning("OS 인증서 저장소를 쓰지 못했습니다: %s", exc)
+        return False
+    if not _trust_store_logged:
+        _trust_store_logged = True
+        logger.info("OS 인증서 저장소 사용(truststore) — 사내 CA 를 그대로 신뢰합니다.")
+    return True
+
+
 def apply_ssl_env(lf: Any) -> None:
     """CA 번들을 환경변수로도 깔아둔다 — SDK 내부가 무엇을 쓰든 타도록.
 
@@ -263,6 +313,8 @@ def new_langfuse_client(lf: Any, factory: Any) -> Any:
     (환경변수 경로는 이미 깔려 있으므로 그것만으로도 대개 붙는다).
     """
     apply_ssl_env(lf)
+    # 클라이언트를 만들기 **전에** 주입해야 SDK 내부가 만드는 httpx 클라이언트까지 덮는다.
+    use_os_trust_store(lf)
     host, public, secret = lf.resolved()
     kwargs: dict[str, Any] = {"public_key": public, "secret_key": secret,
                               "host": host, "debug": lf.debug}

@@ -129,10 +129,12 @@ def _langfuse_result(config: AppConfig) -> Optional[CheckResult]:
         # 사내 자체호스팅에서 가장 흔한 실패다. 원인 모르고 헤매지 않도록 해법을 붙인다.
         if "CERTIFICATE_VERIFY_FAILED" in str(exc) or "SSLError" in type(exc).__name__:
             detail += (
-                "\n     → 사내 CA 인증서가 필요합니다. llm.langfuse.ssl_cert 에 "
-                "PEM 파일 경로를 지정하세요."
-                "\n       .cer 이 바이너리(DER)면 변환: "
-                "openssl x509 -inform DER -in x.cer -out corp-ca.pem"
+                "\n     → 먼저 `pip install truststore` 를 시도하세요 — OS 인증서 "
+                "저장소를 쓰므로 브라우저로 Langfuse 웹이 열리는 PC 면 대개 이걸로 끝납니다."
+                "\n       그래도 안 되면 llm.langfuse.ssl_cert 에 사내 CA 의 PEM 경로를 "
+                "지정하세요(.cer 이 DER 이면 변환: "
+                "openssl x509 -inform DER -in x.cer -out corp-ca.pem)."
+                "\n       원인 격리: python scripts/langfuse_test.py [--insecure]"
             )
         return CheckResult("Langfuse", False, detail)
     ca = "" if not lf.ssl_cert else f", ca={os.path.basename(lf.ssl_cert)}"
