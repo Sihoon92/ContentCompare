@@ -56,6 +56,51 @@ class InternalConfig:
 
 
 @dataclass
+class LangfuseConfig:
+    """LLM 입출력 추적(Langfuse). **세 값이 다 채워져야 켜진다.**
+
+    이 프로젝트의 LLM 디버깅 수단은 로그 파일과 최종 산출물 JSON 뿐이었다. 로그는
+    HTTP 페이로드를 1000자에서 자르고(``llm/http.py``), 산출물에는 프롬프트가 없다.
+    그래서 "무엇을 넣어 무엇을 받았는지"를 볼 수가 없었다 — Langfuse 가 그 공백을 메운다.
+
+    키 지정 규약은 :class:`InternalConfig` 와 같다: 직접값 우선, 비면 환경변수.
+    **시크릿은 환경변수 사용을 권장**한다(``config.yaml`` 이 .gitignore 대상이더라도).
+    """
+
+    host: str = ""
+    """Langfuse 서버 주소. 비우면 비활성. 사내 자체호스팅 가정."""
+    public_key: str = ""
+    secret_key: str = ""
+    public_key_env: str = "LANGFUSE_PUBLIC_KEY"
+    """public_key 가 비었을 때 읽을 환경변수 이름."""
+    secret_key_env: str = "LANGFUSE_SECRET_KEY"
+    """secret_key 가 비었을 때 읽을 환경변수 이름."""
+    enabled: bool = True
+    """키가 다 있어도 잠시 끄고 싶을 때 false."""
+    trace_embeddings: bool = False
+    """임베딩 호출도 추적할지. 기본 false — 한 번에 20건씩 묶여 오고 출력이 숫자
+    벡터라 trace 가 지저분해지는 반면, 디버깅이 어려운 것은 chat 프롬프트다."""
+    flush_timeout: float = 5.0
+    """종료 시 전송 대기 상한(초). 짧은 실행이 전송 전에 끝나는 것을 막는다."""
+    debug: bool = False
+    """true 면 SDK 자체 디버그 로그를 켠다."""
+
+    def resolved(self) -> tuple[str, str, str]:
+        """``(host, public_key, secret_key)`` — 직접값 우선, 없으면 환경변수."""
+        pub = self.public_key or os.environ.get(self.public_key_env, "")
+        sec = self.secret_key or os.environ.get(self.secret_key_env, "")
+        return self.host.strip(), pub.strip(), sec.strip()
+
+    def is_active(self) -> bool:
+        """추적을 켤 것인가. 셋 중 하나라도 비면 끈다.
+
+        반쯤 켜진 상태로 실행되면 "왜 trace 가 없지?" 를 추적하는 데 시간이 든다.
+        전부 갖춰졌을 때만 켠다.
+        """
+        return self.enabled and all(self.resolved())
+
+
+@dataclass
 class LLMConfig:
     backend: str = "ollama"  # "ollama" | "internal" | "langchain"
     embed_backend: str = ""
@@ -107,6 +152,7 @@ class LLMConfig:
     """요청 한도(429) 전용 재시도 횟수(일반 일시오류와 별도 예산)."""
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     internal: InternalConfig = field(default_factory=InternalConfig)
+    langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
 
     def embed_prefix_for(self, kind: str) -> str:
         """임베딩 입력 종류별 접두어를 고른다.
@@ -314,7 +360,8 @@ class AppConfig:
         llm_raw = dict(data.get("llm", {}))
         ollama = OllamaConfig(**llm_raw.pop("ollama", {}) or {})
         internal = InternalConfig(**llm_raw.pop("internal", {}) or {})
-        llm = LLMConfig(ollama=ollama, internal=internal, **llm_raw)
+        langfuse = LangfuseConfig(**llm_raw.pop("langfuse", {}) or {})
+        llm = LLMConfig(ollama=ollama, internal=internal, langfuse=langfuse, **llm_raw)
         return cls(
             llm=llm,
             excel=ExcelConfig(**data.get("excel", {}) or {}),

@@ -72,6 +72,7 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 - **프록시 정책(기획 1번)**: `internal`/`langchain` + `internal.unset_proxy=true` 면 `build_clients` 시점에 `disable_proxy()` 로 `HTTP(S)_PROXY` 를 프로세스 전역에서 영구히 비워 사내망 직결을 만든다.
 - **HTTP 견고성(`llm/http.py`)**: 일시오류(연결/타임아웃/5xx)는 지수 백오프 재시도, **요청 한도(HTTP 429)는 별도 예산**으로 `rate_limit_wait`(서버 `Retry-After` 우선)만큼 대기 후 재시도.
 - **e5 계열 교차언어 검색**: 검색어/본문에 다른 접두어가 필요 → `embed_query_prefix`(`query: `) / `embed_passage_prefix`(`passage: `), 미지정 시 `embed_prefix` 폴백. `config.llm.embed_prefix_for(kind)` 가 선택한다.
+- **LLM 입출력 추적(`llm/tracing.py`, 선택)**: `llm.langfuse` 에 `host`/`public_key`/`secret_key` 를 **셋 다** 채우면 켜진다(하나라도 비면 조용히 꺼짐). `build_clients` 가 chat 클라이언트를 `TracedChat` 으로 감싸는 방식이라 **fact 6단계·RAG 판정·헤더 추정이 호출부 수정 없이** 전부 잡힌다 — `comparison/`·`readers/` 가 코드 무수정 원칙이라 이 설계가 필수다. 꺼져 있으면 래핑도 import 도 하지 않아 기존 동작과 **동일 객체**다. 단계 이름은 `tracing.stage()` 로 붙이고(fact 파이프라인), 없으면 호출자 모듈명으로 폴백한다. **추적 실패는 절대 실행을 막지 않는다** — 첫 실패에 경고 1회 후 no-op 으로 강등. Langfuse SDK 접촉은 `LangfuseTracer` 한 곳에 가둬 v2↔v3 교체가 이 파일 안에서 끝난다. ⚠️ artifacts 캐시가 적중한 단계는 LLM 을 안 불러 trace 가 없다(실행 시 안내 출력).
 
 ### 하이브리드 검색 (`similarity/`)
 

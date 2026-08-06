@@ -88,7 +88,43 @@ def check_llm(
     except Exception as exc:  # noqa: BLE001
         results.append(CheckResult(f"embeddings ({llm.embed_model})", False, _err(exc)))
 
+    # 3) Langfuse(선택). 켜져 있을 때만 점검한다 — 안 쓰는 사람에게 실패 줄이 뜨면 안 된다.
+    lf_result = _langfuse_result(config)
+    if lf_result is not None:
+        results.append(lf_result)
+
     return results
+
+
+def _langfuse_result(config: AppConfig) -> Optional[CheckResult]:
+    """LLM 입출력 추적 설정 점검. 꺼져 있으면 ``None``(줄 자체를 만들지 않는다).
+
+    **키 값은 절대 출력하지 않는다** — 점검 결과는 화면과 로그에 그대로 남는다.
+    """
+    lf = config.llm.langfuse
+    host, public, secret = lf.resolved()
+    if not lf.enabled:
+        return None
+    if not (host or public or secret):
+        return None  # 아무것도 설정하지 않음 = 이 기능을 안 쓴다
+    if not lf.is_active():
+        missing = [n for n, v in (("host", host), ("public_key", public),
+                                  ("secret_key", secret)) if not v]
+        return CheckResult("Langfuse", False,
+                           f"설정이 불완전합니다 — 누락: {', '.join(missing)}")
+    try:
+        from langfuse import Langfuse  # type: ignore[import-not-found]
+    except ImportError:
+        return CheckResult("Langfuse", False,
+                           'SDK 미설치 — pip install -e ".[langfuse]"')
+    try:
+        client = Langfuse(public_key=public, secret_key=secret, host=host)
+        auth = getattr(client, "auth_check", None)
+        if auth is not None and auth() is False:
+            return CheckResult("Langfuse", False, f"인증 실패 (host={host})")
+    except Exception as exc:  # noqa: BLE001 — 원인을 사용자에게 그대로 보여준다
+        return CheckResult("Langfuse", False, f"{_err(exc)} (host={host})")
+    return CheckResult("Langfuse", True, f"host={host}")
 
 
 def all_ok(results: list[CheckResult]) -> bool:

@@ -34,6 +34,11 @@ onnx = [
     "tokenizers>=0.15",
     "numpy>=1.24",
 ]
+# LLM 입출력 추적. 설정(llm.langfuse)이 비어 있으면 import 조차 하지 않으므로
+# 설치하지 않아도 동작에 영향이 없다.
+langfuse = [
+    "langfuse>=3.0,<4",
+]
 dev = [
     "pytest>=7.0",
     # scripts/make_synthetic_targets.py — 테스트용 대상 문서 생성(COM 불필요).

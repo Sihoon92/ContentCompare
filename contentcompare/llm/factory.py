@@ -53,4 +53,15 @@ def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
     chat_obj = _make(backend, llm)
     # 임베딩 백엔드가 같으면 같은 객체를, 다르면 별도로 생성.
     embed_obj = chat_obj if embed_backend == backend else _make(embed_backend, llm)
+
+    # LLM 입출력 추적(Langfuse). **꺼져 있으면 import 조차 하지 않는다** — 코어
+    # 의존성 최소 정책을 지키고, 설정을 건드리지 않은 사용자에게 변화가 0 이도록
+    # 오늘과 **동일 객체**를 그대로 돌려준다.
+    #
+    # chat 만 감싼다(embed_obj 는 그대로). 같은 객체인 백엔드에서도 임베딩 호출은
+    # TracedChat.__getattr__ 위임으로 원래 구현에 그대로 닿는다.
+    if llm.langfuse.is_active():
+        from .tracing import wrap_chat
+
+        chat_obj = wrap_chat(chat_obj, config)
     return chat_obj, embed_obj

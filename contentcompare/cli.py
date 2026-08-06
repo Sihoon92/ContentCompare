@@ -15,6 +15,7 @@ import sys
 from .config import AppConfig
 from .fact.engine import make_pipeline
 from .llm.health import all_ok, check_llm
+from .llm.tracing import get_tracer, run_metadata, trace_run
 from .logging_setup import log_print, setup_logging
 from .report import render_markdown, save_report
 
@@ -89,6 +90,28 @@ def _print_fact_summaries(summaries: list[dict]) -> int:
     return failed
 
 
+def _warn_if_cached(config, summaries: list[dict]) -> None:
+    """캐시 적중 단계는 LLM 을 부르지 않아 trace 가 없다는 것을 알린다.
+
+    이 안내가 없으면 "Langfuse 를 켰는데 왜 비어 있지?" 로 시간을 잃는다. 원인은
+    ``artifacts`` 지문 캐싱이며, 해당 문서 폴더를 지우고 다시 돌리면 채워진다.
+    """
+    if not config.llm.langfuse.is_active():
+        return
+    hits = [
+        os.path.basename(str(s.get("path", "")))
+        for s in summaries
+        if any((s.get("stats", {}).get(k) or {}).get("cached")
+               for k in ("records", "facts"))
+    ]
+    if hits:
+        log_print(
+            f"\n[Langfuse] 캐시 적중 {len(hits)}건({', '.join(hits)}) — 해당 단계는 "
+            f"LLM 을 호출하지 않아 trace 가 없습니다.\n"
+            f"           전체를 다시 보려면 artifacts/<문서> 폴더를 지우고 실행하세요."
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
@@ -122,10 +145,17 @@ def main(argv: list[str] | None = None) -> int:
 
     pipeline = make_pipeline(config, args.engine)
 
+    # LLM 입출력 추적(Langfuse). 미설정이면 NullTracer 라 아무 일도 하지 않는다.
+    tracer = get_tracer(config)
+    run_name = f"contentcompare {args.engine}"
+    meta = run_metadata(config, args.engine, args.reference, args.targets)
+
     # 신규 fact 엔진: 문서를 fact 로 정규화·검증한 뒤 fact 끼리 비교해 리포트를 만든다.
     if args.engine == "fact":
-        result = pipeline.run(args.reference, args.targets, progress=_fact_progress)
+        with trace_run(tracer, run_name, meta):
+            result = pipeline.run(args.reference, args.targets, progress=_fact_progress)
         failed = _print_fact_summaries(result.summaries)
+        _warn_if_cached(config, result.summaries)
         if not result.markdown:
             log_print("\n비교할 fact 가 부족해 리포트를 만들지 못했습니다(위 오류를 확인하세요).")
             return 1
@@ -140,7 +170,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failed else 0
 
     # 현행 RAG 엔진(기본): 기존 동작 그대로.
-    results = pipeline.run(args.reference, args.targets, progress=_progress)
+    with trace_run(tracer, run_name, meta):
+        results = pipeline.run(args.reference, args.targets, progress=_progress)
 
     report = render_markdown(
         results, reference_doc=args.reference, target_docs=args.targets

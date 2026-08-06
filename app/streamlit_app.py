@@ -20,6 +20,7 @@ import streamlit as st
 from contentcompare import knowledge as kb
 from contentcompare.config import AppConfig
 from contentcompare.llm.health import all_ok, check_llm
+from contentcompare.llm.tracing import get_tracer, run_metadata, trace_run
 from contentcompare.logging_setup import read_log_text, setup_logging
 from contentcompare.pipeline import ComparePipeline
 from contentcompare.models import RecordResult, Verdict
@@ -433,7 +434,12 @@ def _run_tab(config: AppConfig):
         logger.info("비교 실행 시작: 기준=%s, 대상=%d개", ref_path, len(target_paths))
         try:
             pipeline = ComparePipeline(config)
-            results = pipeline.run(ref_path, target_paths, progress=on_progress)
+            # LLM 입출력 추적(Langfuse). 미설정이면 NullTracer 라 아무 일도 하지 않는다.
+            # 실행 하나를 trace 하나로 묶어야 UI 에서 "이 실행의 프롬프트들"로 볼 수 있다.
+            tracer = get_tracer(config)
+            with trace_run(tracer, "contentcompare rag (ui)",
+                           run_metadata(config, "rag", ref_path, list(target_paths))):
+                results = pipeline.run(ref_path, target_paths, progress=on_progress)
             logger.info("비교 실행 완료: %d개 항목", len(results))
         except Exception as exc:  # noqa: BLE001 - 사용자에게 오류 노출
             logger.exception("비교 실행 실패")

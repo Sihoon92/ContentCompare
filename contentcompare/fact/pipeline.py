@@ -29,6 +29,7 @@ from typing import Any, Callable, Optional
 
 from ..config import AppConfig, FactConfig
 from ..knowledge import load_knowledge
+from ..llm.tracing import stage
 from ..raw import compact_raw, extract_raw
 from ..readers import close_all_office
 from .artifacts import ArtifactStore
@@ -182,17 +183,18 @@ class FactPipeline:
             matcher = self._matcher_for(graph, ref_doc, target)
             # 후보가 없을 때의 사유는 매칭 전략이 안다(개념 경로 = '연결 없음').
             explain = getattr(matcher, "explain_missing", None)
-            for ref_fact in ref_doc.facts.facts:
-                candidates = matcher.search(ref_fact)
-                result.comparisons.append(comparator.compare(
-                    ref_fact,
-                    candidates,
-                    target,
-                    ref_low_confidence=ref_doc.is_low_confidence(ref_fact),
-                    missing_reason=(
-                        "" if candidates or explain is None else explain(ref_fact)
-                    ),
-                ))
+            with stage(f"F5 값 대조 · {target.doc_name}"):
+                for ref_fact in ref_doc.facts.facts:
+                    candidates = matcher.search(ref_fact)
+                    result.comparisons.append(comparator.compare(
+                        ref_fact,
+                        candidates,
+                        target,
+                        ref_low_confidence=ref_doc.is_low_confidence(ref_fact),
+                        missing_reason=(
+                            "" if candidates or explain is None else explain(ref_fact)
+                        ),
+                    ))
 
         result.compare_stats = {
             "comparisons": len(result.comparisons),
@@ -227,16 +229,17 @@ class FactPipeline:
         runner = LlmRunner(
             self._chat_client(), max_calls=self.fact.max_llm_calls_per_concept
         )
-        graph = build_concept_graph(
-            store,
-            embedder=self._embed_client(),
-            runner=runner,
-            ontology=load_ontology(self.fact.ontology_path),
-            knowledge=load_knowledge(),
-            top_k=self.fact.concept_recall_top_k,
-            min_score=self.fact.concept_recall_min,
-            batch_size=self.fact.concept_batch_pairs,
-        )
+        with stage("F7 개념 판정"):
+            graph = build_concept_graph(
+                store,
+                embedder=self._embed_client(),
+                runner=runner,
+                ontology=load_ontology(self.fact.ontology_path),
+                knowledge=load_knowledge(),
+                top_k=self.fact.concept_recall_top_k,
+                min_score=self.fact.concept_recall_min,
+                batch_size=self.fact.concept_batch_pairs,
+            )
         ref_doc = store.reference
         if ref_doc is not None:
             artifacts = ArtifactStore(
@@ -315,9 +318,10 @@ class FactPipeline:
         ``stages``/``stats`` 는 호출자가 준 out-param 이다 — 중간에 실패해도 그때까지의
         진행 단계와 계측값을 잃지 않기 위해서다.
         """
+        doc_label = os.path.basename(path)
         store = ArtifactStore(
             self.fact.artifacts_dir,
-            os.path.basename(path),
+            doc_label,
             enabled=self.fact.save_artifacts,
             cache=self.fact.cache,
         )
@@ -338,27 +342,34 @@ class FactPipeline:
         column_schema: Optional[ColumnSchema] = None
         facts = FactSet()
         try:
-            profile = profile_document(compact, runner, store)
+            # ``stage(...)`` 는 Langfuse trace 에 붙일 단계 이름이다(추적이 꺼져 있으면
+            # 컨텍스트 변수만 설정하는 사실상 무비용 연산). 이름이 없으면 trace 가
+            # 한 덩어리로 뭉쳐 어느 단계의 프롬프트인지 알 수 없다.
+            with stage(f"F1 document_profile · {doc_label}"):
+                profile = profile_document(compact, runner, store)
             stages.append("document_profile")
             if compact.get("doc_type") == "excel":
-                tp, cs = induce_schema(compact, profile, runner, store)
+                with stage(f"F1 column_schema · {doc_label}"):
+                    tp, cs = induce_schema(compact, profile, runner, store)
                 column_schema = cs
                 stages += ["table_profile", "column_schema"]
-                records = normalize_records(
-                    compact, tp, cs, runner,
-                    batch_rows=self.fact.record_batch_rows, store=store,
-                    stats=record_stats,
-                )
+                with stage(f"F2 records · {doc_label}"):
+                    records = normalize_records(
+                        compact, tp, cs, runner,
+                        batch_rows=self.fact.record_batch_rows, store=store,
+                        stats=record_stats,
+                    )
                 stages.append("records")
                 # F3: records → facts (코드 결정적, 무 LLM)
                 facts = extract_facts(compact, records=records, store=store, stats=fact_stats)
             else:
                 # F3: Word/PPT 는 블록/도형 → facts 직행 (LLM)
-                facts = extract_facts(
-                    compact, profile=profile, runner=runner,
-                    store=store, batch_blocks=self.fact.fact_batch_blocks,
-                    stats=fact_stats,
-                )
+                with stage(f"F3 facts · {doc_label}"):
+                    facts = extract_facts(
+                        compact, profile=profile, runner=runner,
+                        store=store, batch_blocks=self.fact.fact_batch_blocks,
+                        stats=fact_stats,
+                    )
             stages.append("facts")
 
             # F4a: 코드 검증(무 LLM). error 가 붙은 fact 는 버리지 않고 저신뢰로 표시해

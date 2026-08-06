@@ -39,6 +39,31 @@ llm:
     verify_ssl: false
     log_proxy: false       # true 면 호출 직전 적용 프록시 env 를 로그로 출력
 
+  # LLM 입출력 추적(Langfuse) — 프롬프트/응답/지연을 단계별로 남긴다.
+  # 로그 파일은 HTTP 페이로드를 1000자에서 자르고 artifacts/ 에는 최종 산출물만 남아
+  # "무엇을 넣어 무엇을 받았는지"를 볼 수 없었다. 이 섹션이 그 공백을 메운다.
+  #
+  # 설치: pip install -e ".[langfuse]"        (사내망이면 내부 PyPI 미러 필요)
+  # 확인: contentcompare --check --config config/config.yaml
+  #
+  # host/public_key/secret_key 가 **셋 다** 채워져야 켜진다. 하나라도 비면 조용히 꺼진다
+  # (반쯤 켜진 상태로 도는 것보다 확실히 꺼지는 편이 원인 추적에 낫다).
+  langfuse:
+    host: ""                 # 예) http://langfuse.intra.corp — 비우면 비활성
+    public_key: ""           # 비워두고 아래 *_env 사용 권장(시크릿을 파일에 두지 않는다)
+    secret_key: ""
+    public_key_env: LANGFUSE_PUBLIC_KEY   # public_key 가 비었을 때 읽을 환경변수
+    secret_key_env: LANGFUSE_SECRET_KEY   # secret_key 가 비었을 때 읽을 환경변수
+    enabled: true            # 키가 다 있어도 잠시 끄고 싶으면 false
+    trace_embeddings: false  # 임베딩까지 추적할지. 기본 false — 20건씩 묶여 오고
+                             # 출력이 숫자 벡터라 trace 만 지저분해진다
+    flush_timeout: 5.0       # 종료 시 전송 대기 상한(초)
+    debug: false             # SDK 자체 디버그 로그
+  # ⚠️ 프롬프트에는 문서 본문이 그대로 들어간다. 사내 자체호스팅을 전제로 하며,
+  #    Langfuse 서버의 접근 권한은 문서 열람 권한과 같은 수준이어야 한다.
+  # ⚠️ artifacts 캐시가 적중한 단계는 LLM 을 호출하지 않아 trace 가 없다.
+  #    전체를 다시 보려면 artifacts/<문서> 폴더를 지우고 실행한다(실행 시 안내됨).
+
 excel:
   granularity: hybrid       # row | field | hybrid (행=검색, 셀=판정)
   header_row: 1             # 헤더가 시작하는 행(1-based)
