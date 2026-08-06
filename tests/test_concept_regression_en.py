@@ -66,22 +66,26 @@ class _SameAsChat:
     실제 라이브에서 LLM 은 정확히 인용했다. 게이트가 그것을 거부한 것이 결함이었다.
     """
 
-    def __init__(self, right_quote: str = "") -> None:
+    def __init__(self, right_quote: str = "", quote_names: bool = False) -> None:
         self.right_quote = right_quote
         """대상 쪽 인용을 바꿔치기한다(부분 인용 대조군용). 비우면 원문 전체."""
+        self.quote_names = quote_names
+        """참이면 값이 아니라 **항목명**을 인용한다(2026-08-06 실측에서 관찰된 형태)."""
         self.calls = 0
 
     def complete(self, system, user, *, temperature=0.0):
         self.calls += 1
         pairs = []
-        for ref_id, _, ref_ev, _, tgt_id, _, tgt_ev, _ in PAIRS:
+        for ref_id, ref_name, ref_ev, _, tgt_id, tgt_name, tgt_ev, _ in PAIRS:
             if ref_id not in user or tgt_id not in user:
                 continue
+            left = ref_name if self.quote_names else ref_ev
+            right = tgt_name if self.quote_names else (self.right_quote or tgt_ev)
             pairs.append({
                 "left_fact_id": ref_id, "right_fact_id": tgt_id,
                 "relation": "same_as", "axis": "",
-                "left_text": ref_ev,
-                "right_text": self.right_quote or tgt_ev,
+                "left_text": left,
+                "right_text": right,
                 "reason": "같은 항목의 한국어/영어 표기",
             })
         return json.dumps({"pairs": pairs}, ensure_ascii=False)
@@ -134,6 +138,21 @@ def test_real_value_mismatch_is_reported():
     result = comparator.compare(ref, matcher.search(ref), target)
     assert result.result == MISMATCH
     assert result.mismatch_attributes == ["target_value"]
+
+
+def test_entity_name_quotes_link_the_pair():
+    """LLM 이 값이 아니라 **항목명**을 인용해도 연결이 살아남는다.
+
+    2026-08-06 실측에서 관찰된 형태다. LLM 의 사유가 "공칭용량의 영문 표기는
+    Nominal capacity 입니다" 였으니 이름을 인용한 것은 주장에 맞는 근거였는데,
+    영어 이름이 2 토큰이라 하한에 걸려 20건 중 이 쌍이 통째로 죽었다.
+    한국어 쪽(``공칭용량``)은 bigram 으로 4 토큰이 되어 통과했다 — 언어 편향이다.
+    """
+    graph = _graph(_SameAsChat(quote_names=True))
+    assert graph.stats["rejected_evidence"] == 0
+    assert graph.stats["same_as"] == len(PAIRS)
+    for ref_id, *_ in PAIRS:
+        assert graph.partners(REF_DOC, ref_id, EN_DOC), ref_id
 
 
 def test_partial_quote_from_rich_source_is_still_rejected():

@@ -107,6 +107,57 @@ def test_normal_length_quote_still_passes():
     assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is True
 
 
+def test_two_word_name_quote_is_accepted_as_evidence():
+    """항목명을 통째로 인용하면 하한을 면제한다 — 영어 두 단어 이름이 막히면 안 된다.
+
+    2026-08-06 실측: LLM 이 ``공칭용량 ↔ Nominal capacity`` 를 정확히 판정하고 양쪽
+    **항목명**을 인용했는데(주장이 "영문 표기가 Nominal capacity 다"였으니 자연스럽다)
+    연결이 죽었다. 원인은 :func:`tokenize` 가 한글 3글자 이상을 bigram 으로 부풀리는
+    것이다 — ``공칭용량`` 은 4 토큰이 되어 통과하고 ``Nominal capacity`` 는 2 토큰이라
+    하한(3)에 걸린다. **같은 성격의 인용이 언어에 따라 갈렸다.**
+
+    커버리지는 1.00 이었다(원문에 완벽히 실재). 오직 하한만이 이것을 막았다.
+    전체 인용 면제도 구제하지 못한다 — 대상 원문 ``Nominal capacity, 1150, mAh`` 는
+    이름보다 길어 이름만 인용하면 '부분 인용'이 되기 때문이다.
+    """
+    facts = _facts()
+    facts[TGT_A.key] = _fact("fact-word-7", "Nominal capacity",
+                             "Nominal capacity, 1150, mAh")
+    edge = ConceptEdge(SAME_AS, REF_A, TGT_A, left_text="공칭용량",
+                       right_text="Nominal capacity", decided_by=BY_LLM)
+    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is True
+
+
+def test_name_exemption_requires_the_whole_name():
+    """면제는 이름을 **통째로** 인용했을 때만이다 — 한정어를 떨어뜨리면 안 된다.
+
+    위 면제를 부분집합 검사(``name <= tokens``)가 아니라 교집합 검사
+    (``name & tokens``)로 구현하면 이 테스트가 실패한다. ``최대충전전류`` 에서
+    ``충전전류`` 만 인용하는 것이 정확히 이 유형이고, 실측에서 잘못된 개념 병합
+    (``표준충전전류 ↔ Maximum charging current``)을 만든 실패 모드다.
+    """
+    facts = _facts()
+    facts[TGT_A.key] = _fact("fact-word-7", "Maximum charging current",
+                             "Maximum charging current, 1495, mA")
+    edge = ConceptEdge(SAME_AS, REF_A, TGT_A, left_text="공칭용량",
+                       right_text="charging current", decided_by=BY_LLM)
+    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is False
+
+
+def test_name_exemption_does_not_bypass_coverage():
+    """면제는 하한만 푼다 — 원문에 없는 문구는 여전히 커버리지에서 막힌다.
+
+    LLM 이 이름을 **오타로** 적으면(``Noominal capacity``) 그것은 문서에 없는 문구이므로
+    거부되어야 한다. 면제를 커버리지 검사보다 앞에 두면 이 테스트가 실패한다.
+    """
+    facts = _facts()
+    facts[TGT_A.key] = _fact("fact-word-7", "Nominal capacity",
+                             "Nominal capacity, 1150, mAh")
+    edge = ConceptEdge(SAME_AS, REF_A, TGT_A, left_text="공칭용량",
+                       right_text="Noominal capacity", decided_by=BY_LLM)
+    assert verify_evidence(edge, facts[REF_A.key], facts[TGT_A.key]) is False
+
+
 def test_demoted_edge_reason_marks_the_rejection():
     """강등된 엣지가 LLM 이 쓴 원래 사유를 그대로 리포트에 노출하면 안 된다.
 
