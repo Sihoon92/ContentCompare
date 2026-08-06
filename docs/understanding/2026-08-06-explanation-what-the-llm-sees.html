@@ -168,6 +168,114 @@ figcaption{font-size:.83rem; color:var(--muted); text-align:center; margin-top:1
   .tok .name{flex-basis:120px}
   .belt{font-size:.66rem}
 }
+
+/* === dv-components v1 === */
+.dv{--dv-fg:#1c1c1a;--dv-mut:#6b6b66;--dv-line:#dcdcd6;--dv-card:#fff;--dv-bg:#f6f6f4;
+    --dv-code:#1565c0;--dv-code-bg:#e8f1fb;--dv-llm:#e65100;--dv-llm-bg:#fdf0e3;
+    --dv-emb:#00796b;--dv-emb-bg:#e2f2f0;--dv-human:#6a1b9a;--dv-human-bg:#f4e9f7;
+    --dv-ok:#2e7d32;--dv-ok-bg:#e9f5ea;--dv-bad:#c62828;--dv-bad-bg:#fbeaea;
+    --dv-gray:#607d8b;--dv-gray-bg:#eceff1;--dv-amber:#ef6c00;--dv-amber-bg:#fdf0e0;
+    --dv-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace;
+    margin:26px 0;font-size:15px;line-height:1.6;color:var(--dv-fg)}
+@media (prefers-color-scheme:dark){.dv{--dv-fg:#e8e8e4;--dv-mut:#a2a29c;--dv-line:#3a3d44;
+    --dv-card:#1f2229;--dv-bg:#191c21;
+    --dv-code:#8ec5f5;--dv-code-bg:#16283a;--dv-llm:#ffb074;--dv-llm-bg:#3a2412;
+    --dv-emb:#6fc9bd;--dv-emb-bg:#123430;--dv-human:#d09ada;--dv-human-bg:#2c1936;
+    --dv-ok:#83c98a;--dv-ok-bg:#173620;--dv-bad:#ef9a9a;--dv-bad-bg:#3a1e1e;
+    --dv-gray:#a8bcc6;--dv-gray-bg:#272d33;--dv-amber:#ffb74d;--dv-amber-bg:#3a2a12}}
+.dv *{box-sizing:border-box}
+.dv-title{font-weight:700;font-size:.95rem;margin:0 0 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dv-title .dv-tag{font-size:.68rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:99px;background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-sub{font-size:.83rem;color:var(--dv-mut);margin:0 0 14px}
+.dv-cap{font-size:.8rem;color:var(--dv-mut);margin-top:12px;line-height:1.6}
+
+/* 주체 배지 */
+.dv-who{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;
+  padding:2px 9px;border-radius:99px;white-space:nowrap;border:1px solid transparent}
+.dv-who.dv-c{background:var(--dv-code-bg);color:var(--dv-code);border-color:var(--dv-code)}
+.dv-who.dv-l{background:var(--dv-llm-bg);color:var(--dv-llm);border-color:var(--dv-llm)}
+.dv-who.dv-e{background:var(--dv-emb-bg);color:var(--dv-emb);border-color:var(--dv-emb)}
+.dv-who.dv-h{background:var(--dv-human-bg);color:var(--dv-human);border-color:var(--dv-human)}
+.dv-who.dv-f{background:var(--dv-gray-bg);color:var(--dv-gray);border-color:var(--dv-gray)}
+.dv-legend{display:flex;gap:9px;flex-wrap:wrap;margin:0 0 14px}
+
+/* 판정 알약 */
+.dv-v{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.dv-v.dv-ok{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-v.dv-bad{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-v.dv-gray{background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-v.dv-amber{background:var(--dv-amber-bg);color:var(--dv-amber)}
+
+/* ---- 여정(journey) ---- */
+.dv-jrn{position:relative;padding-left:30px}
+.dv-jrn:before{content:"";position:absolute;left:9px;top:14px;bottom:14px;width:2px;background:var(--dv-line)}
+.dv-stop{position:relative;margin:0 0 12px}
+.dv-stop:before{content:"";position:absolute;left:-25px;top:14px;width:12px;height:12px;border-radius:50%;
+  background:var(--dv-card);border:2.5px solid var(--dv-line)}
+.dv-stop.dv-c:before{border-color:var(--dv-code)}
+.dv-stop.dv-l:before{border-color:var(--dv-llm)}
+.dv-stop.dv-e:before{border-color:var(--dv-emb)}
+.dv-stop.dv-f:before{border-color:var(--dv-gray);background:var(--dv-gray)}
+.dv-box{background:var(--dv-card);border:1px solid var(--dv-line);border-radius:10px;overflow:hidden}
+.dv-hd{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:9px 13px;background:var(--dv-bg);border-bottom:1px solid var(--dv-line)}
+.dv-hd .dv-nm{font-weight:700;font-size:.88rem}
+.dv-hd .dv-fn{font-family:var(--dv-mono);font-size:.74rem;color:var(--dv-mut);margin-left:auto}
+.dv-bd{padding:11px 13px}
+.dv-io{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.dv-io>div{flex:1 1 230px;min-width:0}
+.dv-io .dv-lb{font-size:.7rem;font-weight:700;color:var(--dv-mut);letter-spacing:.05em;margin-bottom:3px}
+.dv-data{font-family:var(--dv-mono);font-size:.73rem;line-height:1.55;background:var(--dv-bg);
+  border:1px solid var(--dv-line);border-radius:7px;padding:8px 10px;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.dv-note{font-size:.8rem;color:var(--dv-mut);margin-top:9px;padding-left:10px;border-left:2px solid var(--dv-line)}
+.dv-hi{background:rgba(230,81,0,.15);border-radius:3px;padding:0 3px;font-weight:700}
+
+/* ---- 갈림길(fates) ---- */
+.dv-fates{display:flex;gap:12px;flex-wrap:wrap}
+.dv-fate{flex:1 1 250px;background:var(--dv-card);border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
+.dv-fate .dv-fh{padding:9px 13px;font-size:.83rem;font-weight:700;border-bottom:1px solid var(--dv-line)}
+.dv-fate.dv-a .dv-fh{background:var(--dv-code-bg);color:var(--dv-code)}
+.dv-fate.dv-b .dv-fh{background:var(--dv-llm-bg);color:var(--dv-llm)}
+.dv-fate.dv-c2 .dv-fh{background:var(--dv-emb-bg);color:var(--dv-emb)}
+.dv-fate .dv-fs{padding:9px 13px;border-bottom:1px dashed var(--dv-line);font-size:.81rem}
+.dv-fate .dv-fs:last-child{border-bottom:none;margin-top:auto}
+.dv-fate .dv-fs .dv-st{font-size:.68rem;font-weight:700;color:var(--dv-mut);letter-spacing:.04em;display:block;margin-bottom:3px}
+.dv-fate .dv-mono{font-family:var(--dv-mono);font-size:.73rem;word-break:break-word}
+
+/* ---- 파이프라인 지도(map) ---- */
+.dv-map{display:flex;gap:0;flex-wrap:wrap;align-items:stretch}
+.dv-mi{flex:1 1 120px;min-width:118px;background:var(--dv-card);border:1px solid var(--dv-line);
+  border-radius:9px;padding:9px 10px;margin:3px;position:relative}
+.dv-mi .dv-n{font-size:.68rem;color:var(--dv-mut);font-weight:700}
+.dv-mi .dv-t{font-size:.82rem;font-weight:700;margin:2px 0 5px;line-height:1.35}
+.dv-mi .dv-f{font-family:var(--dv-mono);font-size:.68rem;color:var(--dv-mut);word-break:break-all;margin-top:5px}
+.dv-mi.dv-on{box-shadow:0 0 0 2px var(--dv-llm)}
+
+/* ---- 저울(before/after) ---- */
+.dv-ba{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+.dv-ba>div{flex:1 1 240px;border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;background:var(--dv-card)}
+.dv-ba .dv-h{padding:8px 13px;font-weight:700;font-size:.84rem;border-bottom:1px solid var(--dv-line)}
+.dv-ba .dv-before .dv-h{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-ba .dv-after .dv-h{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-ba .dv-b{padding:10px 13px;font-size:.83rem}
+.dv-ba ul{margin:0;padding-left:1.15em}
+.dv-ba li{margin:4px 0}
+
+/* ---- 막대(비율) ---- */
+.dv-bar{margin:9px 0 4px}
+.dv-bar .dv-bl{display:flex;justify-content:space-between;font-size:.79rem;color:var(--dv-mut);margin-bottom:4px}
+.dv-bar .dv-bt{display:flex;height:32px;border-radius:7px;overflow:hidden;border:1px solid var(--dv-line)}
+.dv-bar .dv-sg{display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;min-width:0}
+.dv-bar .dv-sg.dv-c{background:#1565c0}.dv-bar .dv-sg.dv-h{background:#6a1b9a}
+.dv-bar .dv-sg.dv-l{background:#e65100}.dv-bar .dv-sg.dv-e{background:#00796b}
+.dv-bar .dv-sg.dv-g{background:#78909c}
+
+.dv-scroll{overflow-x:auto}
+.dv-tbl{border-collapse:collapse;width:100%;font-size:.83rem;min-width:340px}
+.dv-tbl th,.dv-tbl td{border:1px solid var(--dv-line);padding:7px 10px;text-align:left;vertical-align:top}
+.dv-tbl th{background:var(--dv-bg);font-size:.78rem}
+.dv-tbl td.dv-n,.dv-tbl th.dv-n{text-align:right;font-variant-numeric:tabular-nums}
+@media (max-width:640px){.dv{font-size:14px}.dv-hd .dv-fn{margin-left:0;flex-basis:100%}}
+
 </style>
 </head>
 <body>
@@ -293,6 +401,98 @@ PPT 에서는 아예 문장 속에 파묻혀 있기도 합니다 — "충전 규
 
 <!-- ==================================================================== -->
 <h2 id="s2"><span class="num">2</span>문서를 '카드'로 바꾼다</h2>
+<div class="dv"><div class="dv-title">추적 여행 — 값 <code>3.89</code> 하나가 겪는 일</div>
+<div class="dv-sub">엑셀 7번째 줄의 공칭전압이 카드가 되기까지. 데이터는 전부 실제 <code>artifacts/자표준문서_xlsx/</code> 산출물이다.</div>
+<div class="dv-legend"><span class="dv-who dv-f">📄 파일</span><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-who dv-l">🤖 LLM</span></div>
+<div class="dv-jrn">
+<div class="dv-stop dv-f"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-f">📄 파일</span><span class="dv-nm">출발 · 엑셀 원본 파일</span><span class="dv-fn">samples/자표준문서.xlsx</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">이렇게 생겼다</div><div class="dv-data">7번째 줄:
+  E7 = "공칭전압"
+  G7 = 3.89        ← 중심치 열
+  K7 = (단위 칸이 비어 있음)</div></div>
+</div>
+<div class="dv-note">사람이 만든 표. 값 3.89 는 <b>G열(중심치)</b>에 있고, 이름은 <b>E열(소분류)</b>에 따로 있다. 이 '이름과 값이 다른 칸에 있다'가 나중에 큰 차이를 만든다.</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">1단계 · 있는 그대로 꺼내기</span><span class="dv-fn">raw/excel_raw.py → physical_raw.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">xlsx 파일 (COM 으로 연다)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"address":"E7","row":7,"column":"E",
+ "value":"공칭전압","value_type":"str",
+ "font_bold":false,"font_size":10.0}
+{"address":"G7","row":7,"column":"G",
+ "value":3.89,"value_type":"float"}</div></div>
+</div>
+<div class="dv-note"><b>해석하지 않는다.</b> 셀 주소·서식·병합까지 보이는 그대로 받아 적기만 한다. 여기서 판단을 섞으면 나중에 틀렸을 때 원본으로 되돌아갈 수가 없다.</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">2단계 · 압축하기</span><span class="dv-fn">raw/excel_raw.py → compact_raw.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">physical_raw.json (셀 하나당 객체 하나)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"r":7,"cells":{
+  "B":50.0,"C":"기본사양","D":"기본사양",
+  "E":"공칭전압","G":3.89,
+  "O":"C001D001","P":"N019316"}}</div></div>
+</div>
+<div class="dv-note">글꼴·색 같은 건 비교에 쓸모없으니 걷어낸다. 이제야 LLM 에게 보여줄 만한 크기가 된다.</div>
+</div></div></div>
+<div class="dv-stop dv-l"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-l">🤖 LLM</span><span class="dv-nm">3단계 · 열의 뜻을 알아낸다</span><span class="dv-fn">fact/schema_inducer.py → column_schema.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">compact_raw 의 헤더 근처 (표당 1회만)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"column":"G","field_name":"중심치",
+ "semantic_role":"quantitative_target",
+ "data_type":"number"}
+{"column":"K","field_name":"단위",
+ "semantic_role":"unit"}</div></div>
+</div>
+<div class="dv-note">LLM 이 처음 등장하는 자리. <b>행마다 부르지 않는다</b> — 표 전체에 한 번만 물어보고, 그 답을 20행 모두에 재사용한다. 비용이 여기서 결정된다.</div>
+</div></div></div>
+<div class="dv-stop dv-l"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-l">🤖 LLM</span><span class="dv-nm">4단계 · 행을 레코드로</span><span class="dv-fn">fact/record_normalizer.py → records.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">7행의 셀들 + 3단계의 열 뜻 (30행씩 묶어 1회)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"record_id":"row-7",
+ "entity":{"display_name":"공칭전압",
+   "path":["기본사양","C001D001","공칭전압"]},
+ "attributes":{"target_value":
+   {"value":3.89,"unit":""}},
+ "evidence_text":"3.89"}</div></div>
+</div>
+<div class="dv-note">"G열의 3.89" 가 <b>"target_value 는 3.89"</b> 라는 이름 붙은 속성이 됐다. 단위 칸이 비어 있어 <code>unit</code> 도 빈 문자열이다 — 이것도 나중에 중요해진다. 좌표(row 7)는 LLM 이 아니라 <b>코드가 채운다</b>(지어낼 수 없게).</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">5단계 · 카드 완성</span><span class="dv-fn">fact/fact_extractor.py → facts.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">records.json</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"fact_id":"fact-row-7",
+ "entity_name":"공칭전압",
+ "attributes":{"target_value":
+   {"value":3.89,"unit":""}},
+ "search_text":"공칭전압 기본사양 C001D001 3.89",
+ "evidence_text":"3.89",
+ "source":{"sheet":"데이터","row":7,
+   "cell_range":"B7:O7"}}</div></div>
+</div>
+<div class="dv-note"><b>엑셀은 여기서 LLM 을 쓰지 않는다.</b> 레코드를 카드 모양으로 옮기는 건 규칙이라 코드가 한다. Word/PPT 는 줄글이라 이 자리에서 LLM 이 카드를 뽑는다.<br><b>주목:</b> <code>evidence_text</code> 가 <code>"3.89"</code> — 낱말 하나뿐이다.</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">6단계 · 카드 검사</span><span class="dv-fn">fact/validator.py → validation_report.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">facts.json 20장</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">error: 0
+warn : 20  (단위 없음 16, 속성 없음 3,
+           역할 중복 1)
+low_confidence: 0</div></div>
+</div>
+<div class="dv-note">문제가 있어도 <b>버리지 않고 표시만</b> 한다. 버리면 사람이 확인할 기회 자체가 사라지기 때문이다. 표시된 카드는 나중에 판정할 때 '조심하라'는 신호로 쓰인다.</div>
+</div></div></div>
+</div>
+<div class="dv-cap">여기까지는 <b>모든 대상 문서에 공통</b>이다. 기준 문서를 카드로 만드는 일이므로 상대가 누구든 한 번만 하면 된다. 갈라지는 것은 다음 단계, 짝을 찾는 순간부터다.</div>
+</div>
+
 
 <div class="belt">
   <div class="st active">① 문서 읽기</div>
@@ -686,6 +886,35 @@ c-0009 = { 최대충전전류(엑셀) }          ← 혼자다. 짝이 없다.</
 
 <!-- ==================================================================== -->
 <h2 id="s5"><span class="num">5</span>값 대조 — 여기서는 코드가 주인공이다</h2>
+<div class="dv"><div class="dv-title">같은 카드 하나, 세 갈래 운명</div>
+<div class="dv-sub">위에서 만든 <code>fact-row-7</code>(공칭전압 3.89) 한 장이 <b>대상 문서에 따라 완전히 다른 길</b>을 간다. 판정을 누가 내렸는지에 주목하자.</div>
+<div class="dv-fates">
+<div class="dv-fate dv-a"><div class="dv-fh">📘 자표준_규격서.docx <span style='font-weight:400'>(한국어 워드)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "공칭전압"</span><br>값 3.85 V</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름이 글자까지 똑같다<br><span class="dv-mono">norm_name 완전일치 → score 1.0</span></div>
+<div class="dv-fs"><span class="dv-st">검문소</span><span class="dv-v dv-gray">지나지 않음</span> — 코드가 이은 연결은 검증 대상이 아니다</div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-c">⚙️ 코드</span> 3.89 vs 3.85 · 한쪽만 단위 있음 → 호환으로 봄 → 값이 다름</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-bad">❌ 불일치</span> <span class="dv-mono">decided_by: code</span><br><span class="dv-mono" style="color:var(--dv-mut)">"값이 다릅니다: target_value(기준 3.89 vs 대상 3.85V)"</span><br><b>LLM 을 한 번도 부르지 않았다.</b></div>
+</div>
+<div class="dv-fate dv-b"><div class="dv-fh">📗 spec_en.docx <span style='font-weight:400'>(영어 워드)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "Nominal voltage"</span><br>값 3.85 V</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름 일치 <b>0건</b> → <span class="dv-who dv-e">🔢 임베딩</span><br><span class="dv-mono">임베딩 0.6589 로 후보에만 오름</span></div>
+<div class="dv-fs"><span class="dv-st">개념 판정</span><span class="dv-who dv-l">🤖 LLM</span> → <span class="dv-mono">same_as</span><br>인용: <span class="dv-mono">"3.89"</span> / <span class="dv-mono">"The nominal voltage is 3.85V."</span></div>
+<div class="dv-fs"><span class="dv-st">검문소</span>🚧 <b>수정 전</b>: 왼쪽 인용이 낱말 1개 &lt; 3 → <span class="dv-v dv-gray">⚪ 탈락</span> → 연결 소멸 → <b>진짜 오류를 놓쳤다</b><br>✅ <b>수정 후</b>: 원문 전체 인용이라 하한 면제 → 통과</div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-l">🤖 LLM</span> 연결을 LLM 이 만들었으므로 <span class="dv-mono">needs_review=True</span> → 값도 LLM 이 재확인</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-bad">❌ 불일치</span> <span class="dv-mono">decided_by: llm</span><br><span class="dv-mono" style="color:var(--dv-mut)">"대상은 동일하나 기준 3.89와 후보 3.85가 다릅니다"</span></div>
+</div>
+<div class="dv-fate dv-c2"><div class="dv-fh">📙 자표준_발표.pptx <span style='font-weight:400'>(PPT 스피커노트)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "충전 규격 상세조건"</span><br>속성 2개: 공칭전압 3.89 V, 측정 조건 "0.1C, 4.55V"</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름이 아예 다름 → <span class="dv-who dv-e">🔢 임베딩</span><br><span class="dv-mono">임베딩 0.6973</span></div>
+<div class="dv-fs"><span class="dv-st">개념 판정</span><span class="dv-who dv-l">🤖 LLM</span> → <span class="dv-mono">same_as</span></div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-l">🤖 LLM</span> 기준은 속성 1개·단위 없음, 대상은 속성 2개 → 코드가 손을 뗌</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-ok">✅ 일치</span> <span class="dv-mono">decided_by: llm</span><br><span class="dv-mono" style="color:var(--dv-mut)">"3.89와 3.89 V는 단위 표기 차이만 있을 뿐 동일"</span></div>
+</div>
+</div>
+<div class="dv-cap">같은 기준 값인데 판정 주체가 <b>코드 → LLM → LLM</b> 으로 달라진다. 이름이 똑같으면 코드가 공짜로 끝내고, 이름이 다를수록 LLM 이 개입하고 검문소가 걸린다. <b>영어 문서가 어려운 이유가 여기에 다 들어 있다</b> — 언어가 다르면 첫 칸(이름 일치)이 절대 성립하지 않아 항상 가장 험한 길로만 간다.</div>
+</div>
+
 
 <div class="belt">
   <div class="st done">① 문서 읽기</div>

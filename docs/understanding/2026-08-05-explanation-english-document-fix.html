@@ -154,6 +154,114 @@ svg{max-width:100%; height:auto; display:block; margin:0 auto}
   border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer}
 #qmemo-save-btn:hover{filter:brightness(1.08)}
 #qmemo-saymsg{font-size:.8rem; color:var(--muted)}
+
+/* === dv-components v1 === */
+.dv{--dv-fg:#1c1c1a;--dv-mut:#6b6b66;--dv-line:#dcdcd6;--dv-card:#fff;--dv-bg:#f6f6f4;
+    --dv-code:#1565c0;--dv-code-bg:#e8f1fb;--dv-llm:#e65100;--dv-llm-bg:#fdf0e3;
+    --dv-emb:#00796b;--dv-emb-bg:#e2f2f0;--dv-human:#6a1b9a;--dv-human-bg:#f4e9f7;
+    --dv-ok:#2e7d32;--dv-ok-bg:#e9f5ea;--dv-bad:#c62828;--dv-bad-bg:#fbeaea;
+    --dv-gray:#607d8b;--dv-gray-bg:#eceff1;--dv-amber:#ef6c00;--dv-amber-bg:#fdf0e0;
+    --dv-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace;
+    margin:26px 0;font-size:15px;line-height:1.6;color:var(--dv-fg)}
+@media (prefers-color-scheme:dark){.dv{--dv-fg:#e8e8e4;--dv-mut:#a2a29c;--dv-line:#3a3d44;
+    --dv-card:#1f2229;--dv-bg:#191c21;
+    --dv-code:#8ec5f5;--dv-code-bg:#16283a;--dv-llm:#ffb074;--dv-llm-bg:#3a2412;
+    --dv-emb:#6fc9bd;--dv-emb-bg:#123430;--dv-human:#d09ada;--dv-human-bg:#2c1936;
+    --dv-ok:#83c98a;--dv-ok-bg:#173620;--dv-bad:#ef9a9a;--dv-bad-bg:#3a1e1e;
+    --dv-gray:#a8bcc6;--dv-gray-bg:#272d33;--dv-amber:#ffb74d;--dv-amber-bg:#3a2a12}}
+.dv *{box-sizing:border-box}
+.dv-title{font-weight:700;font-size:.95rem;margin:0 0 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dv-title .dv-tag{font-size:.68rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:99px;background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-sub{font-size:.83rem;color:var(--dv-mut);margin:0 0 14px}
+.dv-cap{font-size:.8rem;color:var(--dv-mut);margin-top:12px;line-height:1.6}
+
+/* 주체 배지 */
+.dv-who{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;
+  padding:2px 9px;border-radius:99px;white-space:nowrap;border:1px solid transparent}
+.dv-who.dv-c{background:var(--dv-code-bg);color:var(--dv-code);border-color:var(--dv-code)}
+.dv-who.dv-l{background:var(--dv-llm-bg);color:var(--dv-llm);border-color:var(--dv-llm)}
+.dv-who.dv-e{background:var(--dv-emb-bg);color:var(--dv-emb);border-color:var(--dv-emb)}
+.dv-who.dv-h{background:var(--dv-human-bg);color:var(--dv-human);border-color:var(--dv-human)}
+.dv-who.dv-f{background:var(--dv-gray-bg);color:var(--dv-gray);border-color:var(--dv-gray)}
+.dv-legend{display:flex;gap:9px;flex-wrap:wrap;margin:0 0 14px}
+
+/* 판정 알약 */
+.dv-v{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.dv-v.dv-ok{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-v.dv-bad{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-v.dv-gray{background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-v.dv-amber{background:var(--dv-amber-bg);color:var(--dv-amber)}
+
+/* ---- 여정(journey) ---- */
+.dv-jrn{position:relative;padding-left:30px}
+.dv-jrn:before{content:"";position:absolute;left:9px;top:14px;bottom:14px;width:2px;background:var(--dv-line)}
+.dv-stop{position:relative;margin:0 0 12px}
+.dv-stop:before{content:"";position:absolute;left:-25px;top:14px;width:12px;height:12px;border-radius:50%;
+  background:var(--dv-card);border:2.5px solid var(--dv-line)}
+.dv-stop.dv-c:before{border-color:var(--dv-code)}
+.dv-stop.dv-l:before{border-color:var(--dv-llm)}
+.dv-stop.dv-e:before{border-color:var(--dv-emb)}
+.dv-stop.dv-f:before{border-color:var(--dv-gray);background:var(--dv-gray)}
+.dv-box{background:var(--dv-card);border:1px solid var(--dv-line);border-radius:10px;overflow:hidden}
+.dv-hd{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:9px 13px;background:var(--dv-bg);border-bottom:1px solid var(--dv-line)}
+.dv-hd .dv-nm{font-weight:700;font-size:.88rem}
+.dv-hd .dv-fn{font-family:var(--dv-mono);font-size:.74rem;color:var(--dv-mut);margin-left:auto}
+.dv-bd{padding:11px 13px}
+.dv-io{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.dv-io>div{flex:1 1 230px;min-width:0}
+.dv-io .dv-lb{font-size:.7rem;font-weight:700;color:var(--dv-mut);letter-spacing:.05em;margin-bottom:3px}
+.dv-data{font-family:var(--dv-mono);font-size:.73rem;line-height:1.55;background:var(--dv-bg);
+  border:1px solid var(--dv-line);border-radius:7px;padding:8px 10px;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.dv-note{font-size:.8rem;color:var(--dv-mut);margin-top:9px;padding-left:10px;border-left:2px solid var(--dv-line)}
+.dv-hi{background:rgba(230,81,0,.15);border-radius:3px;padding:0 3px;font-weight:700}
+
+/* ---- 갈림길(fates) ---- */
+.dv-fates{display:flex;gap:12px;flex-wrap:wrap}
+.dv-fate{flex:1 1 250px;background:var(--dv-card);border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
+.dv-fate .dv-fh{padding:9px 13px;font-size:.83rem;font-weight:700;border-bottom:1px solid var(--dv-line)}
+.dv-fate.dv-a .dv-fh{background:var(--dv-code-bg);color:var(--dv-code)}
+.dv-fate.dv-b .dv-fh{background:var(--dv-llm-bg);color:var(--dv-llm)}
+.dv-fate.dv-c2 .dv-fh{background:var(--dv-emb-bg);color:var(--dv-emb)}
+.dv-fate .dv-fs{padding:9px 13px;border-bottom:1px dashed var(--dv-line);font-size:.81rem}
+.dv-fate .dv-fs:last-child{border-bottom:none;margin-top:auto}
+.dv-fate .dv-fs .dv-st{font-size:.68rem;font-weight:700;color:var(--dv-mut);letter-spacing:.04em;display:block;margin-bottom:3px}
+.dv-fate .dv-mono{font-family:var(--dv-mono);font-size:.73rem;word-break:break-word}
+
+/* ---- 파이프라인 지도(map) ---- */
+.dv-map{display:flex;gap:0;flex-wrap:wrap;align-items:stretch}
+.dv-mi{flex:1 1 120px;min-width:118px;background:var(--dv-card);border:1px solid var(--dv-line);
+  border-radius:9px;padding:9px 10px;margin:3px;position:relative}
+.dv-mi .dv-n{font-size:.68rem;color:var(--dv-mut);font-weight:700}
+.dv-mi .dv-t{font-size:.82rem;font-weight:700;margin:2px 0 5px;line-height:1.35}
+.dv-mi .dv-f{font-family:var(--dv-mono);font-size:.68rem;color:var(--dv-mut);word-break:break-all;margin-top:5px}
+.dv-mi.dv-on{box-shadow:0 0 0 2px var(--dv-llm)}
+
+/* ---- 저울(before/after) ---- */
+.dv-ba{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+.dv-ba>div{flex:1 1 240px;border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;background:var(--dv-card)}
+.dv-ba .dv-h{padding:8px 13px;font-weight:700;font-size:.84rem;border-bottom:1px solid var(--dv-line)}
+.dv-ba .dv-before .dv-h{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-ba .dv-after .dv-h{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-ba .dv-b{padding:10px 13px;font-size:.83rem}
+.dv-ba ul{margin:0;padding-left:1.15em}
+.dv-ba li{margin:4px 0}
+
+/* ---- 막대(비율) ---- */
+.dv-bar{margin:9px 0 4px}
+.dv-bar .dv-bl{display:flex;justify-content:space-between;font-size:.79rem;color:var(--dv-mut);margin-bottom:4px}
+.dv-bar .dv-bt{display:flex;height:32px;border-radius:7px;overflow:hidden;border:1px solid var(--dv-line)}
+.dv-bar .dv-sg{display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;min-width:0}
+.dv-bar .dv-sg.dv-c{background:#1565c0}.dv-bar .dv-sg.dv-h{background:#6a1b9a}
+.dv-bar .dv-sg.dv-l{background:#e65100}.dv-bar .dv-sg.dv-e{background:#00796b}
+.dv-bar .dv-sg.dv-g{background:#78909c}
+
+.dv-scroll{overflow-x:auto}
+.dv-tbl{border-collapse:collapse;width:100%;font-size:.83rem;min-width:340px}
+.dv-tbl th,.dv-tbl td{border:1px solid var(--dv-line);padding:7px 10px;text-align:left;vertical-align:top}
+.dv-tbl th{background:var(--dv-bg);font-size:.78rem}
+.dv-tbl td.dv-n,.dv-tbl th.dv-n{text-align:right;font-variant-numeric:tabular-nums}
+@media (max-width:640px){.dv{font-size:14px}.dv-hd .dv-fn{margin-left:0;flex-basis:100%}}
+
 </style>
 </head>
 <body>
@@ -239,6 +347,49 @@ svg{max-width:100%; height:auto; display:block; margin:0 auto}
 
 <!-- ══════════════════════════════════════════ -->
 <h2 id="three">2. 짝을 찾는 세 가지 방법</h2>
+<div class="dv"><div class="dv-title">짝을 정하는 세 갈래 길 — 검문소는 한 곳에만 있다</div>
+<figure style="margin:6px 0 0">
+<svg viewBox="0 0 760 350" role="img" aria-label="짝을 정하는 세 갈래 길" style="max-width:100%;height:auto">
+ <defs><marker id="dvA" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+   <path d="M0,0 L9,3.5 L0,7 z" fill="#78909c"/></marker></defs>
+ <rect x="8" y="146" width="116" height="60" rx="10" fill="#eceff1" stroke="#b0bec5"/>
+ <text x="66" y="171" font-size="12.5" font-weight="700" text-anchor="middle" fill="#37474f">후보 쌍</text>
+ <text x="66" y="191" font-size="11.5" text-anchor="middle" fill="#546e7a">임베딩이 좁힌 것</text>
+
+ <path d="M129,164 C182,164 182,56 236,56" fill="none" stroke="#1565c0" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="244" y="28" width="214" height="56" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+ <text x="257" y="50" font-size="12.5" font-weight="700" fill="#0d47a1">① 이름이 글자까지 같다</text>
+ <text x="257" y="70" font-size="11" fill="#1565c0">⚙️ 코드가 즉시 확정</text>
+ <text x="257" y="100" font-size="10.5" font-family="monospace" fill="#607d8b">공칭전압 == 공칭전압 → score 1.0</text>
+
+ <path d="M129,176 C186,176 186,148 236,148" fill="none" stroke="#6a1b9a" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="244" y="120" width="214" height="56" rx="10" fill="#f4e9f7" stroke="#6a1b9a" stroke-width="1.5"/>
+ <text x="257" y="142" font-size="12.5" font-weight="700" fill="#4a148c">② 사람이 적어놨다</text>
+ <text x="257" y="162" font-size="11" fill="#6a1b9a">👤 knowledge/ontology.yaml</text>
+ <text x="257" y="192" font-size="10.5" font-family="monospace" fill="#607d8b">한 번 승격하면 영구 · LLM 을 안 부른다</text>
+
+ <path d="M129,190 C186,190 186,256 236,256" fill="none" stroke="#e65100" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="244" y="228" width="214" height="56" rx="10" fill="#fdf0e3" stroke="#e65100" stroke-width="1.5"/>
+ <text x="257" y="250" font-size="12.5" font-weight="700" fill="#bf360c">③ 나머지 → AI 에게 묻는다</text>
+ <text x="257" y="270" font-size="11" fill="#e65100">🤖 판단 + 원문 인용을 함께 제출</text>
+
+ <path d="M460,256 L494,256" stroke="#e65100" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="502" y="222" width="98" height="68" rx="10" fill="#fbeaea" stroke="#c62828" stroke-width="2"/>
+ <text x="551" y="246" font-size="19" text-anchor="middle">🚧</text>
+ <text x="551" y="266" font-size="11.5" font-weight="700" text-anchor="middle" fill="#c62828">근거 검문소</text>
+ <text x="551" y="282" font-size="9.5" text-anchor="middle" fill="#c62828">인용이 진짜인가?</text>
+ <text x="551" y="312" font-size="10.5" text-anchor="middle" fill="#c62828">탈락 = 연결 소멸 = 「대상에 없음」</text>
+
+ <path d="M458,56 C556,56 588,116 618,152" fill="none" stroke="#78909c" stroke-width="2" marker-end="url(#dvA)"/>
+ <path d="M458,148 C536,148 566,152 616,164" fill="none" stroke="#78909c" stroke-width="2" marker-end="url(#dvA)"/>
+ <path d="M602,252 C628,252 632,212 636,192" fill="none" stroke="#78909c" stroke-width="2" marker-end="url(#dvA)"/>
+ <rect x="626" y="136" width="124" height="58" rx="10" fill="#e2f2f0" stroke="#00796b" stroke-width="1.5"/>
+ <text x="688" y="159" font-size="12.5" font-weight="700" text-anchor="middle" fill="#00695c">개념 그래프</text>
+ <text x="688" y="178" font-size="10.5" text-anchor="middle" fill="#00695c">같은 것끼리 묶인 덩어리</text>
+</svg>
+</figure>
+<div class="dv-cap">③번 길에만 검문소가 있는 이유: ①은 코드가 글자를 직접 맞춰 본 것이고 ②는 사람이 확정한 것이라 <b>지어냈을 걱정이 없다</b>. 검문소는 'AI 가 지어냈는가'만 막는 장치다.</div></div>
+
 
 <p>짝을 찾는 방법은 셋입니다. 이 셋을 기억하면 이 글의 나머지가 전부 쉬워집니다.</p>
 
@@ -389,6 +540,35 @@ AI 는 가끔 <b>없는 말을 지어냅니다.</b> “이 둘은 같은 거예�
 
 <!-- ══════════════════════════════════════════ -->
 <h2 id="culprit">4. 범인 찾기 — 통과할 수 없는 검문소</h2>
+<div class="dv"><div class="dv-title">같은 값 하나가 대상 문서에 따라 어떻게 갈라지는가</div>
+<div class="dv-sub">범인을 찾기 전에 '정상일 때는 어떻게 되는지'를 보자. 같은 기준 카드(공칭전압 3.89) 하나가 세 문서를 만나 각각 어떤 길을 가는지다. <b>가운데 칸이 이 글의 사건 현장</b>이다.</div>
+<div class="dv-fates">
+<div class="dv-fate dv-a"><div class="dv-fh">📘 자표준_규격서.docx <span style='font-weight:400'>(한국어 워드)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "공칭전압"</span><br>값 3.85 V</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름이 글자까지 똑같다<br><span class="dv-mono">norm_name 완전일치 → score 1.0</span></div>
+<div class="dv-fs"><span class="dv-st">검문소</span><span class="dv-v dv-gray">지나지 않음</span> — 코드가 이은 연결은 검증 대상이 아니다</div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-c">⚙️ 코드</span> 3.89 vs 3.85 · 한쪽만 단위 있음 → 호환으로 봄 → 값이 다름</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-bad">❌ 불일치</span> <span class="dv-mono">decided_by: code</span><br><span class="dv-mono" style="color:var(--dv-mut)">"값이 다릅니다: target_value(기준 3.89 vs 대상 3.85V)"</span><br><b>LLM 을 한 번도 부르지 않았다.</b></div>
+</div>
+<div class="dv-fate dv-b"><div class="dv-fh">📗 spec_en.docx <span style='font-weight:400'>(영어 워드)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "Nominal voltage"</span><br>값 3.85 V</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름 일치 <b>0건</b> → <span class="dv-who dv-e">🔢 임베딩</span><br><span class="dv-mono">임베딩 0.6589 로 후보에만 오름</span></div>
+<div class="dv-fs"><span class="dv-st">개념 판정</span><span class="dv-who dv-l">🤖 LLM</span> → <span class="dv-mono">same_as</span><br>인용: <span class="dv-mono">"3.89"</span> / <span class="dv-mono">"The nominal voltage is 3.85V."</span></div>
+<div class="dv-fs"><span class="dv-st">검문소</span>🚧 <b>수정 전</b>: 왼쪽 인용이 낱말 1개 &lt; 3 → <span class="dv-v dv-gray">⚪ 탈락</span> → 연결 소멸 → <b>진짜 오류를 놓쳤다</b><br>✅ <b>수정 후</b>: 원문 전체 인용이라 하한 면제 → 통과</div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-l">🤖 LLM</span> 연결을 LLM 이 만들었으므로 <span class="dv-mono">needs_review=True</span> → 값도 LLM 이 재확인</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-bad">❌ 불일치</span> <span class="dv-mono">decided_by: llm</span><br><span class="dv-mono" style="color:var(--dv-mut)">"대상은 동일하나 기준 3.89와 후보 3.85가 다릅니다"</span></div>
+</div>
+<div class="dv-fate dv-c2"><div class="dv-fh">📙 자표준_발표.pptx <span style='font-weight:400'>(PPT 스피커노트)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "충전 규격 상세조건"</span><br>속성 2개: 공칭전압 3.89 V, 측정 조건 "0.1C, 4.55V"</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름이 아예 다름 → <span class="dv-who dv-e">🔢 임베딩</span><br><span class="dv-mono">임베딩 0.6973</span></div>
+<div class="dv-fs"><span class="dv-st">개념 판정</span><span class="dv-who dv-l">🤖 LLM</span> → <span class="dv-mono">same_as</span></div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-l">🤖 LLM</span> 기준은 속성 1개·단위 없음, 대상은 속성 2개 → 코드가 손을 뗌</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-ok">✅ 일치</span> <span class="dv-mono">decided_by: llm</span><br><span class="dv-mono" style="color:var(--dv-mut)">"3.89와 3.89 V는 단위 표기 차이만 있을 뿐 동일"</span></div>
+</div>
+</div>
+<div class="dv-cap">같은 기준 값인데 판정 주체가 <b>코드 → LLM → LLM</b> 으로 달라진다. 이름이 똑같으면 코드가 공짜로 끝내고, 이름이 다를수록 LLM 이 개입하고 검문소가 걸린다. <b>영어 문서가 어려운 이유가 여기에 다 들어 있다</b> — 언어가 다르면 첫 칸(이름 일치)이 절대 성립하지 않아 항상 가장 험한 길로만 간다.</div>
+</div>
+
 
 <p>
 먼저 의심한 건 <b>AI 가 영어를 잘 못 읽나?</b> 였습니다. 확인해 보니 <b>아니었습니다.</b>
