@@ -60,7 +60,7 @@ def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
     #
     # chat 만 감싼다(embed_obj 는 그대로). 같은 객체인 백엔드에서도 임베딩 호출은
     # TracedChat.__getattr__ 위임으로 원래 구현에 그대로 닿는다.
-    if llm.langfuse.is_active():
+    if llm.langfuse.is_active() or llm.trace_local:
         from .tracing import wrap_chat
 
         chat_obj = wrap_chat(chat_obj, config)

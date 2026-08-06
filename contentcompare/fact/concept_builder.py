@@ -25,7 +25,7 @@ from .concept_models import (
     ConceptGraph,
     FactRef,
 )
-from .fact_matcher import EXACT, FactMatcher, norm_name
+from .fact_matcher import EXACT, RANKED_OUT_EXTRA, FactMatcher, norm_name
 from .fact_models import Fact
 from .fact_store import FactStore
 from .llm_stage import LlmBudgetExceeded
@@ -63,6 +63,7 @@ def candidate_pairs(
     top_k: int = 5,
     min_score: float = 0.3,
     ontology: Optional[Ontology] = None,
+    ranked_out: Optional[list[dict]] = None,
 ) -> list[CandidatePair]:
     """기준 fact × 각 대상 문서에서 검토할 후보 쌍을 만든다(recall 전용).
 
@@ -71,12 +72,17 @@ def candidate_pairs(
     영원히 이어지지 않는데, 승격이 가장 필요한 쌍이 바로 "유사도로는 못 잇는 진짜
     동의어"다(설계 §3.2). ``FactMatcher.search()`` 가 이름 완전일치에서 조기 종료하는
     것도 같은 구멍을 만든다. 이름 쌍 조회는 임베딩이 필요 없어 비용이 낮다(dict 조회).
+
+    ``ranked_out`` 은 진단용 out-param 이다(기준 fact 별 후보 랭킹 + 탈락 사유).
+    호출자가 저장을 맡고 이 모듈은 ``ArtifactStore`` 를 알지 않는다 —
+    ``record_stats``/``fact_stats`` 와 같은 기존 패턴이다.
     """
     if not store.ready:
         return []
     ref_doc = store.reference
     pairs: list[CandidatePair] = []
     seen: set[tuple[str, str, str, str]] = set()
+    diag: dict[str, dict] = {}  # ref_fact_id → 진단 행(삽입 순서 = 기준 fact 순서)
 
     def _add(target_doc: str, ref_fact: Fact, tgt_fact: Fact,
              score: float, exact: bool) -> bool:
@@ -90,6 +96,18 @@ def candidate_pairs(
         ))
         return True
 
+    def _slot(ref_fact: Fact, target_doc: str) -> Optional[dict]:
+        """진단 구조에서 (기준 fact × 대상 문서) 칸을 꺼낸다(없으면 만든다)."""
+        if ranked_out is None:
+            return None
+        entry = diag.setdefault(ref_fact.fact_id, {
+            "ref_fact_id": ref_fact.fact_id,
+            "entity_name": ref_fact.entity_name,
+            "targets": {},
+        })
+        return entry["targets"].setdefault(
+            target_doc, {"doc": target_doc, "ranked": [], "from_ontology": []})
+
     for target in store.targets:
         matcher = FactMatcher(
             target.facts.facts,
@@ -99,20 +117,32 @@ def candidate_pairs(
             review_score=min_score,  # F7 에서 needs_review 는 연결 주체로 대체된다
         )
         for ref_fact in ref_doc.facts.facts:
-            for cand in matcher.search(ref_fact):
+            slot = _slot(ref_fact, target.doc_name)
+            rows = slot["ranked"] if slot is not None else None
+            for cand in matcher.search(ref_fact, ranked_out=rows):
                 _add(target.doc_name, ref_fact, cand.fact,
                      cand.score, cand.method == EXACT)
 
-    added = _augment_with_ontology(store, ontology, _add)
+    added = _augment_with_ontology(store, ontology, _add, _slot)
+    if ranked_out is not None:
+        ranked_out.extend(
+            {"ref_fact_id": e["ref_fact_id"], "entity_name": e["entity_name"],
+             "targets": list(e["targets"].values())}
+            for e in diag.values()
+        )
     logger.info("[Concept] 후보 쌍 %d 건(온톨로지 보강 %d 건)", len(pairs), added)
     return pairs
 
 
-def _augment_with_ontology(store: FactStore, ontology: Optional[Ontology], add: Any) -> int:
+def _augment_with_ontology(store: FactStore, ontology: Optional[Ontology],
+                           add: Any, slot: Any = None) -> int:
     """온톨로지가 아는 (기준 × 대상) 쌍 중 recall 이 빠뜨린 것을 무조건 추가한다.
 
     추가된 쌍은 ``score=0.0``/``exact=False`` 로 두고, 관계는 평소대로
     :func:`resolve_known` 이 온톨로지에서 읽어 붙인다.
+
+    ``slot`` 은 진단 구조의 칸을 돌려주는 콜백이다 — 이렇게 보강된 쌍은 유사도
+    랭킹에 없으므로, 구분해 두지 않으면 뷰어가 "recall 이 찾았다"로 오해한다.
     """
     ref_doc = store.reference
     if ref_doc is None or ontology is None or not len(ontology):
@@ -125,6 +155,10 @@ def _augment_with_ontology(store: FactStore, ontology: Optional[Ontology], add: 
                     continue
                 if add(target.doc_name, ref_fact, tgt_fact, 0.0, False):
                     added += 1
+                if slot is not None:
+                    cell = slot(ref_fact, target.doc_name)
+                    if cell is not None and tgt_fact.fact_id not in cell["from_ontology"]:
+                        cell["from_ontology"].append(tgt_fact.fact_id)
     return added
 
 
@@ -262,11 +296,25 @@ def build_concept_graph(
     top_k: int = 5,
     min_score: float = 0.3,
     batch_size: int = 20,
+    pairs_out: Optional[dict] = None,
 ) -> ConceptGraph:
-    """F7 전체 — 후보 쌍 → 코드/온톨로지 확정 → LLM → 조립."""
+    """F7 전체 — 후보 쌍 → 코드/온톨로지 확정 → LLM → 조립.
+
+    ``pairs_out`` 은 진단용 out-param — 채워 주면 호출자가 ``candidate_pairs.json``
+    으로 저장한다(:func:`candidate_pairs` 의 ``ranked_out`` 참고).
+    """
     ontology = ontology or Ontology()
+    by_ref: Optional[list[dict]] = [] if pairs_out is not None else None
     pairs = candidate_pairs(store, embedder=embedder, top_k=top_k, min_score=min_score,
-                            ontology=ontology)
+                            ontology=ontology, ranked_out=by_ref)
+    if pairs_out is not None:
+        pairs_out.update({
+            "reference": store.reference.doc_name if store.reference else "",
+            "params": {"top_k": top_k, "min_score": min_score,
+                       "batch_pairs": batch_size,
+                       "ranked_out_extra": RANKED_OUT_EXTRA},
+            "by_ref": by_ref or [],
+        })
     known, remaining = resolve_known(pairs, ontology)
 
     llm_edges: list[ConceptEdge] = []

@@ -169,6 +169,21 @@ class LLMConfig:
     internal: InternalConfig = field(default_factory=InternalConfig)
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
 
+    # --- 로컬 LLM 입출력 추적 (서버 불필요) ------------------------------- #
+    # Langfuse 는 서버가 있어야 하지만, 파이프라인 현미경은 **파일**을 읽는다.
+    # 같은 tracer 프로토콜의 파일 구현체를 켜는 스위치다.
+    trace_local: bool = False
+    """LLM 프롬프트/응답을 ``trace_dir`` 에 JSON 으로 남긴다.
+
+    ⚠️ **기본 off** — 프롬프트에는 문서 원문이 통째로 들어가므로, 켜면 사내 문서가
+    디스크에 평문으로 남는다. 오판을 추적하는 동안만 켤 것.
+    """
+    trace_dir: str = "artifacts/_traces"
+    """로컬 추적 저장 루트: ``<trace_dir>/<실행>/<순번>-<단계>.json``."""
+
+    trace_max_chars: int = 0
+    """기록 1건의 프롬프트/응답 최대 길이(0=무제한). 절단하면 ``truncated: true``."""
+
     def embed_prefix_for(self, kind: str) -> str:
         """임베딩 입력 종류별 접두어를 고른다.
 
@@ -345,6 +360,17 @@ class FactConfig:
 
     ontology_path: str = "knowledge/ontology.yaml"
     """사람이 승격한 개념 관계 파일. 없으면 빈 온톨로지로 시작한다."""
+
+    # --- 진단 계측(디버깅 뷰어 입력) ------------------------------------- #
+    # ``missing`` 판정의 원인은 여섯 가지인데(recall 실패·LLM 미판정·근거 게이트 강등·
+    # F3 추출 누락·의도된 차단·F5 LLM 판정) 기존 산출물만으로는 앞의 둘을 구분할 수
+    # 없다. 아래 두 산출물이 그 구분을 가능하게 한다 — **오판 추적이 목적이므로
+    # 끄지 말 것.** 둘 다 LLM 을 부르지 않아 비용이 0 이다.
+    save_candidate_pairs: bool = True
+    """F7 후보 쌍을 ``candidate_pairs.json`` 으로 남긴다(컷오프된 후보 포함)."""
+
+    save_facts_by_block: bool = True
+    """블록/행 → fact 매핑을 ``facts_by_block.json`` 으로 남긴다."""
 
 
 @dataclass

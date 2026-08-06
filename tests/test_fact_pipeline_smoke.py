@@ -273,3 +273,50 @@ def test_run_stats_artifact_has_llm_and_stage_counters(tmp_path):
     assert stats["facts"]["records_in"] == 1 and stats["facts"]["facts_out"] == 1
     assert stats["validation"]["facts"] == 1
     assert result.summaries[0]["stats"]["llm"]["calls"] == 3
+
+
+# --------------------------------------------------------------------------- #
+# 진단 계측 — 캐시가 적중해도 남아야 한다
+# --------------------------------------------------------------------------- #
+def test_diagnostic_artifacts_are_written(tmp_path):
+    _pipe(tmp_path).run("기준.xlsx", ["설명.docx"])
+    assert (_artifacts(tmp_path, "기준.xlsx") / "candidate_pairs.json").exists()
+    assert (_artifacts(tmp_path, "기준.xlsx") / "facts_by_block.json").exists()
+
+
+def test_diagnostics_survive_a_cache_hit(tmp_path):
+    """2회차는 LLM 을 건너뛰지만 계측은 **이번 실행의 값**으로 다시 써야 한다.
+
+    계측을 ``cached_or_compute`` 로 감싸면 캐시 히트에서 조용히 사라진다 —
+    운영에서 캐시는 켜져 있는 것이 기본이므로 그게 곧 상시 부재가 된다.
+    """
+    _pipe(tmp_path).run("기준.xlsx", [])
+    by_block = _artifacts(tmp_path, "기준.xlsx") / "facts_by_block.json"
+    by_block.unlink()  # 지운 뒤 재실행 → 캐시 히트 경로에서도 다시 만들어지는가
+
+    _pipe(tmp_path).run("기준.xlsx", [])
+    assert by_block.exists()
+    data = json.loads(by_block.read_text(encoding="utf-8"))
+    assert data["summary"]["cached"] is True      # 추출은 건너뛰었지만
+    assert data["summary"]["blocks_cited"] >= 1   # 매핑은 역산으로 살아 있다
+
+
+def test_diagnostics_can_be_turned_off(tmp_path):
+    cfg = _config(tmp_path)
+    cfg.fact.save_candidate_pairs = False
+    cfg.fact.save_facts_by_block = False
+    FactPipeline(cfg, extractor=_fake_excel, chat=_FactChat(),
+                 embedder=_FakeEmbedder()).run("기준.xlsx", [])
+    d = _artifacts(tmp_path, "기준.xlsx")
+    assert not (d / "candidate_pairs.json").exists()
+    assert not (d / "facts_by_block.json").exists()
+
+
+def test_candidate_pairs_artifact_records_reference_rows(tmp_path):
+    _pipe(tmp_path).run("기준.xlsx", ["설명.docx"])
+    data = json.loads(
+        (_artifacts(tmp_path, "기준.xlsx") / "candidate_pairs.json").read_text(encoding="utf-8")
+    )
+    assert data["reference"] == "기준.xlsx"
+    assert data["by_ref"] and data["by_ref"][0]["entity_name"] == "충전환경온도"
+    assert data["by_ref"][0]["targets"][0]["doc"] == "설명.docx"

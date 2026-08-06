@@ -74,6 +74,14 @@ llm:
   # ⚠️ artifacts 캐시가 적중한 단계는 LLM 을 호출하지 않아 trace 가 없다.
   #    전체를 다시 보려면 artifacts/<문서> 폴더를 지우고 실행한다(실행 시 안내됨).
 
+  # --- 로컬 LLM 추적 (서버 불필요, Langfuse 와 독립적으로 켤 수 있다) ---
+  # Streamlit '🔬 파이프라인 현미경' 탭이 이 파일들을 읽어 "이 단계에서 LLM 이 무엇을
+  # 보고 무엇을 답했는지"를 화면에 싣는다. 둘 다 켜면 양쪽에 동시에 기록된다.
+  trace_local: false         # ⚠️ 기본 off — 켜면 문서 원문이 디스크에 평문으로 남는다.
+                             #    오판을 추적하는 동안만 켤 것.
+  trace_dir: artifacts/_traces   # <trace_dir>/<실행>/<순번>-<단계>.json + index.json
+  trace_max_chars: 0         # 기록 1건의 최대 길이(0=무제한). 자르면 truncated: true
+
 excel:
   granularity: hybrid       # row | field | hybrid (행=검색, 셀=판정)
   header_row: 1             # 헤더가 시작하는 행(1-based)
@@ -129,6 +137,13 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
   concept_batch_pairs: 20          # 한 LLM 호출당 판정할 쌍 수
   max_llm_calls_per_concept: 30    # 개념 단계 LLM 호출 예산
   ontology_path: knowledge/ontology.yaml   # 사람이 승격한 개념 관계
+
+  # --- 진단 계측 (LLM 을 부르지 않아 비용 0) ---
+  # '대상에 없음' 판정의 원인은 여섯 가지인데(recall 실패·LLM 미판정·근거 게이트 강등·
+  # F3 추출 누락·의도된 차단·F5 LLM 판정) 아래 두 산출물이 없으면 앞의 둘을 구분할 수
+  # 없다. 오판 추적이 목적이므로 끄지 말 것.
+  save_candidate_pairs: true       # candidate_pairs.json — 후보 랭킹 + 탈락 사유(cut_by)
+  save_facts_by_block: true        # facts_by_block.json — 블록/행 → fact 매핑, 미인용 블록
   # ※ use_concept_graph: true 면 match_top_k / match_min_score / match_review_score 는
   #    비교 경로에서 사용되지 않는다(후보는 개념 그래프가 준다). 롤백용으로만 남겨 둔 값이며
   #    조정해도 F7 결과는 바뀌지 않는다 — 후보 수는 concept_recall_top_k 로 조절한다.

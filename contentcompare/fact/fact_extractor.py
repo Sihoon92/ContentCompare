@@ -270,6 +270,130 @@ def _pack_batches(groups: list[list[dict]], batch_blocks: int) -> list[list[dict
     return batches
 
 
+# --------------------------------------------------------------------------- #
+# 블록 ↔ fact 매핑 (진단 계측)
+# --------------------------------------------------------------------------- #
+def build_facts_by_block(
+    compact: dict, facts: FactSet, stats: Optional[dict] = None
+) -> dict:
+    """블록/행 → 그것을 근거로 삼은 fact id 목록. **오판 추적이 목적이다.**
+
+    Word/PPT 는 ``document_profile`` 에서 ``facts`` 로 직행하므로 "어떤 블록이 왜
+    fact 가 되지 못했는가"를 볼 자리가 없었다. 인용되지 않은 블록(``cited=False``)이
+    곧 F3 추출 누락 후보이고, 그것이 F5 의 ``missing`` 오판으로 이어진다.
+
+    **추출을 다시 돌리지 않고 결과에서 역산한다** — 실제 운영은 캐시가 켜져 있어
+    :func:`extract_facts` 가 계산을 건너뛰는 것이 기본 경로이기 때문이다. 그때도
+    매핑은 남아야 한다(드롭 사유만 비어 있다).
+
+    Excel 도 같은 스키마로 낸다(행 하나 = 블록 하나). 뷰어가 doc_type 분기를 하나
+    덜 하게 하려는 것이다.
+    """
+    doc_type = str(compact.get("doc_type") or "")
+    blocks = _blocks_of(compact, doc_type)
+
+    by_block: dict[str, list[str]] = {b["id"]: [] for b in blocks}
+    orphan: list[str] = []  # 블록 목록에 없는 id 를 가리키는 fact(스키마 불일치 신호)
+    for fact in facts.facts:
+        ids = _source_block_ids(fact.source, doc_type)
+        if not ids:
+            orphan.append(fact.fact_id)
+        for bid in ids:
+            if bid in by_block:
+                by_block[bid].append(fact.fact_id)
+            else:
+                orphan.append(fact.fact_id)
+
+    rows = [
+        {
+            "id": b["id"],
+            "kind": b["kind"],
+            "preview": b["preview"],
+            "fact_ids": by_block[b["id"]],
+            "cited": bool(by_block[b["id"]]),
+        }
+        for b in blocks
+    ]
+    summary: dict[str, Any] = {
+        "blocks_in": len(rows),
+        "blocks_cited": sum(1 for r in rows if r["cited"]),
+        "facts_out": len(facts.facts),
+        "facts_without_block": sorted(set(orphan)),
+    }
+    # extract_facts 가 채운 계측(cached / 드롭 사유별 카운트)을 그대로 얹는다.
+    if stats:
+        summary.update(stats)
+    return {"doc_type": doc_type, "location": facts.location, "blocks": rows,
+            "summary": summary}
+
+
+_PREVIEW_CHARS = 80
+
+
+def _blocks_of(compact: dict, doc_type: str) -> list[dict]:
+    """문서를 ``{id, kind, preview}`` 목록으로 편다(문서 순서 유지).
+
+    Word/PPT 는 :func:`_units_by_group` 의 인덱스를 그대로 쓴다 — 추출이 실제로 본
+    단위와 **같은 id 체계**여야 매핑이 성립하기 때문이다.
+    """
+    if doc_type == "excel":
+        out: list[dict] = []
+        for sheet in compact.get("sheets") or []:
+            for row in sheet.get("rows") or []:
+                cells = row.get("cells") or {}
+                out.append({
+                    "id": f"row-{row.get('r')}",
+                    "kind": "row",
+                    "preview": _preview(" | ".join(str(v) for v in cells.values())),
+                })
+        return out
+
+    _groups, index = _units_by_group(compact)
+    return [
+        {
+            "id": uid,
+            "kind": "table" if unit.get("type") == "table" else (
+                "notes" if unit.get("is_note") else "text"),
+            "preview": _preview(_unit_text(unit)),
+        }
+        for uid, unit in index.items()
+    ]
+
+
+def _unit_text(unit: dict) -> str:
+    if unit.get("rows"):
+        return " | ".join(str(c) for row in unit["rows"] for c in row)
+    return str(unit.get("text") or "")
+
+
+def _preview(text: str) -> str:
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= _PREVIEW_CHARS else flat[:_PREVIEW_CHARS] + "…"
+
+
+def _source_block_ids(source: dict, doc_type: str) -> list[str]:
+    """fact 의 ``source`` 를 :func:`_blocks_of` 의 id 로 되돌린다.
+
+    ``source`` 는 doc_type 별로 키가 완전히 다르므로(설계 §4.3) 분기가 필요하다.
+    """
+    source = source if isinstance(source, dict) else {}
+    kind = str(source.get("doc_type") or doc_type)
+    if kind == "excel":
+        row = source.get("row")
+        return [f"row-{row}"] if row is not None else []
+    if kind == "word":
+        return [str(i) for i in (source.get("block_ids") or [])]
+    if kind == "ppt":
+        slide_no = source.get("slide_no")
+        if slide_no is None:
+            return []
+        ids = [f"s{slide_no}-{sid}" for sid in (source.get("shape_ids") or [])]
+        if source.get("from_notes"):
+            ids.append(f"s{slide_no}-notes")
+        return ids
+    return []
+
+
 def _build_source(doc_type: str, valid_ids: list[str], index: dict[str, dict]) -> dict:
     """검증된 id 로 doc_type 별 source 조립(코드가 최종 결정)."""
     if doc_type == "word":

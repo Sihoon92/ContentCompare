@@ -1,4 +1,6 @@
-"""LLM 입출력 추적(Langfuse) — **SDK 를 아는 유일한 파일**.
+"""LLM 입출력 추적 — Langfuse(서버) 와 로컬 파일(:class:`JsonlTracer`) 두 갈래.
+
+**Langfuse SDK 를 아는 유일한 파일**이기도 하다.
 
 이 파이프라인의 LLM 디버깅 수단은 두 가지뿐이었고 둘 다 부족했다:
 
@@ -25,12 +27,15 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
+import re
 import sys
 import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from ..config import AppConfig
@@ -271,6 +276,134 @@ def new_langfuse_client(lf: Any, factory: Any) -> Any:
     return factory(**kwargs)
 
 
+class JsonlTracer:
+    """LLM 호출을 **로컬 파일**로 남긴다 — 서버가 없는 환경의 추적 수단.
+
+    Langfuse 와 목적이 다르다. Langfuse 는 사람이 브라우저로 보는 것이고, 이쪽은
+    파이프라인 현미경(``ui/micro_world``)이 **읽어서 화면에 싣는 입력**이다. 그래서
+    한 줄짜리 로그가 아니라 단계별로 분리된 JSON 이어야 한다 — 그래야 프롬프트를
+    고치기 전/후를 ``diff`` 로 비교할 수 있다.
+
+    ``artifacts/_traces/<실행>/`` 아래에 ``<순번>-<단계>.json`` 과 매니페스트
+    ``index.json`` 을 쓴다. 매니페스트가 필요한 이유는 **이전 실행이 남긴 파일**과
+    섞이지 않게 하기 위해서다(부분 실패로 순번이 큰 파일이 남아 있을 수 있다).
+    """
+
+    active = True
+
+    _ILLEGAL = re.compile(r"[^\w\-]", re.UNICODE)
+
+    def __init__(self, root: str, *, max_chars: int = 0) -> None:
+        self.root = Path(root)
+        self.max_chars = max_chars
+        self._dir: Optional[Path] = None
+        self._seq = 0
+        self._files: list[str] = []
+        self._meta: dict[str, Any] = {}
+
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def _slug(cls, name: str) -> str:
+        """경로에 못 쓰는 문자를 ``_`` 로(한글 보존 — ``ArtifactStore.slug`` 와 같은 규약)."""
+        return cls._ILLEGAL.sub("_", name)[:80] or "run"
+
+    def start_run(self, name: str, metadata: dict) -> None:
+        self._dir = self.root / self._slug(name)
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._seq = 0
+        self._files = []
+        self._meta = dict(metadata or {})
+        self._write_index()
+
+    def end_run(self) -> None:
+        self._write_index()
+        self._dir = None
+
+    def record(self, event: GenerationEvent) -> None:
+        target = self._dir if self._dir is not None else self._fallback_dir()
+        self._seq += 1
+        system, sys_cut = self._clip(event.system)
+        user, user_cut = self._clip(event.user)
+        output, out_cut = self._clip(event.output)
+        name = f"{self._seq:03d}-{self._slug(event.stage)}.json"
+        payload = {
+            "seq": self._seq,
+            "stage": event.stage,
+            "model": event.model,
+            "duration_ms": event.duration_ms,
+            # 실패한 호출의 응답 원문이 가장 중요하다 — parse_failures 가 왜 났는지는
+            # 그것 없이 알 수 없다(재시도로 성공해도 첫 응답은 사라진다).
+            "error": event.error or "",
+            "truncated": bool(sys_cut or user_cut or out_cut),
+            "system": system,
+            "user": user,
+            "output": output,
+            "metadata": dict(event.metadata or {}),
+        }
+        (target / name).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._files.append(name)
+        self._write_index()
+
+    def flush(self) -> None:
+        self._write_index()
+
+    # ------------------------------------------------------------------ #
+    def _clip(self, text: str) -> tuple[str, bool]:
+        text = text or ""
+        if self.max_chars and len(text) > self.max_chars:
+            return text[: self.max_chars], True
+        return text, False
+
+    def _fallback_dir(self) -> Path:
+        """``start_run`` 없이 호출된 경우(연결 점검 등)에도 기록은 잃지 않는다."""
+        if self._dir is None:
+            self._dir = self.root / "_adhoc"
+            self._dir.mkdir(parents=True, exist_ok=True)
+        return self._dir
+
+    def _write_index(self) -> None:
+        if self._dir is None:
+            return
+        (self._dir / "index.json").write_text(
+            json.dumps({"metadata": self._meta, "calls": len(self._files),
+                        "files": self._files}, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+
+
+class MultiTracer:
+    """여러 tracer 에 같은 이벤트를 흘린다(Langfuse + 로컬 동시 사용).
+
+    **한쪽 실패가 다른 쪽을 죽이지 않는다** — 실패한 tracer 만 목록에서 빼고 계속한다.
+    """
+
+    active = True
+
+    def __init__(self, tracers: list[Any]) -> None:
+        self._tracers = [t for t in tracers if t is not None]
+
+    def _fan(self, method: str, *args: Any) -> None:
+        for tracer in list(self._tracers):
+            try:
+                getattr(tracer, method)(*args)
+            except Exception as exc:  # noqa: BLE001 — 관측 실패가 실행을 막으면 안 된다
+                logger.warning("추적기 %s.%s 실패 — 이 실행에서 제외합니다: %s",
+                               type(tracer).__name__, method, exc)
+                self._tracers.remove(tracer)
+
+    def start_run(self, name: str, metadata: dict) -> None:
+        self._fan("start_run", name, metadata)
+
+    def end_run(self) -> None:
+        self._fan("end_run")
+
+    def record(self, event: GenerationEvent) -> None:
+        self._fan("record", event)
+
+    def flush(self) -> None:
+        self._fan("flush")
+
+
 _TRACER: Optional[Any] = None
 
 
@@ -292,15 +425,46 @@ def reset_tracer() -> None:
     _TRACER = None
 
 
+def tracing_enabled(config: AppConfig) -> bool:
+    """추적을 켤 것인가 — Langfuse(서버) 또는 로컬 파일 중 하나라도 켜져 있으면.
+
+    :func:`~contentcompare.llm.factory.build_clients` 가 chat 을 감쌀지 판단할 때 쓴다.
+    """
+    return bool(config.llm.langfuse.is_active() or config.llm.trace_local)
+
+
 def build_tracer(config: AppConfig) -> Any:
     """설정에 따라 tracer 를 만든다. **어떤 실패에도 예외를 던지지 않는다.**
 
-    SDK 미설치·인증 실패·주소 오타 어느 쪽이든 :class:`NullTracer` 로 떨어지고
-    경고만 남긴다 — 관측 도구 때문에 비교가 멈추면 본말이 전도된다.
+    Langfuse 와 로컬 파일은 **독립적으로** 켤 수 있고, 둘 다 켜면
+    :class:`MultiTracer` 로 합친다. 어느 쪽도 안 켜져 있으면 :class:`NullTracer`.
     """
+    local = _build_local_tracer(config)
+    remote = _build_langfuse_tracer(config)
+    if local and remote:
+        return MultiTracer([remote, local])
+    return remote or local or NullTracer()
+
+
+def _build_local_tracer(config: AppConfig) -> Optional[Any]:
+    if not config.llm.trace_local:
+        return None
+    try:
+        tracer = JsonlTracer(config.llm.trace_dir,
+                             max_chars=config.llm.trace_max_chars)
+    except Exception as exc:  # noqa: BLE001 — 관측 실패가 실행을 막으면 안 된다
+        logger.warning("로컬 추적 초기화 실패(dir=%s): %s", config.llm.trace_dir, exc)
+        return None
+    logger.info("로컬 LLM 추적 활성 (dir=%s) — 프롬프트에 문서 원문이 평문으로 남습니다",
+                config.llm.trace_dir)
+    return tracer
+
+
+def _build_langfuse_tracer(config: AppConfig) -> Optional[Any]:
+    """SDK 미설치·인증 실패·주소 오타 어느 쪽이든 ``None`` 으로 떨어지고 경고만 남긴다."""
     lf = config.llm.langfuse
     if not lf.is_active():
-        return NullTracer()
+        return None
     host, public, secret = lf.resolved()
     try:
         from langfuse import Langfuse  # type: ignore[import-not-found]
@@ -309,7 +473,7 @@ def build_tracer(config: AppConfig) -> Any:
             "Langfuse 설정이 켜져 있으나 SDK 가 없어 추적을 건너뜁니다 "
             "— pip install -e \".[langfuse]\""
         )
-        return NullTracer()
+        return None
     try:
         client = new_langfuse_client(lf, Langfuse)
     except Exception as exc:  # noqa: BLE001 — 관측 실패가 실행을 막으면 안 된다
@@ -319,7 +483,7 @@ def build_tracer(config: AppConfig) -> Any:
                 "사내 CA 인증서가 필요해 보입니다 — llm.langfuse.ssl_cert 에 "
                 "PEM 파일 경로를 지정하세요."
             )
-        return NullTracer()
+        return None
     logger.info("Langfuse 추적 활성 (host=%s)", host)
     return LangfuseTracer(client, flush_timeout=lf.flush_timeout)
 

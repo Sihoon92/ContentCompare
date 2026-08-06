@@ -15,7 +15,7 @@ import sys
 from .config import AppConfig
 from .fact.engine import make_pipeline
 from .llm.health import all_ok, check_llm
-from .llm.tracing import get_tracer, run_metadata, trace_run
+from .llm.tracing import get_tracer, run_metadata, trace_run, tracing_enabled
 from .logging_setup import log_print, setup_logging
 from .report import render_markdown, save_report
 
@@ -93,10 +93,10 @@ def _print_fact_summaries(summaries: list[dict]) -> int:
 def _warn_if_cached(config, summaries: list[dict]) -> None:
     """캐시 적중 단계는 LLM 을 부르지 않아 trace 가 없다는 것을 알린다.
 
-    이 안내가 없으면 "Langfuse 를 켰는데 왜 비어 있지?" 로 시간을 잃는다. 원인은
+    이 안내가 없으면 "추적을 켰는데 왜 비어 있지?" 로 시간을 잃는다. 원인은
     ``artifacts`` 지문 캐싱이며, 해당 문서 폴더를 지우고 다시 돌리면 채워진다.
     """
-    if not config.llm.langfuse.is_active():
+    if not tracing_enabled(config):
         return
     hits = [
         os.path.basename(str(s.get("path", "")))
@@ -106,9 +106,9 @@ def _warn_if_cached(config, summaries: list[dict]) -> None:
     ]
     if hits:
         log_print(
-            f"\n[Langfuse] 캐시 적중 {len(hits)}건({', '.join(hits)}) — 해당 단계는 "
-            f"LLM 을 호출하지 않아 trace 가 없습니다.\n"
-            f"           전체를 다시 보려면 artifacts/<문서> 폴더를 지우고 실행하세요."
+            f"\n[추적] 캐시 적중 {len(hits)}건({', '.join(hits)}) — 해당 단계는 "
+            f"LLM 을 호출하지 않아 기록이 없습니다.\n"
+            f"       전체를 다시 보려면 artifacts/<문서> 폴더를 지우고 실행하세요."
         )
 
 

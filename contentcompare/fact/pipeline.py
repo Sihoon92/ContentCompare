@@ -34,7 +34,7 @@ from ..raw import compact_raw, extract_raw
 from ..readers import close_all_office
 from .artifacts import ArtifactStore
 from .fact_comparator import FactComparator, FactComparison
-from .fact_extractor import extract_facts
+from .fact_extractor import build_facts_by_block, extract_facts
 from .fact_matcher import FactMatcher
 from .fact_models import FactSet
 from .fact_store import DocFacts, FactStore
@@ -229,6 +229,8 @@ class FactPipeline:
         runner = LlmRunner(
             self._chat_client(), max_calls=self.fact.max_llm_calls_per_concept
         )
+        # 후보 쌍 진단은 **이번 실행의 값**이어야 하므로 캐시하지 않는다(run_stats 와 같다).
+        pairs_out: Optional[dict] = {} if self.fact.save_candidate_pairs else None
         with stage("F7 개념 판정"):
             graph = build_concept_graph(
                 store,
@@ -239,6 +241,7 @@ class FactPipeline:
                 top_k=self.fact.concept_recall_top_k,
                 min_score=self.fact.concept_recall_min,
                 batch_size=self.fact.concept_batch_pairs,
+                pairs_out=pairs_out,
             )
         ref_doc = store.reference
         if ref_doc is not None:
@@ -248,6 +251,12 @@ class FactPipeline:
             )
             artifacts.save("concept_graph", graph.to_dict())
             artifacts.save("concept_validation", validate_graph(graph).to_dict())
+            if pairs_out:
+                # 계측 저장 실패가 비교를 죽이면 안 된다(run_stats 와 같은 방어).
+                try:
+                    artifacts.save("candidate_pairs", pairs_out)
+                except OSError:
+                    logger.warning("[Fact] candidate_pairs 저장 실패")
         return graph
 
     def _matcher_for(self, graph, ref_doc: DocFacts, target: DocFacts):
@@ -371,6 +380,14 @@ class FactPipeline:
                         stats=fact_stats,
                     )
             stages.append("facts")
+
+            # 블록 ↔ fact 매핑(진단). 추출 결과에서 역산하므로 캐시 히트에도 남는다.
+            if self.fact.save_facts_by_block:
+                try:
+                    store.save("facts_by_block",
+                               build_facts_by_block(compact, facts, fact_stats))
+                except OSError:
+                    logger.warning("[Fact] facts_by_block 저장 실패: %s", path)
 
             # F4a: 코드 검증(무 LLM). error 가 붙은 fact 는 버리지 않고 저신뢰로 표시해
             # F5 가 unknown 판정 근거로 쓴다.

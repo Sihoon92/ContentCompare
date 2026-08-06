@@ -38,6 +38,9 @@ BM25_METHOD = "bm25"
 NONE = "none"
 CONCEPT = "concept"
 
+RANKED_OUT_EXTRA = 5
+"""``ranked_out`` 진단에 top_k 밖으로 더 담을 후보 수(순위 밀림 vs 임계 미달 구분용)."""
+
 
 def norm_name(name: str) -> str:
     """entity_name 비교용 정규화 — 전각/공백/기호 차이를 없앤다."""
@@ -103,21 +106,35 @@ class FactMatcher:
             ]
 
     # ------------------------------------------------------------------ #
-    def search(self, ref: Fact) -> list[MatchCandidate]:
-        """기준 fact 의 후보를 점수 내림차순으로 반환(없으면 빈 리스트)."""
+    def search(
+        self, ref: Fact, *, ranked_out: Optional[list[dict]] = None
+    ) -> list[MatchCandidate]:
+        """기준 fact 의 후보를 점수 내림차순으로 반환(없으면 빈 리스트).
+
+        ``ranked_out`` 을 주면 **탈락한 후보까지** 사유(``cut_by``)와 함께 append 한다
+        (out-param, 판정 로직은 무변경). 컷 당한 것이 남지 않으면 "정답 쌍이 애초에
+        후보에 들어오긴 했는가"를 사후에 확인할 방법이 없어, ``missing`` 오판의 원인이
+        recall 실패인지 그 하류인지 영원히 구분되지 않는다.
+        """
         if not self.targets:
             return []
 
         key = norm_name(ref.entity_name)
         if key and key in self._by_name:
-            return [MatchCandidate(self.targets[self._by_name[key]], 1.0, EXACT)]
+            idx = self._by_name[key]
+            if ranked_out is not None:
+                # 이름 완전일치는 **조기 종료**라 나머지 후보를 만들지 않는다. 뷰어가
+                # "후보 1건뿐"을 recall 실패로 오해하지 않도록 method 로 구분한다.
+                ranked_out.append(self._ranked_row(idx, 1.0, EXACT, True, ""))
+            return [MatchCandidate(self.targets[idx], 1.0, EXACT)]
 
         if self._vectors is not None:
-            ranked = self._embed_rank(ref)
+            scores = self._embed_scores(ref)
             method, cutoff = EMBED, self.min_score
         else:
-            ranked = _rank(self._bm25.scores(tokenize(fact_text(ref))), self.top_k)
+            scores = self._bm25.scores(tokenize(fact_text(ref)))
             method, cutoff = BM25_METHOD, self.bm25_min_score
+        ranked = _rank(scores, self.top_k)
 
         out = []
         for idx, score in ranked:
@@ -127,12 +144,44 @@ class FactMatcher:
                 self.targets[idx], score, method,
                 needs_review=score < self.review_score,
             ))
+        if ranked_out is not None:
+            self._record_ranked(ranked_out, scores, method, cutoff)
         return out
 
-    def _embed_rank(self, ref: Fact) -> list[tuple[int, float]]:
+    def _embed_scores(self, ref: Fact) -> list[float]:
         query = _normalize(self.embedder.embed([fact_text(ref)], kind="query")[0])
-        sims = [_dot(query, vec) for vec in (self._vectors or [])]
-        return _rank(sims, self.top_k)
+        return [_dot(query, vec) for vec in (self._vectors or [])]
+
+    def _record_ranked(
+        self, out: list[dict], scores: list[float], method: str, cutoff: float
+    ) -> None:
+        """상위 ``top_k`` 와 **바로 아래 몇 건**까지 기록한다.
+
+        top_k 밖까지 남기는 이유는 "임계 미달"과 "순위 밀림"을 가르기 위해서다 —
+        전자는 ``concept_recall_min`` 을, 후자는 ``concept_recall_top_k`` 를 고쳐야 한다.
+        """
+        for rank_i, (idx, score) in enumerate(_rank(scores, self.top_k + RANKED_OUT_EXTRA)):
+            in_top = rank_i < self.top_k
+            if in_top and score >= cutoff:
+                kept, cut_by = True, ""
+            elif score < cutoff:
+                kept, cut_by = False, "min_score"
+            else:
+                kept, cut_by = False, "top_k"
+            out.append(self._ranked_row(idx, score, method, kept, cut_by))
+
+    def _ranked_row(
+        self, idx: int, score: float, method: str, kept: bool, cut_by: str
+    ) -> dict:
+        fact = self.targets[idx]
+        return {
+            "fact_id": fact.fact_id,
+            "entity_name": fact.entity_name,
+            "score": round(float(score), 4),
+            "method": method,
+            "kept": kept,
+            "cut_by": cut_by,
+        }
 
 
 def _rank(scores: list[float], top_k: int) -> list[tuple[int, float]]:
