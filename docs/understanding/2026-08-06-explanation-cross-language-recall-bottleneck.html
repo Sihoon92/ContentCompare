@@ -1,0 +1,1352 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>언어가 다르면 왜 비교가 무너지는가 — 개념 그래프 recall 경로 해부</title>
+
+<style>
+:root{
+  --bg:#fbfaf7; --fg:#22201c; --muted:#6b6560; --line:#e3ded5;
+  --card:#ffffff; --code-bg:#f4f1ea; --accent:#8a5a2b;
+  --ok:#2f7d4f; --ok-bg:#e8f4ec;
+  --bad:#b03a34; --bad-bg:#fbeceb;
+  --warn:#a37211; --warn-bg:#fdf3e0;
+  --gray:#8a8580; --gray-bg:#f0eee9;
+  --blue:#2f5d8a; --blue-bg:#e9f0f7;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#171614; --fg:#e8e4dd; --muted:#a09a92; --line:#33302b;
+    --card:#1f1e1b; --code-bg:#232220; --accent:#d3a066;
+    --ok:#6cc08a; --ok-bg:#1c2a22;
+    --bad:#e08078; --bad-bg:#2c1e1d;
+    --warn:#d9ac5a; --warn-bg:#2a2318;
+    --gray:#8f8a84; --gray-bg:#26241f;
+    --blue:#7fb0d9; --blue-bg:#1b2530;
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+  line-height:1.75; font-size:16.5px; padding-bottom:90px;
+}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px}
+header.top{padding:56px 0 28px;border-bottom:1px solid var(--line);margin-bottom:32px}
+header.top .kicker{color:var(--accent);font-size:13px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
+header.top h1{font-size:clamp(26px,5vw,40px);line-height:1.25;margin:12px 0 14px;letter-spacing:-.02em}
+header.top .sub{color:var(--muted);font-size:17px;margin:0}
+header.top .meta{color:var(--muted);font-size:13.5px;margin-top:18px}
+h2{font-size:clamp(21px,3.6vw,27px);margin:60px 0 6px;letter-spacing:-.01em;scroll-margin-top:20px}
+h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px}
+h3{font-size:19px;margin:34px 0 6px}
+h4{font-size:16.5px;margin:24px 0 4px;color:var(--muted)}
+p{margin:14px 0}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .38em;border-radius:4px;font-size:.88em;
+     font-family:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,monospace}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;white-space:pre;font-size:13.5px;line-height:1.6;
+    font-family:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,monospace}
+pre .hl{background:rgba(200,140,60,.22);display:inline-block;width:100%}
+pre .cm{color:var(--muted)}
+table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);font-weight:700}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+figure{margin:26px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{color:var(--muted);font-size:13.5px;margin-top:9px;text-align:center}
+.callout{border-left:4px solid var(--accent);background:var(--card);
+         padding:13px 17px;border-radius:0 9px 9px 0;margin:22px 0}
+.callout .t{font-weight:700;font-size:14px;color:var(--accent);
+            letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+.callout.warn{border-left-color:var(--bad)}
+.callout.warn .t{color:var(--bad)}
+.callout.def{border-left-color:var(--blue)}
+.callout.def .t{color:var(--blue)}
+.toc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:28px 0}
+.toc h4{margin:0 0 8px;color:var(--fg);font-size:15px}
+.toc ol{margin:0;padding-left:20px}
+.toc li{margin:3px 0;font-size:14.5px}
+.skip{background:var(--gray-bg);border:1px dashed var(--line);border-radius:10px;
+      padding:10px 15px;font-size:14px;color:var(--muted);margin:18px 0}
+.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12.5px;
+      font-weight:700;vertical-align:middle}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.gray{background:var(--gray-bg);color:var(--gray)}
+.pill.blue{background:var(--blue-bg);color:var(--blue)}
+
+/* 질문 메모 */
+.qmemo{border:1.5px dashed var(--line);background:var(--gray-bg);border-radius:11px;
+       padding:12px 16px;margin:26px 0}
+.qmemo-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:7px}
+.qmemo-label{font-weight:700;font-size:13px;color:var(--accent);letter-spacing:.05em}
+.qmemo-hint{font-size:12.5px;color:var(--muted)}
+.qmemo-question{min-height:2.1em;background:var(--bg);border:1px solid var(--line);
+                border-radius:7px;padding:8px 11px;font-size:14.5px;outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:var(--muted)}
+.qmemo-question:focus{border-color:var(--accent)}
+.qmemo-answer{margin-top:10px;padding:10px 13px;background:var(--card);
+              border-left:3px solid var(--ok);border-radius:0 7px 7px 0;font-size:14.5px}
+.qmemo[data-status="answered"]{border:1.5px solid var(--ok);background:var(--card)}
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);
+           border-top:1px solid var(--line);padding:9px 16px;display:flex;gap:13px;
+           align-items:center;justify-content:center;z-index:50;flex-wrap:wrap}
+#qmemo-save-btn{background:var(--accent);color:#fff;border:0;border-radius:8px;
+                padding:8px 17px;font-size:14px;font-weight:700;cursor:pointer}
+#qmemo-saymsg{font-size:13px;color:var(--muted)}
+
+/* 퀴즈 */
+.quiz{background:var(--card);border:1px solid var(--line);border-radius:12px;
+      padding:17px 20px;margin:22px 0}
+.quiz .q{font-weight:700;margin-bottom:11px}
+.quiz .opt{display:block;width:100%;text-align:left;background:var(--bg);
+           border:1px solid var(--line);border-radius:8px;padding:9px 13px;margin:6px 0;
+           font-size:14.5px;cursor:pointer;color:var(--fg);font-family:inherit;line-height:1.5}
+.quiz .opt:hover{border-color:var(--accent)}
+.quiz .opt.correct{background:var(--ok-bg);border-color:var(--ok)}
+.quiz .opt.wrong{background:var(--bad-bg);border-color:var(--bad)}
+.quiz .fb{margin-top:11px;font-size:14.5px;padding:10px 13px;border-radius:8px;display:none}
+.quiz .fb.show{display:block}
+.quiz .fb.good{background:var(--ok-bg);color:var(--ok)}
+.quiz .fb.bad{background:var(--bad-bg);color:var(--bad)}
+.small{font-size:13.5px;color:var(--muted)}
+hr.sec{border:0;border-top:1px solid var(--line);margin:52px 0}
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <div class="kicker">ContentCompare · 진단 노트</div>
+  <h1>언어가 다르면 왜 비교가 무너지는가</h1>
+  <p class="sub">개념 그래프의 recall 경로를 처음부터 끝까지 따라가며, "임베딩이 못 찾는 것"과 "찾았는데 뒤에서 버려지는 것"을 구분한다.</p>
+  <p class="meta">2026-08-06 · 대상 코드: <code>contentcompare/fact/</code> (F7 개념 그래프 · F5 값 대조)</p>
+</header>
+
+<p>이 글은 하나의 아주 자연스러운 직관에서 출발한다. <strong>"한국어 문서와 영어 문서를 비교하는데 잘 안 된다면, 애초에 임베딩이 짝을 못 찾는 것 아닐까? 그럼 더 좋은 다국어 모델을 써야 하는 것 아닐까?"</strong></p>
+
+<p>합리적인 추측이다. 그리고 <em>틀렸다</em>. 이 프로젝트는 이미 그 가설을 실험했고, 임베딩은 멀쩡했다. 무너진 것은 그 다음 단계였다. 이 글은 그 "다음 단계"가 정확히 어디인지, 왜 그런 일이 벌어지는지, 그리고 진짜 고쳐야 할 곳은 어디인지를 데이터 흐름을 따라가며 짚는다.</p>
+
+<p>덤으로, 그 과정에서 더 근본적인 질문에도 답한다. <strong>지금 쓰고 있는 "개념 그래프"는 온톨로지인가? Graph RAG와는 무엇이 다른가?</strong></p>
+
+<div class="callout def">
+  <div class="t">읽는 법 · 질문 메모</div>
+  <p style="margin:4px 0">페이지 곳곳에 <strong>질문 메모</strong> 상자가 있다. 읽다가 막히는 지점이 있으면 거기에 바로 적어 두면 된다. 타이핑하는 즉시 이 브라우저에 자동 저장되고(localStorage), 맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 박힌 채로 HTML 파일이 내려받아진다. 그 파일을 <code>docs/understanding/</code> 의 원본 자리에 덮어쓴 뒤 Claude 에게 "질문에 답해줘"라고 하면 답이 이 페이지에 채워진다.</p>
+</div>
+
+<div class="toc">
+  <h4>목차</h4>
+  <ol>
+    <li><a href="#bg-deep">깊은 배경 — 문서를 기계가 비교한다는 것 <span class="small">(익숙하면 건너뛰기)</span></a></li>
+    <li><a href="#bg-narrow">좁은 배경 — F7 개념 그래프의 규칙 하나</a></li>
+    <li><a href="#intuition">직관 — 이건 온톨로지인가, Graph RAG인가</a></li>
+    <li><a href="#onebit">문제 ①: 엣지는 사실상 1비트다</a></li>
+    <li><a href="#crosslang">문제 ②: 그 개선안은 교차언어를 못 푼다</a></li>
+    <li><a href="#notembed">반전 — 임베딩은 범인이 아니다 (실측)</a></li>
+    <li><a href="#holes">데이터 흐름 추적 — 진짜 구멍 셋</a></li>
+    <li><a href="#solution">솔루션 — 원리와 예상 효과</a></li>
+    <li><a href="#quiz">이해 점검 퀴즈</a></li>
+    <li><a href="#wrapup">정리</a></li>
+  </ol>
+</div>
+
+<hr class="sec">
+
+<h2 id="bg-deep"><span class="num">1</span>깊은 배경 — 문서를 기계가 비교한다는 것</h2>
+
+<div class="skip">이 절은 완전 초심자를 위한 것이다. 임베딩·RAG·fact 파이프라인을 이미 안다면 <a href="#bg-narrow">2절</a>로 건너뛰어도 좋다.</div>
+
+<h3>사람이 하던 일</h3>
+
+<p>엑셀 기준 문서에 "공칭전압 3.85 V" 라는 줄이 있다. 이게 Word 규격서에도, PPT 발표자료에도 똑같이 적혀 있는지 확인해야 한다. 항목이 200개고 대상 문서가 5개면 1000번을 눈으로 대조해야 한다. 지치고, 놓친다.</p>
+
+<p>기계에게 시키려면 두 가지를 풀어야 한다.</p>
+
+<ol>
+<li><strong>찾기</strong> — 기준의 "공칭전압"에 해당하는 줄이 Word 문서 어디에 있는가?</li>
+<li><strong>판정</strong> — 찾은 줄의 값이 기준과 같은가, 다른가?</li>
+</ol>
+
+<h3>찾기: 임베딩이라는 도구</h3>
+
+<div class="callout def">
+  <div class="t">정의 · 임베딩(embedding)</div>
+  <p style="margin:4px 0">문장을 숫자 벡터(예: 1024개의 실수)로 바꾸는 것. 의미가 비슷한 문장일수록 벡터가 비슷한 방향을 가리키도록 학습되어 있다. 두 벡터의 <strong>코사인 유사도</strong>(–1 ~ 1)가 클수록 의미가 가깝다고 본다.</p>
+  <p style="margin:4px 0">핵심은 <strong>글자가 달라도 의미가 같으면 가까워진다</strong>는 것이다. 그래서 <code>표준환경온도</code> 와 <code>Standard ambient temperature</code> 처럼 <em>공유하는 글자가 하나도 없는</em> 두 문자열도 이어질 수 있다.</p>
+</div>
+
+<p>비교 대상이 되는 다른 도구가 <strong>BM25</strong>다. 이건 훨씬 오래된 방식으로, <em>같은 단어가 몇 번 나오는지</em>를 센다. 단어가 겹쳐야 점수가 나온다. 그래서 한국어 문장과 영어 문장 사이에서는 원리적으로 점수가 0에 가깝다 — 이 사실이 뒤에서 중요해진다.</p>
+
+<h3>이 프로젝트의 구조: fact 엔진</h3>
+
+<p>ContentCompare 에는 엔진이 둘 있는데, 이 글이 다루는 것은 <code>--engine fact</code> 쪽이다. 문서를 통째로 LLM 에 던지지 않고, 먼저 <strong>fact</strong> 라는 작은 단위로 잘게 쪼갠 다음 fact 끼리 비교한다.</p>
+
+<figure>
+<svg viewBox="0 0 840 200" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#8a8580"/>
+    </marker>
+  </defs>
+  <g font-size="12.5">
+    <rect x="8" y="58" width="112" height="58" rx="9" fill="#e9f0f7" stroke="#2f5d8a"/>
+    <text x="64" y="80" text-anchor="middle" font-weight="700" fill="#2f5d8a">문서</text>
+    <text x="64" y="98" text-anchor="middle" fill="#2f5d8a" font-size="11">xlsx·docx·pptx</text>
+
+    <rect x="150" y="58" width="112" height="58" rx="9" fill="#f4f1ea" stroke="#8a8580"/>
+    <text x="206" y="80" text-anchor="middle" font-weight="700">raw</text>
+    <text x="206" y="98" text-anchor="middle" font-size="11">해석 없는 물리정보</text>
+
+    <rect x="292" y="58" width="112" height="58" rx="9" fill="#f4f1ea" stroke="#8a8580"/>
+    <text x="348" y="80" text-anchor="middle" font-weight="700">fact</text>
+    <text x="348" y="98" text-anchor="middle" font-size="11">이름+값+단위</text>
+
+    <rect x="434" y="58" width="126" height="58" rx="9" fill="#fdf3e0" stroke="#a37211"/>
+    <text x="497" y="80" text-anchor="middle" font-weight="700" fill="#a37211">개념 그래프</text>
+    <text x="497" y="98" text-anchor="middle" font-size="11" fill="#a37211">F7 · 비교 허가</text>
+
+    <rect x="590" y="58" width="112" height="58" rx="9" fill="#e8f4ec" stroke="#2f7d4f"/>
+    <text x="646" y="80" text-anchor="middle" font-weight="700" fill="#2f7d4f">값 대조</text>
+    <text x="646" y="98" text-anchor="middle" font-size="11" fill="#2f7d4f">F5 · 코드가 판정</text>
+
+    <rect x="732" y="58" width="100" height="58" rx="9" fill="#e9f0f7" stroke="#2f5d8a"/>
+    <text x="782" y="86" text-anchor="middle" font-weight="700" fill="#2f5d8a">리포트</text>
+
+    <g stroke="#8a8580" stroke-width="1.6" marker-end="url(#ar)">
+      <line x1="122" y1="87" x2="146" y2="87"/>
+      <line x1="264" y1="87" x2="288" y2="87"/>
+      <line x1="406" y1="87" x2="430" y2="87"/>
+      <line x1="562" y1="87" x2="586" y2="87"/>
+      <line x1="704" y1="87" x2="728" y2="87"/>
+    </g>
+    <text x="420" y="150" text-anchor="middle" fill="#6b6560" font-size="12">
+      이 글이 다루는 구간 ─ fact 가 만들어진 다음, 값이 대조되기 전
+    </text>
+    <path d="M300 132 L300 124 L555 124 L555 132" fill="none" stroke="#a37211" stroke-width="1.6"/>
+  </g>
+</svg>
+<figcaption>fact 엔진의 전체 흐름. 이 글의 무대는 가운데 <strong>개념 그래프</strong> 앞뒤다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <div class="t">정의 · fact</div>
+  <p style="margin:4px 0">문서에서 뽑아낸 주장 하나. 대략 이런 모양이다.</p>
+  <pre>{
+  "fact_id": "fact-r003",
+  "entity_name": "공칭전압",
+  "entity_path": ["기본사양", "전기적특성", "공칭전압"],
+  "attributes": { "값": { "value": 3.85, "unit": "V" } },
+  "evidence_text": "3.85",
+  "search_text": "공칭전압 기본사양 전기적특성 3.85 V"
+}</pre>
+  <p style="margin:4px 0"><code>entity_name</code> 은 항목 이름, <code>entity_path</code> 는 문서 안에서의 위치(섹션 계층), <code>search_text</code> 는 <em>검색에 쓰라고</em> 이 모두를 이어붙인 문자열이다. 이 세 개가 이 글 내내 반복해서 등장한다.</p>
+</div>
+
+<div class="qmemo" data-qid="bg-deep-basics" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="bg-narrow"><span class="num">2</span>좁은 배경 — F7 개념 그래프의 규칙 하나</h2>
+
+<p>fact 를 다 뽑았다고 하자. 이제 기준 문서의 fact 200개와 대상 문서의 fact 180개를 어떻게 짝지을 것인가?</p>
+
+<p>가장 단순한 답은 "유사도가 높은 것끼리 묶는다"이다. 이 프로젝트도 처음엔 그렇게 했다. 그런데 실측에서 이런 표가 나왔다.</p>
+
+<table>
+<tr><th>기준 항목</th><th>대상 항목</th><th class="num">유사도</th><th>진실</th></tr>
+<tr><td>평가환경온도</td><td>표준환경온도</td><td class="num">0.6944</td><td><span class="pill bad">다른 개념</span></td></tr>
+<tr><td>충전환경온도</td><td>정격충전전압</td><td class="num">0.6084</td><td><span class="pill bad">다른 개념</span></td></tr>
+<tr><td>공칭용량</td><td>공칭 용량</td><td class="num">0.7656</td><td><span class="pill ok">같은 개념</span></td></tr>
+</table>
+
+<p>여기까지는 임계값 0.7 정도로 가를 수 있을 것 같다. 그런데 더 넓게 재 보니 <strong>정답 최저 0.697, 오매칭 최고 0.700</strong> 이었다. 두 분포가 완전히 겹친다. 같은 대상 fact 에 대한 두 개의 질의라 <em>원리적으로</em> 점수만으로는 가를 수 없다.</p>
+
+<figure>
+<svg viewBox="0 0 840 150" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <line x1="60" y1="90" x2="800" y2="90" stroke="#8a8580" stroke-width="1.6"/>
+  <g fill="#6b6560" font-size="11">
+    <text x="60" y="112" text-anchor="middle">0.3</text>
+    <text x="430" y="112" text-anchor="middle">0.65</text>
+    <text x="800" y="112" text-anchor="middle">1.0</text>
+  </g>
+  <g stroke="#8a8580"><line x1="60" y1="85" x2="60" y2="95"/><line x1="430" y1="85" x2="430" y2="95"/><line x1="800" y1="85" x2="800" y2="95"/></g>
+
+  <!-- 겹치는 구간 -->
+  <rect x="625" y="66" width="60" height="48" fill="#fbeceb" stroke="#b03a34" stroke-dasharray="4 3"/>
+  <text x="655" y="58" text-anchor="middle" fill="#b03a34" font-size="11" font-weight="700">분포가 겹치는 구간</text>
+
+  <g>
+    <circle cx="591" cy="90" r="6" fill="#b03a34"/><text x="591" y="136" text-anchor="middle" fill="#b03a34" font-size="10.5">0.6084 ✗</text>
+    <circle cx="648" cy="90" r="6" fill="#b03a34"/><text x="648" y="136" text-anchor="middle" fill="#b03a34" font-size="10.5">0.6944 ✗</text>
+    <circle cx="662" cy="90" r="6" fill="#2f7d4f"/><text x="695" y="136" text-anchor="middle" fill="#2f7d4f" font-size="10.5">0.697 ✓</text>
+    <circle cx="731" cy="90" r="6" fill="#2f7d4f"/><text x="731" y="136" text-anchor="middle" fill="#2f7d4f" font-size="10.5">0.7656 ✓</text>
+  </g>
+  <text x="118" y="46" fill="#a37211" font-size="11.5" font-weight="700">← concept_recall_min = 0.3 (후보 생성 컷)</text>
+  <line x1="60" y1="52" x2="60" y2="82" stroke="#a37211" stroke-width="1.6" stroke-dasharray="3 3"/>
+</svg>
+<figcaption>유사도 점수만으로는 "같은 개념"과 "다른 개념"을 가를 수 없다. 초록(정답)과 빨강(오답)이 같은 구간에 있다.</figcaption>
+</figure>
+
+<p>그래서 설계가 뒤집혔다. <strong>점수를 판정에서 완전히 빼 버린 것이다.</strong></p>
+
+<div class="callout">
+  <div class="t">F7 의 단 하나의 판정 규칙</div>
+  <p style="margin:4px 0">두 fact 는 <strong>개념이 <code>same_as</code> 로 이어져 있을 때만</strong> 비교된다. 이어져 있지 않으면 값이 아무리 비슷해도 비교하지 않는다.</p>
+  <p style="margin:4px 0">유사도는 판정에서 빠지고 <strong>"LLM 에게 검토시킬 후보 쌍을 좁히는 recall 용도"</strong> 로만 남았다. 그래서 컷을 0.3 처럼 헐렁하게 잡아도 안전하다 — 틀려도 손해가 작기 때문이다.</p>
+</div>
+
+<h3>그래프의 모양</h3>
+
+<p>이 그래프에는 두 종류의 요소가 있다.</p>
+
+<figure>
+<svg viewBox="0 0 840 260" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12.5">
+  <!-- 노드 c-0001 -->
+  <rect x="40" y="30" width="330" height="96" rx="12" fill="#e8f4ec" stroke="#2f7d4f" stroke-width="1.6"/>
+  <text x="56" y="52" fill="#2f7d4f" font-weight="700" font-size="12">개념 노드 c-0001 · "공칭전압"</text>
+  <rect x="58" y="62" width="140" height="48" rx="8" fill="#fff" stroke="#8a8580"/>
+  <text x="128" y="80" text-anchor="middle" font-size="11.5">📘 기준.xlsx</text>
+  <text x="128" y="97" text-anchor="middle" font-size="11.5" font-weight="700">공칭전압 3.85V</text>
+  <rect x="212" y="62" width="140" height="48" rx="8" fill="#fff" stroke="#8a8580"/>
+  <text x="282" y="80" text-anchor="middle" font-size="11.5">📗 spec.docx</text>
+  <text x="282" y="97" text-anchor="middle" font-size="11.5" font-weight="700">Nominal V 3.89V</text>
+  <line x1="198" y1="86" x2="212" y2="86" stroke="#2f7d4f" stroke-width="2"/>
+
+  <!-- 노드 c-0002 -->
+  <rect x="470" y="30" width="180" height="96" rx="12" fill="#f0eee9" stroke="#8a8580" stroke-width="1.6"/>
+  <text x="486" y="52" fill="#6b6560" font-weight="700" font-size="12">개념 노드 c-0002</text>
+  <rect x="488" y="62" width="140" height="48" rx="8" fill="#fff" stroke="#8a8580"/>
+  <text x="558" y="80" text-anchor="middle" font-size="11.5">📘 기준.xlsx</text>
+  <text x="558" y="97" text-anchor="middle" font-size="11.5" font-weight="700">1개월저장온도</text>
+
+  <!-- 엣지 -->
+  <path d="M370 78 C 420 78, 420 78, 466 78" fill="none" stroke="#b03a34" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="418" y="70" text-anchor="middle" fill="#b03a34" font-size="11" font-weight="700">differs_by</text>
+
+  <text x="60" y="162" fill="#6b6560" font-size="12.5">
+    <tspan font-weight="700">노드 = 개념.</tspan> 여러 문서의 fact 가 한 노드에 모이면 "같은 것을 말한 것"이다.
+  </text>
+  <text x="60" y="184" fill="#6b6560" font-size="12.5">
+    <tspan font-weight="700">엣지 = 두 fact 사이의 관계 주장.</tspan> same_as(잇는다) · differs_by(막는다) · unknown(보류)
+  </text>
+  <text x="60" y="212" fill="#a37211" font-size="12.5" font-weight="700">
+    노드는 엣지에서 파생된다 — same_as 로 이어진 것들을 한 덩어리로 묶은 결과가 노드다.
+  </text>
+  <text x="60" y="236" fill="#6b6560" font-size="12">
+    (구현: union-find 로 연결 성분을 뽑는다 — concept_assembler.py:145-183)
+  </text>
+</svg>
+<figcaption>개념 그래프의 구조. 값이 다른 두 fact(3.85 vs 3.89)도 <em>같은 개념</em>이면 한 노드에 들어간다 — 그래야 "불일치"라고 말할 수 있다.</figcaption>
+</figure>
+
+<h3>권한 비대칭</h3>
+
+<p>이 설계에서 가장 영리한 부분이자, 뒤에서 문제의 원인이 되기도 하는 규칙이 하나 더 있다.</p>
+
+<div class="callout">
+  <div class="t">권한 비대칭</div>
+  <p style="margin:4px 0"><strong>잇는 것(<code>same_as</code>)</strong>은 LLM 이 <em>제안</em>만 할 수 있고, 코드의 <strong>근거 검증</strong>을 통과해야 성립한다.<br>
+  <strong>막는 것(<code>differs_by</code>)</strong>은 코드가 단독으로 집행한다. 검증도 필요 없다.</p>
+  <p style="margin:4px 0">이유는 단순하다. 잘못 이으면 <em>엉뚱한 걸 비교해서 오답</em>을 낸다. 잘못 막으면 <em>"검토 필요"로 사람에게 간다.</em> 두 실패의 무게가 다르므로 권한도 달라야 한다.</p>
+</div>
+
+<p>"근거 검증"이란 이것이다. LLM 이 "이 둘은 같은 개념이다"라고 주장할 때, <strong>양쪽 원문을 그대로 인용하게</strong> 시킨다. 그리고 코드가 그 인용문이 실제 fact 원문에 존재하는지 대조한다. 없으면 주장을 <code>unknown</code> 으로 강등한다. LLM 이 지어낸 근거로 두 항목을 잇는 것을 막는 장치다.</p>
+
+<div class="qmemo" data-qid="bg-narrow-f7-rule" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="intuition"><span class="num">3</span>직관 — 이건 온톨로지인가, Graph RAG인가</h2>
+
+<p>"그래프"라는 말이 나오면 요즘은 자연스럽게 <strong>Graph RAG</strong> 를 떠올린다. 둘 다 노드와 엣지가 있고 LLM 이 붙어 있으니 비슷해 보인다. 그런데 <strong>그래프가 파이프라인에서 하는 일이 정반대</strong>다.</p>
+
+<figure>
+<svg viewBox="0 0 840 330" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <defs>
+    <marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#2f5d8a"/>
+    </marker>
+    <marker id="ar3" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#a37211"/>
+    </marker>
+  </defs>
+
+  <!-- 왼쪽: Graph RAG -->
+  <rect x="14" y="14" width="392" height="300" rx="12" fill="#e9f0f7" stroke="#2f5d8a"/>
+  <text x="34" y="40" fill="#2f5d8a" font-weight="700" font-size="14">Graph RAG — 그래프로 답을 만든다</text>
+
+  <text x="34" y="66" fill="#2f5d8a" font-size="11.5">질문: "이 회사의 리스크는?"</text>
+  <circle cx="80" cy="112" r="22" fill="#fff" stroke="#2f5d8a"/><text x="80" y="116" text-anchor="middle" font-size="10.5">A사</text>
+  <circle cx="176" cy="96" r="22" fill="#fff" stroke="#2f5d8a"/><text x="176" y="100" text-anchor="middle" font-size="10.5">B사</text>
+  <circle cx="272" cy="130" r="22" fill="#fff" stroke="#2f5d8a"/><text x="272" y="134" text-anchor="middle" font-size="10.5">소송</text>
+  <circle cx="176" cy="176" r="22" fill="#fff" stroke="#2f5d8a"/><text x="176" y="180" text-anchor="middle" font-size="10.5">규제</text>
+  <g stroke="#2f5d8a" stroke-width="1.4" marker-end="url(#ar2)">
+    <line x1="101" y1="106" x2="152" y2="98"/>
+    <line x1="197" y1="103" x2="250" y2="122"/>
+    <line x1="97" y1="126" x2="156" y2="168"/>
+  </g>
+  <text x="126" y="90" font-size="9.5" fill="#2f5d8a">인수</text>
+  <text x="224" y="106" font-size="9.5" fill="#2f5d8a">피소</text>
+  <text x="112" y="160" font-size="9.5" fill="#2f5d8a">적용</text>
+
+  <rect x="34" y="212" width="352" height="86" rx="9" fill="#fff" stroke="#2f5d8a" stroke-dasharray="4 3"/>
+  <text x="48" y="232" font-size="11.5" font-weight="700" fill="#2f5d8a">그래프의 역할: 컨텍스트를 늘린다</text>
+  <text x="48" y="252" font-size="11.5">2홉 건너 "소송"까지 끌어와 LLM 에 넣는다.</text>
+  <text x="48" y="270" font-size="11.5">엣지 = 세계의 사실 ("A가 B를 인수했다")</text>
+  <text x="48" y="288" font-size="11.5">최종 답은 <tspan font-weight="700">LLM</tspan> 이 만든다.</text>
+
+  <!-- 오른쪽: F7 -->
+  <rect x="434" y="14" width="392" height="300" rx="12" fill="#fdf3e0" stroke="#a37211"/>
+  <text x="454" y="40" fill="#a37211" font-weight="700" font-size="14">F7 개념 그래프 — 그래프로 비교를 허가한다</text>
+
+  <text x="454" y="66" fill="#a37211" font-size="11.5">질문: "이 둘을 비교해도 되는가?"</text>
+
+  <rect x="454" y="86" width="132" height="40" rx="8" fill="#fff" stroke="#8a8580"/>
+  <text x="520" y="103" text-anchor="middle" font-size="10.5">📘 공칭전압</text>
+  <text x="520" y="118" text-anchor="middle" font-size="10.5" font-weight="700">3.85 V</text>
+  <rect x="672" y="86" width="132" height="40" rx="8" fill="#fff" stroke="#8a8580"/>
+  <text x="738" y="103" text-anchor="middle" font-size="10.5">📗 Nominal voltage</text>
+  <text x="738" y="118" text-anchor="middle" font-size="10.5" font-weight="700">3.89 V</text>
+  <line x1="586" y1="106" x2="668" y2="106" stroke="#2f7d4f" stroke-width="2.4" marker-end="url(#ar3)"/>
+  <text x="627" y="99" text-anchor="middle" font-size="10" fill="#2f7d4f" font-weight="700">same_as ✓</text>
+  <text x="627" y="140" text-anchor="middle" font-size="10" fill="#2f7d4f">→ 비교 허가 → 코드가 값 대조 → ❌ 불일치</text>
+
+  <rect x="454" y="152" width="132" height="34" rx="8" fill="#fff" stroke="#8a8580"/>
+  <text x="520" y="173" text-anchor="middle" font-size="10.5">📘 1개월저장온도</text>
+  <rect x="672" y="152" width="132" height="34" rx="8" fill="#fff" stroke="#8a8580"/>
+  <text x="738" y="173" text-anchor="middle" font-size="10.5">📗 Std. ambient temp.</text>
+  <line x1="586" y1="169" x2="668" y2="169" stroke="#b03a34" stroke-width="2.4" stroke-dasharray="5 4"/>
+  <text x="627" y="162" text-anchor="middle" font-size="10" fill="#b03a34" font-weight="700">differs_by ✗</text>
+  <text x="627" y="200" text-anchor="middle" font-size="10" fill="#b03a34">→ 비교 안 함 (값을 보지도 않는다)</text>
+
+  <rect x="454" y="212" width="352" height="86" rx="9" fill="#fff" stroke="#a37211" stroke-dasharray="4 3"/>
+  <text x="468" y="232" font-size="11.5" font-weight="700" fill="#a37211">그래프의 역할: 후보를 줄이고 차단한다</text>
+  <text x="468" y="252" font-size="11.5">엣지 = "두 표현이 같은 것을 가리키는가"</text>
+  <text x="468" y="270" font-size="11.5">= 문서끼리의 <tspan font-weight="700">동일성(정렬) 주장</tspan>, 세계의 사실이 아님</text>
+  <text x="468" y="288" font-size="11.5">최종 값 판정은 <tspan font-weight="700">코드</tspan> 가 한다.</text>
+</svg>
+<figcaption>같은 "그래프"지만 방향이 반대다. Graph RAG는 컨텍스트를 <strong>넓히고</strong>, F7은 비교 대상을 <strong>좁힌다</strong>.</figcaption>
+</figure>
+
+<h3>세 가지 결정적 차이</h3>
+
+<table>
+<tr><th style="width:22%"></th><th>Graph RAG</th><th>F7 개념 그래프</th></tr>
+<tr><td><strong>유사도의 지위</strong></td><td>진입점이자 랭킹 근거. 임계값이 곧 품질</td><td>후보를 좁히는 recall 전용. <code>recall_score</code> 는 "진단용으로만" 저장</td></tr>
+<tr><td><strong>엣지의 레이어</strong></td><td>인스턴스 사실 (A는 B를 인수했다)</td><td>메타 수준 동일성 (문서A의 X와 문서B의 Y는 같은 것)</td></tr>
+<tr><td><strong>검증</strong></td><td>보통 검증 없이 색인에 들어감</td><td>LLM 이 만든 <code>same_as</code> 는 원문 인용 대조 통과 필수</td></tr>
+</table>
+
+<div class="callout def">
+  <div class="t">한 줄 요약</div>
+  <p style="margin:4px 0"><strong>Graph RAG는 그래프로 답을 만들고, F7은 그래프로 비교를 허가한다.</strong></p>
+</div>
+
+<h3>그럼 이건 온톨로지인가?</h3>
+
+<p>엄밀하게는 <strong>아니다.</strong> 온톨로지가 갖춰야 할 것들과 대조해 보자.</p>
+
+<table>
+<tr><th style="width:38%">온톨로지 요건</th><th>현재 상태</th></tr>
+<tr><td>클래스 계층 (<code>is_a</code>)</td><td><span class="pill bad">없음</span> 노드는 동치류일 뿐, 상하위 개념이 없다</td></tr>
+<tr><td>관계 타입의 형식적 정의</td><td><span class="pill bad">없음</span> <code>same_as / differs_by / unknown</code> 3종 하드코딩</td></tr>
+<tr><td>부분 관계 (<code>part_of</code>)</td><td><span class="pill bad">없음</span> <code>entity_path</code> 에 계층이 <em>있는데도</em> 그래프가 안 쓴다</td></tr>
+<tr><td>공리와 추론</td><td><span class="pill warn">부분</span> 전이적 병합(union-find), "차단이 연결을 이긴다" 정도</td></tr>
+<tr><td>통제 어휘</td><td><span class="pill bad">없음</span> <code>axis</code> 가 LLM 자유 문자열</td></tr>
+<tr><td>영속·재사용</td><td><span class="pill ok">있음</span> <code>knowledge/ontology.yaml</code></td></tr>
+</table>
+
+<p>표준 어휘로 옮기면 지금 있는 것은 대략 <strong>SKOS 수준</strong>이다. <code>aliases</code> ≈ <code>skos:altLabel</code>, <code>same_as</code> ≈ <code>skos:exactMatch</code>. 포함 관계(<code>broader</code>/<code>narrower</code>)도, 속성 제약도 없다.</p>
+
+<p>그래서 정직한 이름은 <strong>"동일성 그래프 + 사람이 관리하는 경량 어휘집"</strong> 이다. 다만 이게 결함이라는 뜻은 아니다 — 판정 규칙이 하나뿐이라 오판 추적이 쉽고, <code>axis</code> 를 코드가 해석하지 않으므로 도메인이 바뀌어도 코드가 그대로다. <strong>표현력을 일부러 낮게 유지한 설계</strong>다.</p>
+
+<div class="qmemo" data-qid="intuition-graphrag-vs-f7" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">Graph RAG 와의 대비, 또는 "온톨로지가 아니다"라는 판단에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="onebit"><span class="num">4</span>문제 ①: 엣지는 사실상 1비트다</h2>
+
+<p>여기서 자연스러운 관찰이 나온다. <em>"엣지에 '관계가 있다'는 것만 있고 어떤 설명도 없으면, 그건 온톨로지가 아니지 않나?"</em></p>
+
+<p>절반은 맞다. 데이터 구조를 보면 정보가 <em>꽤 실려 있다</em>.</p>
+
+<pre><span class="cm"># contentcompare/fact/concept_models.py:106-127</span>
+@dataclass
+class ConceptEdge:
+    relation: str        <span class="cm"># same_as | differs_by | unknown</span>
+    left: FactRef
+    right: FactRef
+    axis: str = ""       <span class="cm"># differs_by 일 때 "무엇이" 다른지 (예: "측정조건")</span>
+    left_text: str = ""  <span class="cm"># 근거 인용 (원문 그대로)</span>
+    right_text: str = ""
+    reason: str = ""     <span class="cm"># 자연어 사유</span>
+    decided_by: str = BY_LLM   <span class="cm"># code | ontology | llm</span>
+    rejected_by: str = ""      <span class="cm"># 강등 사유</span></pre>
+
+<p>그런데 조립 모듈의 첫 줄이 스스로 이렇게 못 박는다.</p>
+
+<pre><span class="cm"># contentcompare/fact/concept_assembler.py:3-5</span>
+<span class="hl">**코드가 위상만 보고 집행한다.** ``axis`` 문자열("측정조건"/"산정방식"/…)은 LLM 이 문서</span>
+<span class="hl">도메인에 맞게 짓는 이름이며 여기서 해석하지 않는다.</span></pre>
+
+<p>실제로 <code>axis</code> 가 런타임에 읽히는 곳은 <strong>딱 한 군데</strong>다. 리포트 문장을 조립할 때뿐이다.</p>
+
+<pre><span class="cm"># contentcompare/fact/fact_matcher.py:221-223 — explain_missing()</span>
+axis = f"{edge.axis} 이(가) 다름" if edge.axis else "다른 개념"
+detail = f" — {edge.reason}" if edge.reason else ""
+blocked.append(f"'{self._label(other)}'({axis}){detail}")</pre>
+
+<figure>
+<svg viewBox="0 0 840 210" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <rect x="20" y="20" width="360" height="170" rx="11" fill="#f4f1ea" stroke="#8a8580"/>
+  <text x="40" y="44" font-weight="700" font-size="13">엣지에 저장되는 것</text>
+  <g font-size="11.5">
+    <rect x="40" y="56" width="320" height="24" rx="6" fill="#e8f4ec" stroke="#2f7d4f"/>
+    <text x="52" y="72" fill="#2f7d4f" font-weight="700">relation: "differs_by"</text>
+    <rect x="40" y="86" width="320" height="24" rx="6" fill="#fff" stroke="#c9c3ba"/>
+    <text x="52" y="102" fill="#8a8580">axis: "측정조건"</text>
+    <rect x="40" y="116" width="320" height="24" rx="6" fill="#fff" stroke="#c9c3ba"/>
+    <text x="52" y="132" fill="#8a8580">reason: "저장 조건과 상시 환경 조건은 다른 규격"</text>
+    <rect x="40" y="146" width="320" height="24" rx="6" fill="#fff" stroke="#c9c3ba"/>
+    <text x="52" y="162" fill="#8a8580">decided_by: "ontology"</text>
+  </g>
+
+  <path d="M392 105 L436 105" stroke="#8a8580" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <rect x="450" y="20" width="370" height="170" rx="11" fill="#fdf3e0" stroke="#a37211"/>
+  <text x="470" y="44" font-weight="700" font-size="13" fill="#a37211">코드(assemble)가 실제로 읽는 것</text>
+  <rect x="470" y="66" width="330" height="30" rx="6" fill="#e8f4ec" stroke="#2f7d4f"/>
+  <text x="486" y="86" fill="#2f7d4f" font-weight="700" font-size="12">relation ← 이것뿐</text>
+  <text x="470" y="124" fill="#6b6560" font-size="11.5">나머지는 저장·전달만 된다.</text>
+  <text x="470" y="146" fill="#b03a34" font-size="12" font-weight="700">→ 기계가 쓰는 정보량은 사실상 1비트</text>
+  <text x="470" y="168" fill="#6b6560" font-size="11.5">("이을 수 있다 / 없다")</text>
+</svg>
+<figcaption>정보는 실려 있는데 시스템이 읽지 않는다. 그래서 체감상 "관계 유무만 있다"가 맞다.</figcaption>
+</figure>
+
+<h3>그래서 나온 개선안 두 가지</h3>
+
+<p><strong>개선안 A — <code>axis</code> 를 통제 어휘로.</strong> 지금은 LLM 이 축 이름을 자유롭게 짓는다(<code>prompts.py:367</code> 이 실제로 "축 이름을 직접 지어"라고 지시한다). 그래서 <code>측정조건</code> / <code>측정 조건</code> / <code>조건</code> 이 전부 다른 값이 된다. <code>ontology.yaml</code> 에 권장 축 목록을 두고 프롬프트에 제시하면 차단 사유가 <em>집계 가능한 데이터</em>가 된다.</p>
+
+<p><strong>개선안 B — <code>entity_path</code> 를 <code>part_of</code> 엣지로.</strong> fact 에는 이미 <code>["기본사양","충전","충전환경온도"]</code> 같은 계층이 있는데, 그래프가 이걸 전혀 안 쓴다. 구조로 승격하면 두 가지가 가능해진다.</p>
+
+<div class="callout warn">
+  <div class="t">B가 막는 것 — 가장 위험한 무검증 자동 연결</div>
+  <p style="margin:4px 0">현재 <code>resolve_known()</code> 은 정규화 이름이 같으면 코드가 즉시 <code>same_as</code> 로 확정하고, 조립 단계는 <code>BY_CODE</code> 연결의 <strong>근거 검증을 면제</strong>한다.</p>
+  <pre>기준 문서: 기본사양 &gt; <span class="hl">충전</span> &gt; 온도    (entity_name = "온도")
+대상 문서: 기본사양 &gt; <span class="hl">방전</span> &gt; 온도    (entity_name = "온도")
+        → BY_CODE 로 same_as 확정, 검증 없음, 로그는 "이름 동일"뿐</pre>
+  <p style="margin:4px 0">충전 온도와 방전 온도가 한 개념으로 병합된다. 게다가 <strong>사람이 손으로 막을 수도 없다</strong> — <code>ontology.py:128</code> 의 <code>if a == b: return</code> 때문에 이름이 같은 쌍은 온톨로지에 등록조차 안 된다.</p>
+</div>
+
+<div class="qmemo" data-qid="onebit-ab-proposals" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">개선안 A/B 의 취지가 잘 와닿지 않는 부분이 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="crosslang"><span class="num">5</span>문제 ②: 그 개선안은 교차언어를 못 푼다</h2>
+
+<p>여기서 이 글의 진짜 주제가 시작된다. A/B 는 그럴듯하다. 그런데 <strong>한국어 기준 문서와 영어 대상 문서</strong>를 비교하는 상황에서는 어떨까?</p>
+
+<p>먼저 B. <code>entity_path</code> 는 <strong>언어 종속 문자열</strong>이다.</p>
+
+<figure>
+<svg viewBox="0 0 840 200" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <text x="30" y="34" font-weight="700" font-size="13">📘 기준 (한국어)</text>
+  <g font-size="11.5">
+    <rect x="30" y="46" width="110" height="30" rx="7" fill="#e9f0f7" stroke="#2f5d8a"/>
+    <text x="85" y="66" text-anchor="middle">기본사양</text>
+    <rect x="152" y="46" width="82" height="30" rx="7" fill="#e9f0f7" stroke="#2f5d8a"/>
+    <text x="193" y="66" text-anchor="middle">충전</text>
+    <rect x="246" y="46" width="140" height="30" rx="7" fill="#e9f0f7" stroke="#2f5d8a"/>
+    <text x="316" y="66" text-anchor="middle">충전환경온도</text>
+  </g>
+  <g stroke="#2f5d8a" stroke-width="1.4"><line x1="140" y1="61" x2="152" y2="61"/><line x1="234" y1="61" x2="246" y2="61"/></g>
+
+  <text x="30" y="112" font-weight="700" font-size="13">📗 대상 (영어)</text>
+  <g font-size="11.5">
+    <rect x="30" y="124" width="152" height="30" rx="7" fill="#fdf3e0" stroke="#a37211"/>
+    <text x="106" y="144" text-anchor="middle">Basic specification</text>
+    <rect x="194" y="124" width="90" height="30" rx="7" fill="#fdf3e0" stroke="#a37211"/>
+    <text x="239" y="144" text-anchor="middle">Charging</text>
+    <rect x="296" y="124" width="216" height="30" rx="7" fill="#fdf3e0" stroke="#a37211"/>
+    <text x="404" y="144" text-anchor="middle">Charging ambient temperature</text>
+  </g>
+  <g stroke="#a37211" stroke-width="1.4"><line x1="182" y1="139" x2="194" y2="139"/><line x1="284" y1="139" x2="296" y2="139"/></g>
+
+  <g stroke="#b03a34" stroke-width="1.8" stroke-dasharray="5 4">
+    <line x1="85" y1="80" x2="106" y2="120"/>
+    <line x1="193" y1="80" x2="239" y2="120"/>
+    <line x1="316" y1="80" x2="404" y2="120"/>
+  </g>
+  <g fill="#b03a34" font-size="15" font-weight="700">
+    <text x="88" y="104">✗</text><text x="207" y="104">✗</text><text x="350" y="104">✗</text>
+  </g>
+
+  <rect x="556" y="46" width="264" height="108" rx="10" fill="#fbeceb" stroke="#b03a34"/>
+  <text x="574" y="70" fill="#b03a34" font-weight="700" font-size="12.5">norm_name 기준 경로 비교</text>
+  <text x="574" y="92" fill="#b03a34" font-size="12">= 모든 마디가 불일치</text>
+  <text x="574" y="114" fill="#6b6560" font-size="11.5">→ B-1(경로 호환성 게이트)은</text>
+  <text x="574" y="132" fill="#6b6560" font-size="11.5">교차언어에서 아무 일도 하지 않는다</text>
+</svg>
+<figcaption><code>entity_path</code> 를 <code>norm_name</code> 으로 비교하면 언어가 다른 순간 전부 불일치한다.</figcaption>
+</figure>
+
+<p>다행히 실질 피해는 없다. 언어가 다르면 <code>norm_name</code> 완전일치가 애초에 <strong>0건</strong>이라 <code>BY_CODE</code> 경로 자체를 타지 않기 때문이다. 하지만 <strong>B의 이득은 동일언어 문서에서만 나온다</strong>는 사실은 분명히 해 둘 필요가 있다.</p>
+
+<p>A 는 어떤가? 축 이름이 언어별로 갈리는 것(<code>측정조건</code> vs <code>measurement condition</code>)을 막아 주니 <em>약간</em> 도움이 된다. 하지만 그건 <strong>차단 사유의 집계 품질</strong>이지, <strong>후보를 못 찾는 문제</strong>와는 무관하다.</p>
+
+<div class="callout">
+  <div class="t">핵심</div>
+  <p style="margin:4px 0">A 도 B 도 <strong>후보 쌍이 이미 만들어진 다음</strong> 단계에서 작동한다. <code>candidate_pairs()</code> 가 빈 리스트를 주면 둘 다 실행조차 되지 않는다.</p>
+</div>
+
+<div class="qmemo" data-qid="crosslang-ab-useless" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"개선안이 이 상황엔 안 듣는다"는 논리에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="notembed"><span class="num">6</span>반전 — 임베딩은 범인이 아니다</h2>
+
+<p>여기서 "그럼 임베딩부터 문제인 것 아닌가? 더 좋은 다국어 모델이 필요한 것 아닌가?"라는 결론으로 뛰기 쉽다. 하지만 이 프로젝트는 <strong>정확히 그 실험을 이미 했다.</strong></p>
+
+<h3>실험 설계</h3>
+
+<p>한국어 규격서 <code>samples/자표준_규격서.docx</code> 의 영어판을 만들었다. 중요한 것은 <strong>수치와 구조를 원본과 1:1 로 맞추고 언어·표기 관습만 바꿨다</strong>는 점이다(<code>°C</code>, <code>33 to 53 %RH</code>). 즉 정답이 알려진 상태의 통제 실험이다.</p>
+
+<h3>결과: 무너졌다</h3>
+
+<table>
+<tr><th></th><th class="num">📘 한국어</th><th class="num">📗 영어 (수정 전)</th></tr>
+<tr><td><span class="pill ok">✅ 일치</span></td><td class="num">10</td><td class="num"><strong>2</strong></td></tr>
+<tr><td><span class="pill bad">❌ 불일치</span></td><td class="num">1</td><td class="num"><strong>0</strong></td></tr>
+<tr><td><span class="pill gray">⚪ 대상에 없음</span></td><td class="num">9</td><td class="num"><strong>18</strong></td></tr>
+<tr><td>개념 <code>same_as</code></td><td class="num">11</td><td class="num"><strong>2</strong></td></tr>
+<tr><td><code>rejected_evidence</code></td><td class="num">0</td><td class="num"><strong>10</strong></td></tr>
+</table>
+
+<p>20건 중 9건이 뒤집혔고 전부 놓치는 방향이었다. 특히 이 도구의 존재 이유인 <strong>공칭전압 3.89 vs 3.85V 실제 불일치를 못 찾았다.</strong></p>
+
+<h3>그런데 원인은 임베딩이 아니었다</h3>
+
+<div class="callout">
+  <div class="t">실측 리포트의 진단 (FACT_F3_5_LIVE_REPORT.md §11.2)</div>
+  <p style="margin:4px 0">"임베딩도 LLM 판단도 멀쩡했다. <code>bge-m3</code> 는 <code>표준환경온도 ↔ Standard ambient temperature</code> 를 <strong>0.7492</strong> 로 찾았고, LLM 은 12쌍을 정확히 <code>same_as</code> 로 판정했다. <strong>무너진 것은 그 다음이다.</strong>"</p>
+</div>
+
+<p>무너진 지점은 근거 검증 게이트였다. 연쇄를 그림으로 보자.</p>
+
+<figure>
+<svg viewBox="0 0 840 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <defs>
+    <marker id="ar4" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 z" fill="#b03a34"/>
+    </marker>
+  </defs>
+  <g font-size="12">
+    <rect x="30" y="24" width="300" height="46" rx="9" fill="#fbeceb" stroke="#b03a34"/>
+    <text x="46" y="44" font-weight="700" fill="#b03a34">① 언어가 다름</text>
+    <text x="46" y="62" fill="#6b6560" font-size="11.5">norm_name 완전일치 = 0건</text>
+
+    <rect x="30" y="90" width="300" height="46" rx="9" fill="#fbeceb" stroke="#b03a34"/>
+    <text x="46" y="110" font-weight="700" fill="#b03a34">② 모든 연결이 LLM 경로로 몰림</text>
+    <text x="46" y="128" fill="#6b6560" font-size="11.5">BY_CODE 우회로가 사라짐</text>
+
+    <rect x="30" y="156" width="300" height="46" rx="9" fill="#fbeceb" stroke="#b03a34"/>
+    <text x="46" y="176" font-weight="700" fill="#b03a34">③ 근거 검증이 전면에 걸림</text>
+    <text x="46" y="194" fill="#6b6560" font-size="11.5">LLM 이 만든 same_as 에만 적용되므로</text>
+
+    <rect x="30" y="222" width="300" height="54" rx="9" fill="#fbeceb" stroke="#b03a34" stroke-width="2"/>
+    <text x="46" y="242" font-weight="700" fill="#b03a34">④ EVIDENCE_MIN_TOKENS = 3 에 걸림</text>
+    <text x="46" y="260" fill="#6b6560" font-size="11.5">엑셀 단일값 fact 의 원문 = "1150.0" → 토큰 1개</text>
+
+    <g stroke="#b03a34" stroke-width="1.8" marker-end="url(#ar4)">
+      <line x1="180" y1="72" x2="180" y2="86"/>
+      <line x1="180" y1="138" x2="180" y2="152"/>
+      <line x1="180" y1="204" x2="180" y2="218"/>
+    </g>
+  </g>
+
+  <!-- 오른쪽 설명 -->
+  <rect x="368" y="24" width="452" height="252" rx="11" fill="#f4f1ea" stroke="#8a8580"/>
+  <text x="388" y="48" font-weight="700" font-size="13">달성 불가능한 조건이 되어 버렸다</text>
+  <text x="388" y="74" font-size="12" fill="#6b6560">하한(3토큰)의 목적은 <tspan font-weight="700">부분 인용</tspan> 을 막는 것이었다:</text>
+  <rect x="388" y="86" width="412" height="30" rx="6" fill="#fff" stroke="#c9c3ba"/>
+  <text x="402" y="106" font-size="11.5">원문 "공칭용량, 1150, mAh" 에서 "1150" 만 인용 → 막아야 함 ✓</text>
+  <text x="388" y="140" font-size="12" fill="#6b6560">그런데 원문 자체가 짧으면:</text>
+  <rect x="388" y="152" width="412" height="30" rx="6" fill="#fbeceb" stroke="#b03a34"/>
+  <text x="402" y="172" font-size="11.5" fill="#b03a34">원문 "1150.0" 을 통째로 정확히 인용해도 → 토큰 1 &lt; 3 → 강등 ✗</text>
+  <text x="388" y="208" font-size="12" fill="#b03a34" font-weight="700">거부된 10건 전수조사: 전부 인용문이 원문과 완전 일치했다.</text>
+  <text x="388" y="230" font-size="12" fill="#6b6560">LLM 은 정확히 인용했는데 게이트가 막았다.</text>
+  <text x="388" y="258" font-size="11.5" fill="#a37211" font-weight="700">한국어에서는 BY_CODE 로 이어져 검증을 건너뛰었기에 가려져 있었다.</text>
+</svg>
+<figcaption>영어 문서가 만든 것은 새 결함이 아니라 <strong>기존 결함의 노출</strong>이었다. 언어는 방아쇠였을 뿐이다.</figcaption>
+</figure>
+
+<h3>수정 후</h3>
+
+<p>세 가지를 고쳤다. ① 인용 토큰 집합이 원문 전체와 같으면 하한 면제, ② 온톨로지 <code>aliases</code> 도입(번역어 묶기), ③ <code>°c</code> 단위 별칭 추가.</p>
+
+<table>
+<tr><th>지표</th><th class="num">수정 전</th><th class="num">수정 후</th></tr>
+<tr><td><code>rejected_evidence</code></td><td class="num">10</td><td class="num"><strong>0</strong></td></tr>
+<tr><td>개념 <code>same_as</code></td><td class="num">2</td><td class="num"><strong>12</strong></td></tr>
+<tr><td><code>pairs_from_ontology</code></td><td class="num">0</td><td class="num"><strong>6</strong></td></tr>
+<tr><td><span class="pill bad">❌ 불일치</span></td><td class="num">0</td><td class="num"><strong>1</strong> ← 3.89 vs 3.85V 복구</td></tr>
+<tr><td><span class="pill gray">⚪ 대상에 없음</span></td><td class="num">18</td><td class="num">11</td></tr>
+</table>
+
+<div class="callout def">
+  <div class="t">그리고 결정적인 한 줄</div>
+  <p style="margin:4px 0">후보 생성 컷은 <code>concept_recall_min: 0.3</code> 이다. 정답 쌍의 유사도가 <strong>0.7492</strong> 였다. <strong>0.7492 ≫ 0.3</strong> — recall 단계에서 잘릴 이유가 없다.</p>
+  <p style="margin:4px 0">설계 문서도 같은 말을 한다. "판정에서 빠지므로 임계값을 느슨하게(기본 0.3) 잡아도 안전하다 — <strong>틀려도 손해가 작다.</strong>"</p>
+</div>
+
+<p>즉 <strong>"더 좋은 다국어 모델"은 측정된 적 없는 문제를 푸는 일이다.</strong> spike 실측에서도 임베딩 recall@1 은 100% 였다.</p>
+
+<div class="qmemo" data-qid="notembed-evidence" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 실측 해석에 대해 의문이 드는 지점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="holes"><span class="num">7</span>데이터 흐름 추적 — 진짜 구멍 셋</h2>
+
+<p>임베딩이 범인이 아니라면 무엇인가? 후보 생성 경로를 코드로 한 줄씩 따라가 보자.</p>
+
+<h3>7.0 전체 데이터 흐름</h3>
+
+<figure>
+<svg viewBox="0 0 840 400" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="11.5">
+  <defs>
+    <marker id="ar5" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#8a8580"/>
+    </marker>
+  </defs>
+
+  <!-- 1단계 -->
+  <rect x="20" y="18" width="800" height="88" rx="10" fill="#f4f1ea" stroke="#8a8580"/>
+  <text x="38" y="40" font-weight="700" font-size="12.5">① candidate_pairs()  <tspan font-weight="400" fill="#6b6560">concept_builder.py:59-108</tspan></text>
+  <rect x="38" y="50" width="176" height="42" rx="7" fill="#fff" stroke="#c9c3ba"/>
+  <text x="126" y="66" text-anchor="middle">FactMatcher.search()</text>
+  <text x="126" y="82" text-anchor="middle" fill="#6b6560" font-size="10.5">이름일치 → 임베딩 → BM25</text>
+  <text x="228" y="74" fill="#8a8580">＋</text>
+  <rect x="250" y="50" width="200" height="42" rx="7" fill="#fff" stroke="#c9c3ba"/>
+  <text x="350" y="66" text-anchor="middle">_augment_with_ontology()</text>
+  <text x="350" y="82" text-anchor="middle" fill="#6b6560" font-size="10.5">recall 과 <tspan font-weight="700">독립적</tspan> 보강</text>
+  <path d="M462 71 L500 71" stroke="#8a8580" stroke-width="1.5" marker-end="url(#ar5)"/>
+  <rect x="510" y="50" width="290" height="42" rx="7" fill="#e9f0f7" stroke="#2f5d8a"/>
+  <text x="655" y="76" text-anchor="middle" fill="#2f5d8a" font-weight="700">CandidatePair 목록</text>
+
+  <line x1="420" y1="106" x2="420" y2="122" stroke="#8a8580" stroke-width="1.6" marker-end="url(#ar5)"/>
+
+  <!-- 2단계 -->
+  <rect x="20" y="128" width="800" height="76" rx="10" fill="#f4f1ea" stroke="#8a8580"/>
+  <text x="38" y="150" font-weight="700" font-size="12.5">② resolve_known()  <tspan font-weight="400" fill="#6b6560">concept_builder.py:131-161</tspan></text>
+  <rect x="38" y="160" width="238" height="34" rx="7" fill="#e8f4ec" stroke="#2f7d4f"/>
+  <text x="157" y="181" text-anchor="middle" fill="#2f7d4f">온톨로지가 아는 쌍 → 즉시 확정</text>
+  <rect x="290" y="160" width="238" height="34" rx="7" fill="#e8f4ec" stroke="#2f7d4f"/>
+  <text x="409" y="181" text-anchor="middle" fill="#2f7d4f">이름 완전일치 → BY_CODE 확정</text>
+  <rect x="542" y="160" width="258" height="34" rx="7" fill="#fdf3e0" stroke="#a37211"/>
+  <text x="671" y="181" text-anchor="middle" fill="#a37211">나머지 → LLM 에게</text>
+
+  <line x1="420" y1="204" x2="420" y2="220" stroke="#8a8580" stroke-width="1.6" marker-end="url(#ar5)"/>
+
+  <!-- 3단계 -->
+  <rect x="20" y="226" width="800" height="62" rx="10" fill="#f4f1ea" stroke="#8a8580"/>
+  <text x="38" y="248" font-weight="700" font-size="12.5">③ judge_pairs()  <tspan font-weight="400" fill="#6b6560">concept_builder.py:164-238</tspan></text>
+  <text x="38" y="270" fill="#6b6560">20쌍씩 배치로 LLM 에 → relation·axis·근거 인용을 받아 엣지 생성. 실패해도 쌍을 잃지 않고 unknown 으로 남긴다.</text>
+
+  <line x1="420" y1="288" x2="420" y2="304" stroke="#8a8580" stroke-width="1.6" marker-end="url(#ar5)"/>
+
+  <!-- 4단계 -->
+  <rect x="20" y="310" width="800" height="76" rx="10" fill="#fdf3e0" stroke="#a37211"/>
+  <text x="38" y="332" font-weight="700" font-size="12.5" fill="#a37211">④ assemble()  <tspan font-weight="400" fill="#6b6560">concept_assembler.py:110-184</tspan></text>
+  <rect x="38" y="342" width="238" height="34" rx="7" fill="#fff" stroke="#b03a34"/>
+  <text x="157" y="363" text-anchor="middle" fill="#b03a34">근거 검증 (LLM 의 same_as 만)</text>
+  <path d="M286 359 L300 359" stroke="#8a8580" stroke-width="1.5" marker-end="url(#ar5)"/>
+  <rect x="308" y="342" width="220" height="34" rx="7" fill="#fff" stroke="#2f7d4f"/>
+  <text x="418" y="363" text-anchor="middle" fill="#2f7d4f">union-find 병합</text>
+  <path d="M538 359 L552 359" stroke="#8a8580" stroke-width="1.5" marker-end="url(#ar5)"/>
+  <rect x="560" y="342" width="240" height="34" rx="7" fill="#fff" stroke="#b03a34"/>
+  <text x="680" y="363" text-anchor="middle" fill="#b03a34">differs_by 위반 강등</text>
+</svg>
+<figcaption>후보 쌍이 개념 그래프가 되기까지의 네 단계. 구멍은 ①에 둘, 그리고 fact 를 만드는 더 앞 단계에 하나 있다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="holes-dataflow-overview" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 4단계 흐름도에서 이해가 안 되는 단계가 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>7.1 구멍 ① — BM25 폴백은 교차언어에서 원리적으로 0인데, 조용히 실패한다</h3>
+
+<p><code>FactMatcher.search()</code> 의 분기를 보자.</p>
+
+<pre><span class="cm"># contentcompare/fact/fact_matcher.py:106-130</span>
+def search(self, ref: Fact) -&gt; list[MatchCandidate]:
+    if not self.targets:
+        return []
+
+    key = norm_name(ref.entity_name)
+    if key and key in self._by_name:
+        return [MatchCandidate(self.targets[self._by_name[key]], 1.0, EXACT)]   <span class="cm"># ← 조기 종료</span>
+
+<span class="hl">    if self._vectors is not None:                       # 임베더가 있으면</span>
+<span class="hl">        ranked = self._embed_rank(ref)</span>
+<span class="hl">        method, cutoff = EMBED, self.min_score</span>
+<span class="hl">    else:                                               # 없으면 BM25 로 폴백</span>
+<span class="hl">        ranked = _rank(self._bm25.scores(tokenize(fact_text(ref))), self.top_k)</span>
+<span class="hl">        method, cutoff = BM25_METHOD, self.bm25_min_score</span></pre>
+
+<p>임베더가 없으면 BM25 로 폴백한다. 그런데 토크나이저를 보자.</p>
+
+<pre><span class="cm"># contentcompare/similarity/tokenize.py:12</span>
+_WORD_RE = re.compile(r"[0-9]+(?:[.,][0-9]+)*|[a-z]+|[가-힣]+")</pre>
+
+<p>한글 덩어리와 영문 덩어리를 <strong>각각</strong> 뽑는다. 그러니 한국어 fact 와 영어 fact 가 공유하는 토큰은 숫자와 단위밖에 없다.</p>
+
+<figure>
+<svg viewBox="0 0 840 220" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="11.5">
+  <circle cx="290" cy="110" r="96" fill="#e9f0f7" fill-opacity=".75" stroke="#2f5d8a"/>
+  <circle cx="470" cy="110" r="96" fill="#fdf3e0" fill-opacity=".75" stroke="#a37211"/>
+
+  <text x="212" y="52" fill="#2f5d8a" font-weight="700" font-size="12.5">📘 한국어 fact</text>
+  <text x="470" y="52" fill="#a37211" font-weight="700" font-size="12.5">📗 영어 fact</text>
+
+  <g fill="#2f5d8a" font-size="11">
+    <text x="228" y="96" text-anchor="middle">공칭전압</text>
+    <text x="228" y="116" text-anchor="middle">공칭</text>
+    <text x="228" y="136" text-anchor="middle">칭전</text>
+    <text x="228" y="156" text-anchor="middle">전압</text>
+  </g>
+  <g fill="#a37211" font-size="11">
+    <text x="532" y="96" text-anchor="middle">nominal</text>
+    <text x="532" y="116" text-anchor="middle">voltage</text>
+    <text x="532" y="136" text-anchor="middle">rated</text>
+  </g>
+  <g fill="#2f7d4f" font-size="11.5" font-weight="700">
+    <text x="380" y="106" text-anchor="middle">3.85</text>
+    <text x="380" y="126" text-anchor="middle">v</text>
+  </g>
+  <text x="380" y="82" text-anchor="middle" fill="#2f7d4f" font-size="10.5">교집합</text>
+
+  <rect x="596" y="62" width="228" height="96" rx="10" fill="#fbeceb" stroke="#b03a34"/>
+  <text x="614" y="86" fill="#b03a34" font-weight="700" font-size="12">BM25 점수의 근원</text>
+  <text x="614" y="108" fill="#6b6560" font-size="11.5">= 교집합 토큰뿐 = 숫자·단위</text>
+  <text x="614" y="130" fill="#b03a34" font-size="11.5" font-weight="700">→ 이름은 아무 기여도 못 한다</text>
+  <text x="614" y="150" fill="#6b6560" font-size="11">→ 값이 같은 <tspan font-weight="700">엉뚱한</tspan> 항목이 1위가 됨</text>
+</svg>
+<figcaption>한국어 토큰과 영어 토큰은 겹치지 않는다. BM25 는 교차언어에서 <em>이름을 볼 수 없다</em>.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <div class="t">조용한 실패</div>
+  <p style="margin:4px 0"><code>fastembed</code> 미설치, 사내 임베딩 엔드포인트 장애, 오프라인 환경 — 어떤 이유로든 임베더가 빠지면 교차언어 비교는 <strong>전 항목 <span class="pill gray">⚪ 대상에 없음</span></strong> 으로 조용히 귀결된다. 경고도, 계측도 없다.</p>
+  <p style="margin:4px 0">이 프로젝트는 같은 유형의 문제를 이미 한 번 해결한 적이 있다. LLM 호출 예산이 소진되면 역시 전 항목이 <code>missing</code> 이 되는데, 그걸 <code>budget_exhausted_pairs</code> 라는 별도 카운터로 <em>드러냈다</em>. 여기엔 그 장치가 없다.</p>
+</div>
+
+<h3>7.2 구멍 ② — 온톨로지 보강이 교차언어에서 사람 손에 의존한다</h3>
+
+<p>recall 이 놓친 쌍을 메우는 유일한 장치가 이것이다.</p>
+
+<pre><span class="cm"># contentcompare/fact/concept_builder.py:111-128</span>
+def _augment_with_ontology(store, ontology, add) -&gt; int:
+    """온톨로지가 아는 (기준 × 대상) 쌍 중 recall 이 빠뜨린 것을 무조건 추가한다."""
+    for target in store.targets:
+        for ref_fact in ref_doc.facts.facts:
+            for tgt_fact in target.facts.facts:
+<span class="hl">                if ontology.relation_for(ref_fact.entity_name, tgt_fact.entity_name) is None:</span>
+                    continue
+                if add(target.doc_name, ref_fact, tgt_fact, 0.0, False):
+                    added += 1</pre>
+
+<p>그런데 <code>relation_for()</code> 의 키는 <strong>정규화된 이름</strong>이다.</p>
+
+<pre><span class="cm"># contentcompare/fact/ontology.py:48-52</span>
+def relation_for(self, name_a: str, name_b: str):
+    a, b = norm_name(name_a), norm_name(name_b)
+    if not a or not b or a == b:
+        return None
+    return self.pairs.get(frozenset((a, b)))</pre>
+
+<p>영어 문서에서는 <code>relation_for('충전환경온도', 'Rated charging voltage')</code> 가 <code>None</code> 이다. 실측 §11.2 의 표현대로 <strong>"온톨로지가 통째로 무력화"</strong> 된다.</p>
+
+<p>해법으로 <code>aliases</code> 가 도입됐다. 같은 개념의 번역어를 묶으면 관계가 그룹 전체로 확장된다.</p>
+
+<pre><span class="cm"># knowledge/ontology.yaml</span>
+aliases:
+  - ["표준환경온도", "Standard ambient temperature"]
+  - ["평가환경습도", "Evaluation ambient humidity"]
+  - ["정격충전전압", "Rated charging voltage"]</pre>
+
+<p>이 <strong>3줄이 <code>pairs_from_ontology</code> 를 0 → 6 으로 만들었다.</strong> 효과는 확실하다. 문제는 <em>확장성</em>이다 — 새 문서마다, 새 항목마다 사람이 번역어를 찾아 등록해야 한다.</p>
+
+<h3>7.3 구멍 ③ — 값이 유사도를 지배한다 (누락이 아니라 오매칭)</h3>
+
+<p>임베딩에 넣는 문자열이 어떻게 만들어지는지 보자.</p>
+
+<pre><span class="cm"># contentcompare/fact/fact_extractor.py:130-137</span>
+def _build_search_text(entity_name: str, entity_path, attributes: dict) -&gt; str:
+    """entity + path + 속성 값/단위를 공백 결합(중복 제거). F5 후보 검색용."""
+    tokens = [entity_name, *entity_path]
+    for a in attributes.values():
+        if a.value is not None:
+<span class="hl">            tokens.append(str(a.value))</span>
+        if a.unit:
+<span class="hl">            tokens.append(a.unit)</span></pre>
+
+<p>이름·경로·<strong>값·단위</strong>가 전부 한 문자열에 들어간다. 동일언어에서는 값이 보조 신호로 작동해 도움이 된다. 그런데 교차언어에서는 이름 부분이 임베딩 공간의 먼 자리로 흩어지므로, 상대적으로 <strong>숫자와 단위가 유사도를 지배</strong>하게 된다.</p>
+
+<figure>
+<svg viewBox="0 0 840 210" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="11.5">
+  <text x="30" y="30" font-weight="700" font-size="12.5">동일언어 (한국어 ↔ 한국어)</text>
+  <rect x="30" y="40" width="380" height="26" rx="6" fill="#e8f4ec" stroke="#2f7d4f"/>
+  <rect x="30" y="40" width="266" height="26" rx="6" fill="#2f7d4f" fill-opacity=".28"/>
+  <text x="163" y="58" text-anchor="middle" fill="#2f7d4f" font-weight="700">이름·경로가 신호를 지배 (70%)</text>
+  <text x="353" y="58" text-anchor="middle" fill="#6b6560">값·단위 (30%)</text>
+
+  <text x="30" y="102" font-weight="700" font-size="12.5">교차언어 (한국어 ↔ 영어)</text>
+  <rect x="30" y="112" width="380" height="26" rx="6" fill="#fbeceb" stroke="#b03a34"/>
+  <rect x="30" y="112" width="140" height="26" rx="6" fill="#b03a34" fill-opacity=".22"/>
+  <text x="100" y="130" text-anchor="middle" fill="#b03a34" font-size="11">이름 (약화)</text>
+  <text x="290" y="130" text-anchor="middle" fill="#b03a34" font-weight="700">값·단위가 지배</text>
+
+  <rect x="440" y="34" width="380" height="140" rx="10" fill="#fbeceb" stroke="#b03a34"/>
+  <text x="458" y="58" fill="#b03a34" font-weight="700" font-size="12.5">그 결과</text>
+  <text x="458" y="82" fill="#6b6560" font-size="11.5">📘 공칭용량 1150 mAh</text>
+  <text x="458" y="102" fill="#6b6560" font-size="11.5">📗 Rated capacity 1150 mAh   ← 정답</text>
+  <text x="458" y="122" fill="#b03a34" font-size="11.5">📗 Backup capacity 1150 mAh  ← 값이 같아 함께 1위권</text>
+  <text x="458" y="152" fill="#b03a34" font-size="11.5" font-weight="700">설계문서 §12: "아무 1150 과도 이어질 수 있다"</text>
+</svg>
+<figcaption>교차언어에서 임베딩의 위험은 <em>누락</em>보다 <em>오매칭</em> 쪽으로도 있다. 더 좋은 모델을 써도 이 구멍은 그대로다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <div class="t">그래서 구멍 셋의 성격</div>
+  <ul style="margin:6px 0">
+    <li><strong>①</strong> 임베더 부재 시 <em>조용한</em> 전면 실패 — 관측 부재의 문제</li>
+    <li><strong>②</strong> 온톨로지 키가 언어 종속 — <em>사람 노동</em>이 병목</li>
+    <li><strong>③</strong> <code>search_text</code> 조성이 값에 치우침 — <em>모델 교체로 안 풀림</em></li>
+  </ul>
+  <p style="margin:6px 0">셋 중 무엇도 "임베딩 모델의 성능"이 아니다.</p>
+</div>
+
+<div class="qmemo" data-qid="holes-three" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">구멍 ①②③ 중 더 파고들고 싶은 것을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="solution"><span class="num">8</span>솔루션 — 원리와 예상 효과</h2>
+
+<h3>(가) 먼저 측정한다 — 이게 선결 조건</h3>
+
+<p>지금 <code>missing</code> 하나를 보고 원인 넷 중 무엇인지 구분할 수 없다.</p>
+
+<figure>
+<svg viewBox="0 0 840 240" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="11.5">
+  <rect x="300" y="18" width="240" height="40" rx="9" fill="#f0eee9" stroke="#8a8580" stroke-width="2"/>
+  <text x="420" y="43" text-anchor="middle" font-weight="700">⚪ 대상에 없음 (missing)</text>
+
+  <g stroke="#8a8580" stroke-width="1.5" fill="none">
+    <path d="M420 58 L420 74 L110 74 L110 96"/>
+    <path d="M420 58 L420 74 L315 74 L315 96"/>
+    <path d="M420 58 L420 74 L525 74 L525 96"/>
+    <path d="M420 58 L420 74 L730 74 L730 96"/>
+  </g>
+
+  <g font-size="11">
+    <rect x="20" y="96" width="180" height="72" rx="9" fill="#e9f0f7" stroke="#2f5d8a"/>
+    <text x="110" y="118" text-anchor="middle" font-weight="700" fill="#2f5d8a">① recall 실패</text>
+    <text x="110" y="138" text-anchor="middle" fill="#6b6560">후보 쌍이 안 만들어짐</text>
+    <text x="110" y="156" text-anchor="middle" fill="#b03a34">계측 없음</text>
+
+    <rect x="225" y="96" width="180" height="72" rx="9" fill="#fdf3e0" stroke="#a37211"/>
+    <text x="315" y="118" text-anchor="middle" font-weight="700" fill="#a37211">② LLM 판단</text>
+    <text x="315" y="138" text-anchor="middle" fill="#6b6560">same_as 로 안 이음</text>
+    <text x="315" y="156" text-anchor="middle" fill="#2f7d4f">pairs_by_llm ✓</text>
+
+    <rect x="435" y="96" width="180" height="72" rx="9" fill="#fbeceb" stroke="#b03a34"/>
+    <text x="525" y="118" text-anchor="middle" font-weight="700" fill="#b03a34">③ 게이트 강등</text>
+    <text x="525" y="138" text-anchor="middle" fill="#6b6560">근거 검증 실패</text>
+    <text x="525" y="156" text-anchor="middle" fill="#2f7d4f">rejected_evidence ✓</text>
+
+    <rect x="645" y="96" width="175" height="72" rx="9" fill="#f0eee9" stroke="#8a8580"/>
+    <text x="732" y="118" text-anchor="middle" font-weight="700">④ 추출 누락</text>
+    <text x="732" y="138" text-anchor="middle" fill="#6b6560">fact 자체가 없음</text>
+    <text x="732" y="156" text-anchor="middle" fill="#b03a34">간접 추정만</text>
+  </g>
+
+  <rect x="20" y="186" width="800" height="42" rx="9" fill="#e8f4ec" stroke="#2f7d4f"/>
+  <text x="420" y="204" text-anchor="middle" fill="#2f7d4f" font-weight="700">해법: 교차언어 golden 으로 recall@k 를 상시 측정 → ①을 다른 셋과 분리한다</text>
+  <text x="420" y="221" text-anchor="middle" fill="#6b6560" font-size="11">"정답 쌍이 후보에 들어오긴 했는가?" — 지금 아무도 세지 않는 유일한 숫자</text>
+</svg>
+<figcaption><code>missing</code> 의 네 가지 원인. 셋은 이미 계측되는데 <strong>recall 실패만 계측되지 않는다</strong>.</figcaption>
+</figure>
+
+<p><strong>원리</strong>: <code>golden/</code> 에 한↔영 정답 쌍을 두고, <code>candidate_pairs()</code> 결과에 그 쌍이 포함됐는지를 세면 된다. 임베딩을 다시 돌릴 필요도 없다 — 이미 만들어진 후보 목록을 정답과 대조만 하면 된다.</p>
+
+<p><strong>예상 효과</strong>: 이 숫자가 100% 에 가깝게 나오면 <em>모델 교체 논의는 그 자리에서 끝난다.</em> 낮게 나오면 그때 비로소 모델을 바꿀 근거가 생긴다. 어느 쪽이든 <strong>추측을 사실로 바꾸는</strong> 것이 이 작업의 값어치다. 비용은 가장 낮고 정보 이득은 가장 크다.</p>
+
+<h3>(나) BM25 폴백의 무력화를 드러낸다</h3>
+
+<p><strong>원리</strong>: 임베더가 <code>None</code> 이고 기준·대상 문서의 <em>문자 체계</em>가 다르면(한글 vs 라틴), BM25 로는 이름 매칭이 불가능하다는 것을 코드가 <em>미리 안다</em>. 그러니 경고를 띄우고 <code>run_stats.json</code> 에 남기면 된다.</p>
+
+<pre><span class="cm"># 개념 스케치 — fact_matcher.py / concept_builder.py 진입부</span>
+if embedder is None and _script_of(ref_facts) != _script_of(target_facts):
+    logger.warning("[Concept] 임베더 없이 문자 체계가 다른 문서를 비교합니다 "
+                   "— BM25 는 교차언어 이름 매칭이 원리적으로 불가능합니다")
+    stats["crosslang_without_embedder"] = True</pre>
+
+<p><strong>예상 효과</strong>: 최악의 실패 모드(전 항목이 이유 없이 <span class="pill gray">⚪ 대상에 없음</span>)가 <em>진단 가능한 실패</em>로 바뀐다. 리포트를 보는 사람이 "문서가 정말 다르구나"가 아니라 "설정이 잘못됐구나"로 읽게 된다. 구현 비용은 수십 줄이다.</p>
+
+<div class="callout">
+  <div class="t">왜 이게 이 프로젝트의 철학과 맞는가</div>
+  <p style="margin:4px 0"><code>CLAUDE.md</code> 가 명시한다 — "오판·누락 추적이 목적이므로 이 계측을 제거하지 말 것." <code>budget_exhausted_pairs</code> 도 정확히 같은 이유로 존재한다. 조용히 전부 <code>missing</code> 이 되는 경로는 반드시 드러내야 한다는 것이 이미 확립된 원칙이다.</p>
+</div>
+
+<h3>(다) <code>aliases</code> 자동 제안 — 유일하게 상한이 없는 대책</h3>
+
+<p><strong>원리</strong>: 권한 비대칭을 지킨다. <em>승인은 여전히 사람이 한다.</em> 다만 "어떤 번역어를 등록해야 하는지 찾아내는" 반복 노동만 자동화한다.</p>
+
+<figure>
+<svg viewBox="0 0 840 270" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="11.5">
+  <defs>
+    <marker id="ar6" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#2f7d4f"/>
+    </marker>
+  </defs>
+
+  <rect x="30" y="26" width="200" height="56" rx="9" fill="#fdf3e0" stroke="#a37211"/>
+  <text x="130" y="48" text-anchor="middle" font-weight="700" fill="#a37211">실행 산출물</text>
+  <text x="130" y="68" text-anchor="middle" fill="#6b6560" font-size="11">concept_graph.json</text>
+
+  <path d="M236 54 L296 54" stroke="#2f7d4f" stroke-width="1.8" marker-end="url(#ar6)"/>
+
+  <rect x="304" y="20" width="252" height="70" rx="9" fill="#e9f0f7" stroke="#2f5d8a"/>
+  <text x="430" y="40" text-anchor="middle" font-weight="700" fill="#2f5d8a">필터 (새 스크립트)</text>
+  <text x="430" y="58" text-anchor="middle" fill="#6b6560" font-size="10.5">relation == same_as</text>
+  <text x="430" y="74" text-anchor="middle" fill="#6b6560" font-size="10.5">AND decided_by == llm AND 문자 체계가 다름</text>
+
+  <path d="M562 54 L622 54" stroke="#2f7d4f" stroke-width="1.8" marker-end="url(#ar6)"/>
+
+  <rect x="630" y="26" width="190" height="56" rx="9" fill="#e8f4ec" stroke="#2f7d4f"/>
+  <text x="725" y="48" text-anchor="middle" font-weight="700" fill="#2f7d4f">aliases 후보 목록</text>
+  <text x="725" y="68" text-anchor="middle" fill="#6b6560" font-size="11">사람이 검토</text>
+
+  <path d="M725 86 L725 118 L430 118 L430 138" fill="none" stroke="#2f7d4f" stroke-width="1.8" marker-end="url(#ar6)"/>
+  <text x="578" y="112" text-anchor="middle" fill="#2f7d4f" font-size="11" font-weight="700">승인한 것만</text>
+
+  <rect x="304" y="142" width="252" height="56" rx="9" fill="#e8f4ec" stroke="#2f7d4f" stroke-width="2"/>
+  <text x="430" y="164" text-anchor="middle" font-weight="700" fill="#2f7d4f">knowledge/ontology.yaml</text>
+  <text x="430" y="184" text-anchor="middle" fill="#6b6560" font-size="11">영구 적용 · LLM 을 건너뜀</text>
+
+  <path d="M304 170 L230 170 L230 92" fill="none" stroke="#2f7d4f" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#ar6)"/>
+  <text x="180" y="140" fill="#2f7d4f" font-size="11" font-weight="700">다음 실행에 반영</text>
+
+  <rect x="30" y="214" width="790" height="42" rx="9" fill="#f4f1ea" stroke="#8a8580"/>
+  <text x="425" y="232" text-anchor="middle" font-weight="700" font-size="12">이 루프의 성질: 실행할수록 LLM 의존이 줄고, 재현성이 오르고, 교차언어 정확도가 누적된다</text>
+  <text x="425" y="249" text-anchor="middle" fill="#6b6560" font-size="11">승격된 쌍은 recall 과 <tspan font-weight="700">독립적으로</tspan> 조회되므로, 유사도가 낮아도 영원히 이어진다</text>
+</svg>
+<figcaption><code>aliases</code> 자동 제안 루프. 실측에서 <code>aliases</code> 3줄이 6쌍을 살렸다 — 그 3줄을 찾는 과정을 자동화하는 것이다.</figcaption>
+</figure>
+
+<p><strong>예상 효과</strong>: 이게 다른 대책과 결정적으로 다른 점은 <strong>상한이 없다</strong>는 것이다.</p>
+
+<table>
+<tr><th>대책</th><th>효과의 성질</th><th>상한</th></tr>
+<tr><td>더 좋은 임베딩 모델</td><td>일회성 점프</td><td>모델 성능이 곧 천장</td></tr>
+<tr><td>임계값 튜닝</td><td>trade-off 이동</td><td>분포가 겹쳐 원리적 한계</td></tr>
+<tr><td><code>aliases</code> 누적</td><td><strong>단조 증가</strong></td><td><strong>없음</strong> — 등록할수록 정확해짐</td></tr>
+</table>
+
+<p>게다가 승격된 쌍은 <code>_augment_with_ontology()</code> 를 통해 <strong>recall 과 무관하게</strong> 후보로 들어온다(<code>concept_builder.py:67-74</code> 의 주석이 정확히 이 의도를 설명한다 — "승격이 가장 필요한 쌍이 바로 유사도로는 못 잇는 진짜 동의어다"). 즉 <strong>임베딩이 못 찾는 쌍을 사람의 지식이 우회로로 메우는 구조</strong>다.</p>
+
+<h3>(라) 그리고 <code>search_text</code> 조성 실험 — 모델 교체보다 먼저</h3>
+
+<p>구멍 ③에 직접 듣는 저비용 실험이 하나 있다. <strong>임베딩용 문자열에서 값·단위를 빼고 이름·경로만 남겨 보는 것</strong>이다.</p>
+
+<pre><span class="cm"># 현재</span>
+search_text = "공칭용량 기본사양 전기적특성 1150 mAh"
+              └── 이름·경로 ──┘ └─ 값·단위 ─┘   ← 교차언어에서 이쪽이 지배
+
+<span class="cm"># 실험안: 검색용과 판정용을 분리</span>
+search_text  = "공칭용량 기본사양 전기적특성"   <span class="cm"># 후보 찾기용 (이름 의미만)</span>
+evidence_text = "1150"                          <span class="cm"># 값 대조용 (이미 별도 필드로 존재)</span></pre>
+
+<p><strong>원리</strong>: 값 대조는 어차피 F5 에서 코드가 <code>attributes</code> 를 보고 한다. 값을 검색 문자열에 넣는 것은 <em>후보를 찾는 데</em>만 쓰이는데, 교차언어에서는 그게 오히려 잡음이다. <strong>예상 효과</strong>: "값이 같은 엉뚱한 항목"의 오매칭이 줄어든다. 다만 동일언어에서 값이 보조 신호로 도움이 되던 경우를 잃을 수 있으므로, (가)의 계측이 갖춰진 다음에 A/B 테스트로 확인해야 한다.</p>
+
+<h3>우선순위</h3>
+
+<figure>
+<svg viewBox="0 0 840 170" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="11.5">
+  <g>
+    <rect x="20" y="40" width="190" height="72" rx="10" fill="#e8f4ec" stroke="#2f7d4f" stroke-width="2"/>
+    <text x="115" y="64" text-anchor="middle" font-weight="700" fill="#2f7d4f">1. (가) 계측</text>
+    <text x="115" y="84" text-anchor="middle" fill="#6b6560" font-size="11">교차언어 recall@k</text>
+    <text x="115" y="102" text-anchor="middle" fill="#6b6560" font-size="10.5">비용 최저 · 정보 최대</text>
+
+    <rect x="228" y="40" width="190" height="72" rx="10" fill="#e9f0f7" stroke="#2f5d8a"/>
+    <text x="323" y="64" text-anchor="middle" font-weight="700" fill="#2f5d8a">2. (다) aliases 제안</text>
+    <text x="323" y="84" text-anchor="middle" fill="#6b6560" font-size="11">사람 노동 자동화</text>
+    <text x="323" y="102" text-anchor="middle" fill="#6b6560" font-size="10.5">상한 없는 누적 개선</text>
+
+    <rect x="436" y="40" width="190" height="72" rx="10" fill="#fdf3e0" stroke="#a37211"/>
+    <text x="531" y="64" text-anchor="middle" font-weight="700" fill="#a37211">3. (나) 폴백 경고</text>
+    <text x="531" y="84" text-anchor="middle" fill="#6b6560" font-size="11">조용한 실패 제거</text>
+    <text x="531" y="102" text-anchor="middle" fill="#6b6560" font-size="10.5">수십 줄</text>
+
+    <rect x="644" y="40" width="176" height="72" rx="10" fill="#f0eee9" stroke="#8a8580"/>
+    <text x="732" y="64" text-anchor="middle" font-weight="700">4. A · B</text>
+    <text x="732" y="84" text-anchor="middle" fill="#6b6560" font-size="11">동일언어 품질</text>
+    <text x="732" y="102" text-anchor="middle" fill="#6b6560" font-size="10.5">교차언어와 무관</text>
+  </g>
+  <text x="420" y="146" text-anchor="middle" fill="#b03a34" font-size="12" font-weight="700">
+    "모델 교체"는 이 목록에 없다 — (가)의 숫자가 낮게 나올 때 비로소 후보가 된다
+  </text>
+</svg>
+<figcaption>교차언어 정확도를 목표로 할 때의 작업 순서.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="solution-priority" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">솔루션의 원리나 우선순위에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="quiz"><span class="num">9</span>이해 점검 퀴즈</h2>
+
+<p>다섯 문항이다. 각 문항은 이 글을 실제로 이해했는지를 확인하도록 설계했다 — 함정 문제는 없다.</p>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q1. F7 개념 그래프에서 임베딩 유사도 점수의 역할은?</div>
+  <button class="opt" data-i="0">두 fact 가 같은 개념인지 판정하는 최종 근거</button>
+  <button class="opt" data-i="1">LLM 판정 결과를 검증하는 2차 검사</button>
+  <button class="opt" data-i="2">LLM 에게 검토시킬 후보 쌍을 좁히는 recall 용도</button>
+  <button class="opt" data-i="3">값이 같은지 대조할 때 쓰는 보조 지표</button>
+  <div class="fb"></div>
+  <div class="fb-good" hidden>정확하다. 정답 최저 0.697 vs 오매칭 최고 0.700 으로 분포가 겹쳐 <em>원리적으로</em> 점수만으로는 가를 수 없었기 때문에, 점수를 판정에서 완전히 빼고 recall 용도로만 남겼다. 그래서 컷을 0.3 처럼 헐렁하게 잡아도 안전하다.</div>
+  <div class="fb-bad" hidden>다시 보자. 실측에서 정답과 오답의 점수 분포가 겹쳐서 점수로는 가를 수 없다는 결론이 났고, 그 결과 점수는 판정에서 빠졌다. <code>recall_score</code> 필드 주석도 "판정에 쓰지 않고 진단용으로만 남긴다"고 못 박는다.</div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q2. 영어 대상 문서에서 20건 중 9건이 뒤집힌 직접적 원인은?</div>
+  <button class="opt" data-i="0">임베딩이 한↔영 짝을 찾지 못해 후보가 안 만들어졌다</button>
+  <button class="opt" data-i="1">근거 인용의 토큰 수 하한이 짧은 원문에서 달성 불가능한 조건이 되었다</button>
+  <button class="opt" data-i="2">LLM 이 영어 문서를 이해하지 못해 판정을 포기했다</button>
+  <button class="opt" data-i="3">BM25 가 교차언어에서 점수를 내지 못했다</button>
+  <div class="fb"></div>
+  <div class="fb-good" hidden>맞다. <code>bge-m3</code> 는 0.7492 로 정확히 찾았고 LLM 도 12쌍을 정확히 판정했다. 무너진 곳은 <code>EVIDENCE_MIN_TOKENS = 3</code> 이었다 — 엑셀 단일값 fact 의 원문이 <code>"1150.0"</code> 처럼 토큰 1개라, 원문을 <em>통째로 정확히</em> 인용해도 하한을 넘을 방법이 없었다.</div>
+  <div class="fb-bad" hidden>임베딩과 LLM 은 멀쩡했다는 게 이 글의 핵심 반전이다. 거부된 10건을 전수조사한 결과 <em>전부 인용문이 원문과 완전히 일치</em>했고, 토큰 수 하한에만 걸렸다. 한국어에서는 같은 행들이 <code>BY_CODE</code> 로 이어져 검증을 건너뛰었기 때문에 이 결함이 가려져 있었다.</div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. <code>entity_path</code> 를 <code>part_of</code> 엣지로 승격하는 개선안(B)이 교차언어 비교에 도움이 되지 않는 이유는?</div>
+  <button class="opt" data-i="0"><code>entity_path</code> 가 Excel 문서에만 존재하기 때문</button>
+  <button class="opt" data-i="1">개념 그래프가 계층 관계를 저장할 필드를 갖고 있지 않기 때문</button>
+  <button class="opt" data-i="2">LLM 이 계층 정보를 신뢰할 수 없게 추출하기 때문</button>
+  <button class="opt" data-i="3">경로가 언어 종속 문자열이라 <code>norm_name</code> 비교 시 모든 마디가 불일치하기 때문</button>
+  <div class="fb"></div>
+  <div class="fb-good" hidden>그렇다. <code>["기본사양","충전",…]</code> vs <code>["Basic specification","Charging",…]</code> 는 정규화해도 겹치지 않는다. 다만 실질 피해는 없다 — 언어가 다르면 <code>norm_name</code> 완전일치가 0건이라 <code>BY_CODE</code> 경로 자체를 안 타기 때문이다. 요컨대 B 의 이득은 <em>동일언어</em> 문서에서만 나온다.</div>
+  <div class="fb-bad" hidden>핵심은 <code>entity_path</code> 가 <strong>언어에 종속된 문자열 리스트</strong>라는 점이다. 한국어 경로와 영어 경로는 정규화해도 한 마디도 일치하지 않는다. (참고로 비-Excel 문서에서 경로 품질이 낮은 것도 사실이지만, 그건 별개의 제약이다.)</div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q4. 임베더 없이 한국어 기준 문서와 영어 대상 문서를 비교하면 어떤 일이 벌어지는가?</div>
+  <button class="opt" data-i="0">BM25 폴백이 이름을 전혀 매칭하지 못해 사실상 전 항목이 "대상에 없음"이 되고, 경고도 없다</button>
+  <button class="opt" data-i="1">파이프라인이 즉시 오류를 내고 중단된다</button>
+  <button class="opt" data-i="2">BM25 가 형태소 단위로 교차언어를 처리해 정확도가 조금만 떨어진다</button>
+  <button class="opt" data-i="3">온톨로지가 자동으로 번역어를 생성해 보완한다</button>
+  <div class="fb"></div>
+  <div class="fb-good" hidden>맞다. 토크나이저가 <code>[가-힣]+</code> 와 <code>[a-z]+</code> 를 각각 뽑으므로 두 언어의 공유 토큰은 숫자·단위뿐이다. BM25 점수는 이름에서 아무 기여도 받지 못한다. 그런데 이 실패는 <em>조용하다</em> — 리포트만 보면 "문서가 정말 다르구나"로 읽힌다. 그래서 (나) 경고 장치가 필요하다.</div>
+  <div class="fb-bad" hidden>BM25 는 단어 겹침을 세는 방식이라 교차언어에서 원리적으로 무력하다(<code>fact_matcher.py</code> 주석도 이를 명시한다). 더 중요한 것은 그 실패가 <strong>조용하다</strong>는 점 — 오류도, 경고도, 계측도 없이 전 항목이 <code>missing</code> 이 된다.</div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q5. <code>aliases</code> 자동 제안이 "더 좋은 임베딩 모델"보다 나은 대책으로 꼽히는 근본 이유는?</div>
+  <button class="opt" data-i="0">LLM 호출 비용이 들지 않아서</button>
+  <button class="opt" data-i="1">사람의 개입 없이 완전 자동으로 동작해서</button>
+  <button class="opt" data-i="2">승격된 쌍이 recall 과 독립적으로 적용되어 개선이 누적되고 상한이 없어서</button>
+  <button class="opt" data-i="3">임베딩 모델을 교체하면 기존 캐시가 무효화되어서</button>
+  <div class="fb"></div>
+  <div class="fb-good" hidden>정확하다. 모델 교체는 일회성 점프이고 그 모델의 성능이 곧 천장이다. 반면 <code>aliases</code> 는 <code>_augment_with_ontology()</code> 를 통해 <strong>유사도와 무관하게</strong> 후보를 채워 넣으므로, 등록할수록 단조 증가한다. 실측에서 3줄이 <code>pairs_from_ontology</code> 를 0→6 으로 만들었다. 참고로 <strong>승인은 여전히 사람이 한다</strong> — 자동화되는 것은 "후보를 찾아내는 노동"뿐이며, 이는 권한 비대칭 원칙을 지키기 위한 의도적 설계다.</div>
+  <div class="fb-bad" hidden>핵심은 <em>효과의 성질</em>이다. 모델 교체는 천장이 있는 일회성 개선이지만, <code>aliases</code> 는 등록할수록 누적된다. 그리고 승격된 쌍은 <code>_augment_with_ontology()</code> 가 <strong>recall 과 독립적으로</strong> 조회하므로, 유사도가 아무리 낮아도 영원히 이어진다. (덧붙여 이 대책은 완전 자동이 아니다 — 승인은 사람이 하며, 그게 의도된 설계다.)</div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">퀴즈에서 헷갈렸던 지점을 적어두면 다음 설명에 반영됩니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sec">
+
+<h2 id="wrapup"><span class="num">10</span>정리</h2>
+
+<p>이 글은 하나의 그럴듯한 직관에서 출발했다 — "교차언어 비교가 안 되면 임베딩부터 의심해야 한다." 그리고 그 직관이 왜 틀렸는지를 따라갔다.</p>
+
+<table>
+<tr><th style="width:44%">질문</th><th>답</th></tr>
+<tr><td>이건 온톨로지인가?</td><td><strong>엄밀히는 아니다.</strong> 동일성 그래프 + SKOS 수준 어휘집. 표현력을 일부러 낮게 유지한 설계</td></tr>
+<tr><td>Graph RAG 와 뭐가 다른가?</td><td>Graph RAG는 컨텍스트를 <strong>넓혀 답을 만들고</strong>, F7 은 후보를 <strong>좁혀 비교를 허가한다</strong></td></tr>
+<tr><td>개선안 A/B 가 교차언어를 돕나?</td><td><strong>아니다.</strong> 둘 다 후보가 만들어진 <em>다음</em> 단계이고, B 의 <code>entity_path</code> 는 언어 종속이다</td></tr>
+<tr><td>임베딩부터 누락되나?</td><td><strong>실측상 아니다.</strong> 정답 0.7492 vs 컷 0.3, recall@1 100%</td></tr>
+<tr><td>더 좋은 다국어 모델이 필요한가?</td><td><strong>지금은 근거가 없다.</strong> 먼저 교차언어 recall 을 측정할 것</td></tr>
+<tr><td>그럼 진짜 문제는?</td><td>① 임베더 부재 시 조용한 실패 ② 온톨로지의 언어 종속 키 ③ 값이 유사도를 지배하는 <code>search_text</code></td></tr>
+</table>
+
+<div class="callout def">
+  <div class="t">가져갈 교훈 하나</div>
+  <p style="margin:4px 0">영어 문서 실험이 드러낸 것은 <em>새로운 결함</em>이 아니라 <strong>이미 있던 결함</strong>이었다. 한국어에서는 <code>BY_CODE</code> 우회로가 근거 검증을 건너뛰게 해 주었기 때문에 가려져 있었을 뿐이다.</p>
+  <p style="margin:4px 0">언어를 바꾼 것은 "새 기능을 시험한 것"이 아니라 <strong>기존 우회로를 막아 본 것</strong>이었다. 시스템의 어떤 경로가 얼마나 자주 실제로 쓰이는지 모른다면, 우회로를 하나 막아 보는 것이 가장 빠른 진단법이다.</p>
+</div>
+
+<h3>다음 걸음</h3>
+
+<ol>
+<li><strong>교차언어 golden 케이스</strong>를 <code>golden/</code> 에 세운다 (한↔영 정답 쌍).</li>
+<li><code>candidate_pairs()</code> 결과와 golden 을 대조해 <strong>recall@k 를 <code>run_stats.json</code> 에 기록</strong>한다.</li>
+<li>그 숫자를 보고 다음을 결정한다 — 높으면 (다) <code>aliases</code> 자동 제안으로, 낮으면 그때 모델·<code>search_text</code> 실험으로.</li>
+</ol>
+
+<p class="small">관련 문서: <code>docs/FACT_F7_DESIGN.md</code> (개념 그래프 설계) · <code>docs/FACT_F3_5_LIVE_REPORT.md</code> §11 (영어 문서 실측) · <code>docs/understanding/2026-08-05-explanation-english-document-fix.html</code> (영어 문서 수정 상세) · <code>docs/understanding/2026-08-05-explanation-ontology-concept-graph.html</code> (개념 그래프 입문)</p>
+
+<div class="qmemo" data-qid="wrapup-next" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">전체를 읽고 남은 질문, 또는 다음에 더 알고 싶은 것</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+// 퀴즈
+document.querySelectorAll('.quiz').forEach(function (quiz) {
+  var answer = parseInt(quiz.dataset.answer, 10);
+  var fb = quiz.querySelector('.fb');
+  var good = quiz.querySelector('.fb-good');
+  var bad = quiz.querySelector('.fb-bad');
+  quiz.querySelectorAll('.opt').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var picked = parseInt(btn.dataset.i, 10);
+      quiz.querySelectorAll('.opt').forEach(function (b) {
+        b.classList.remove('correct', 'wrong');
+      });
+      if (picked === answer) {
+        btn.classList.add('correct');
+        fb.className = 'fb show good';
+        fb.innerHTML = '<strong>정답 ✓</strong> ' + good.innerHTML;
+      } else {
+        btn.classList.add('wrong');
+        quiz.querySelector('.opt[data-i="' + answer + '"]').classList.add('correct');
+        fb.className = 'fb show bad';
+        fb.innerHTML = '<strong>아쉽다 ✗</strong> ' + bad.innerHTML;
+      }
+    });
+  });
+});
+</script>
