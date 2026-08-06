@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>증거가 주장을 뒷받침하지 못할 때 — 근거 검문소를 어떻게 고칠 것인가</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1c1c1a; --muted:#6b6b66; --line:#e0e0da;
+  --card:#ffffff; --shadow:0 1px 3px rgba(0,0,0,.06);
+  --ok:#2e7d32; --ok-bg:#e8f5e9;
+  --bad:#c62828; --bad-bg:#ffebee;
+  --gray:#607d8b; --gray-bg:#eceff1;
+  --amber:#ef6c00; --amber-bg:#fff3e0;
+  --codeblue:#1565c0; --codeblue-bg:#e3f2fd;
+  --human:#6a1b9a; --human-bg:#f3e5f5;
+  --llm:#e65100; --llm-bg:#fff3e0;
+  --emb:#00796b; --emb-bg:#e0f2f1;
+  --accent:#0f766e;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"D2Coding","맑은 고딕",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#16181c; --fg:#e8e8e4; --muted:#a0a09a; --line:#33363d;
+    --card:#1e2127; --shadow:0 1px 3px rgba(0,0,0,.4);
+    --ok:#81c784; --ok-bg:#1b3a1f;
+    --bad:#ef9a9a; --bad-bg:#3d1f1f;
+    --gray:#b0bec5; --gray-bg:#2b3136;
+    --amber:#ffb74d; --amber-bg:#3d2c14;
+    --codeblue:#90caf9; --codeblue-bg:#16293d;
+    --human:#ce93d8; --human-bg:#2e1b38;
+    --llm:#ffb074; --llm-bg:#3d2513;
+    --emb:#6fc9bd; --emb-bg:#123430;
+    --accent:#5eead4;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","맑은 고딕",sans-serif;
+  line-height:1.78;font-size:17px;padding-bottom:92px}
+.wrap{max-width:870px;margin:0 auto;padding:0 20px}
+header.hero{padding:56px 0 28px;border-bottom:1px solid var(--line)}
+header.hero h1{font-size:2rem;line-height:1.32;margin:0 0 14px;letter-spacing:-.02em}
+header.hero .sub{color:var(--muted);font-size:1.02rem;margin:0}
+header.hero .meta{color:var(--muted);font-size:.85rem;margin-top:18px}
+h2{font-size:1.5rem;margin:58px 0 6px;letter-spacing:-.01em;scroll-margin-top:20px}
+h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:.5rem}
+h3{font-size:1.14rem;margin:34px 0 6px}
+p{margin:14px 0}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.88em;background:var(--gray-bg);padding:.1em .35em;border-radius:4px}
+pre{font-family:var(--mono);font-size:.82rem;line-height:1.6;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;
+  white-space:pre;margin:16px 0}
+pre.wrap-pre{white-space:pre-wrap}
+.small{font-size:.9rem;color:var(--muted)}
+
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:18px 22px;margin:28px 0 10px;box-shadow:var(--shadow)}
+nav.toc h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px}
+nav.toc ol{margin:0;padding-left:1.3em}
+nav.toc li{margin:5px 0}
+nav.toc a{text-decoration:none}
+nav.toc a:hover{text-decoration:underline}
+
+.callout{border-left:4px solid var(--accent);background:var(--card);border-radius:0 10px 10px 0;
+  padding:14px 18px;margin:22px 0;box-shadow:var(--shadow)}
+.callout .t{font-weight:700;display:block;margin-bottom:4px;font-size:.94rem}
+.callout.warn{border-left-color:var(--bad)}
+.callout.key{border-left-color:var(--amber)}
+.callout.good{border-left-color:var(--ok)}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+
+figure{margin:28px 0}
+figure svg{max-width:100%;height:auto;display:block;margin:0 auto}
+figcaption{font-size:.83rem;color:var(--muted);text-align:center;margin-top:10px;line-height:1.6}
+
+.tbl-wrap{overflow-x:auto;margin:20px 0}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:420px}
+th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:var(--gray-bg);font-weight:700;font-size:.83rem}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.gray{background:var(--gray-bg);color:var(--gray)}
+.pill.amber{background:var(--amber-bg);color:var(--amber)}
+.pill.code{background:var(--codeblue-bg);color:var(--codeblue)}
+.pill.llm{background:var(--llm-bg);color:var(--llm)}
+.pill.human{background:var(--human-bg);color:var(--human)}
+
+/* 카드(fact) 그림 */
+.cards{display:flex;gap:13px;flex-wrap:wrap;margin:20px 0}
+.fcard{flex:1 1 250px;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  overflow:hidden;box-shadow:var(--shadow)}
+.fcard .hd{padding:8px 14px;font-size:.79rem;font-weight:700;border-bottom:1px solid var(--line)}
+.fcard.a .hd{background:var(--ok-bg);color:var(--ok)}
+.fcard.b .hd{background:var(--codeblue-bg);color:var(--codeblue)}
+.fcard.c .hd{background:var(--human-bg);color:var(--human)}
+.fcard .row{display:flex;gap:9px;padding:7px 14px;font-size:.85rem;border-bottom:1px dashed var(--line)}
+.fcard .row:last-child{border-bottom:none}
+.fcard .k{flex:0 0 72px;color:var(--muted);font-size:.77rem;padding-top:2px}
+.fcard .v{flex:1;font-family:var(--mono);font-size:.81rem;word-break:break-word}
+.fcard .row.hi{background:var(--amber-bg)}
+.fcard .row.hi .v{font-weight:700;color:var(--amber)}
+
+/* 선택지 카드 */
+.opts{display:flex;gap:13px;flex-wrap:wrap;margin:20px 0}
+.opt{flex:1 1 260px;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow)}
+.opt .oh{padding:10px 14px;font-weight:700;font-size:.9rem;border-bottom:1px solid var(--line)}
+.opt.no .oh{background:var(--bad-bg);color:var(--bad)}
+.opt.yes .oh{background:var(--ok-bg);color:var(--ok)}
+.opt .ob{padding:11px 14px;font-size:.88rem}
+.opt .ob p{margin:8px 0}
+.opt .ob p:first-child{margin-top:0}
+
+/* 단계 로드맵 */
+.steps{display:flex;flex-direction:column;gap:12px;margin:22px 0}
+.step{display:flex;gap:14px;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.step .no{flex:0 0 42px;height:42px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-weight:700;font-size:1.05rem;color:#fff}
+.step.s1 .no{background:var(--codeblue)}
+.step.s2 .no{background:var(--emb)}
+.step.s3 .no{background:var(--llm)}
+.step .bd{flex:1;min-width:0}
+.step .ti{font-weight:700;margin-bottom:3px}
+.step .mt{font-size:.8rem;color:var(--muted);margin-top:7px}
+
+.qmemo{border:1.5px dashed var(--line);background:var(--gray-bg);border-radius:10px;
+  padding:12px 15px;margin:24px 0}
+.qmemo-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:7px}
+.qmemo-label{font-size:.76rem;font-weight:700;color:var(--accent);letter-spacing:.03em}
+.qmemo-hint{font-size:.75rem;color:var(--muted)}
+.qmemo-question{min-height:2.1em;background:var(--card);border:1px solid var(--line);
+  border-radius:7px;padding:8px 11px;font-size:.9rem;outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:var(--muted);opacity:.65}
+.qmemo-question:focus{border-color:var(--accent)}
+.qmemo-answer{margin-top:10px;padding:10px 13px;background:var(--card);
+  border-left:3px solid var(--accent);border-radius:0 7px 7px 0;font-size:.9rem}
+.qmemo[data-status="answered"]{border-style:solid;border-color:var(--accent);background:var(--card)}
+
+.quiz{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin:22px 0;box-shadow:var(--shadow)}
+.quiz .q{font-weight:700;margin-bottom:12px}
+.quiz .opt2{display:block;width:100%;text-align:left;padding:10px 14px;margin:7px 0;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);
+  cursor:pointer;font-size:.92rem;font-family:inherit;line-height:1.55;
+  transition:background .12s,border-color .12s}
+.quiz .opt2:hover:not(:disabled){border-color:var(--accent)}
+.quiz .opt2:disabled{cursor:default}
+.quiz .opt2.correct{background:var(--ok-bg);border-color:var(--ok);color:var(--ok);font-weight:700}
+.quiz .opt2.wrong{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.quiz .fb{margin-top:12px;font-size:.88rem;padding:11px 14px;border-radius:8px;
+  background:var(--gray-bg);display:none}
+.quiz .fb.show{display:block}
+
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);
+  border-top:1px solid var(--line);padding:10px 20px;display:flex;gap:14px;align-items:center;
+  justify-content:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.07);z-index:50}
+#qmemo-save-btn{background:var(--accent);color:#fff;border:none;padding:9px 20px;
+  border-radius:8px;font-size:.87rem;font-weight:700;cursor:pointer;font-family:inherit}
+#qmemo-save-btn:hover{opacity:.9}
+#qmemo-saymsg{font-size:.8rem;color:var(--muted)}
+
+@media (max-width:640px){
+  body{font-size:16px}
+  header.hero h1{font-size:1.55rem}
+  h2{font-size:1.26rem;margin-top:44px}
+}
+
+/* === dv-components v1 === */
+.dv{--dv-fg:#1c1c1a;--dv-mut:#6b6b66;--dv-line:#dcdcd6;--dv-card:#fff;--dv-bg:#f6f6f4;
+    --dv-code:#1565c0;--dv-code-bg:#e8f1fb;--dv-llm:#e65100;--dv-llm-bg:#fdf0e3;
+    --dv-emb:#00796b;--dv-emb-bg:#e2f2f0;--dv-human:#6a1b9a;--dv-human-bg:#f4e9f7;
+    --dv-ok:#2e7d32;--dv-ok-bg:#e9f5ea;--dv-bad:#c62828;--dv-bad-bg:#fbeaea;
+    --dv-gray:#607d8b;--dv-gray-bg:#eceff1;--dv-amber:#ef6c00;--dv-amber-bg:#fdf0e0;
+    --dv-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace;
+    margin:26px 0;font-size:15px;line-height:1.6;color:var(--dv-fg)}
+@media (prefers-color-scheme:dark){.dv{--dv-fg:#e8e8e4;--dv-mut:#a2a29c;--dv-line:#3a3d44;
+    --dv-card:#1f2229;--dv-bg:#191c21;
+    --dv-code:#8ec5f5;--dv-code-bg:#16283a;--dv-llm:#ffb074;--dv-llm-bg:#3a2412;
+    --dv-emb:#6fc9bd;--dv-emb-bg:#123430;--dv-human:#d09ada;--dv-human-bg:#2c1936;
+    --dv-ok:#83c98a;--dv-ok-bg:#173620;--dv-bad:#ef9a9a;--dv-bad-bg:#3a1e1e;
+    --dv-gray:#a8bcc6;--dv-gray-bg:#272d33;--dv-amber:#ffb74d;--dv-amber-bg:#3a2a12}}
+.dv *{box-sizing:border-box}
+.dv-title{font-weight:700;font-size:.95rem;margin:0 0 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dv-title .dv-tag{font-size:.68rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:99px;background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-sub{font-size:.83rem;color:var(--dv-mut);margin:0 0 14px}
+.dv-cap{font-size:.8rem;color:var(--dv-mut);margin-top:12px;line-height:1.6}
+
+/* 주체 배지 */
+.dv-who{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;
+  padding:2px 9px;border-radius:99px;white-space:nowrap;border:1px solid transparent}
+.dv-who.dv-c{background:var(--dv-code-bg);color:var(--dv-code);border-color:var(--dv-code)}
+.dv-who.dv-l{background:var(--dv-llm-bg);color:var(--dv-llm);border-color:var(--dv-llm)}
+.dv-who.dv-e{background:var(--dv-emb-bg);color:var(--dv-emb);border-color:var(--dv-emb)}
+.dv-who.dv-h{background:var(--dv-human-bg);color:var(--dv-human);border-color:var(--dv-human)}
+.dv-who.dv-f{background:var(--dv-gray-bg);color:var(--dv-gray);border-color:var(--dv-gray)}
+.dv-legend{display:flex;gap:9px;flex-wrap:wrap;margin:0 0 14px}
+
+/* 판정 알약 */
+.dv-v{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.dv-v.dv-ok{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-v.dv-bad{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-v.dv-gray{background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-v.dv-amber{background:var(--dv-amber-bg);color:var(--dv-amber)}
+
+/* ---- 여정(journey) ---- */
+.dv-jrn{position:relative;padding-left:30px}
+.dv-jrn:before{content:"";position:absolute;left:9px;top:14px;bottom:14px;width:2px;background:var(--dv-line)}
+.dv-stop{position:relative;margin:0 0 12px}
+.dv-stop:before{content:"";position:absolute;left:-25px;top:14px;width:12px;height:12px;border-radius:50%;
+  background:var(--dv-card);border:2.5px solid var(--dv-line)}
+.dv-stop.dv-c:before{border-color:var(--dv-code)}
+.dv-stop.dv-l:before{border-color:var(--dv-llm)}
+.dv-stop.dv-e:before{border-color:var(--dv-emb)}
+.dv-stop.dv-f:before{border-color:var(--dv-gray);background:var(--dv-gray)}
+.dv-box{background:var(--dv-card);border:1px solid var(--dv-line);border-radius:10px;overflow:hidden}
+.dv-hd{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:9px 13px;background:var(--dv-bg);border-bottom:1px solid var(--dv-line)}
+.dv-hd .dv-nm{font-weight:700;font-size:.88rem}
+.dv-hd .dv-fn{font-family:var(--dv-mono);font-size:.74rem;color:var(--dv-mut);margin-left:auto}
+.dv-bd{padding:11px 13px}
+.dv-io{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.dv-io>div{flex:1 1 230px;min-width:0}
+.dv-io .dv-lb{font-size:.7rem;font-weight:700;color:var(--dv-mut);letter-spacing:.05em;margin-bottom:3px}
+.dv-data{font-family:var(--dv-mono);font-size:.73rem;line-height:1.55;background:var(--dv-bg);
+  border:1px solid var(--dv-line);border-radius:7px;padding:8px 10px;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.dv-note{font-size:.8rem;color:var(--dv-mut);margin-top:9px;padding-left:10px;border-left:2px solid var(--dv-line)}
+.dv-hi{background:rgba(230,81,0,.15);border-radius:3px;padding:0 3px;font-weight:700}
+
+/* ---- 갈림길(fates) ---- */
+.dv-fates{display:flex;gap:12px;flex-wrap:wrap}
+.dv-fate{flex:1 1 250px;background:var(--dv-card);border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
+.dv-fate .dv-fh{padding:9px 13px;font-size:.83rem;font-weight:700;border-bottom:1px solid var(--dv-line)}
+.dv-fate.dv-a .dv-fh{background:var(--dv-code-bg);color:var(--dv-code)}
+.dv-fate.dv-b .dv-fh{background:var(--dv-llm-bg);color:var(--dv-llm)}
+.dv-fate.dv-c2 .dv-fh{background:var(--dv-emb-bg);color:var(--dv-emb)}
+.dv-fate .dv-fs{padding:9px 13px;border-bottom:1px dashed var(--dv-line);font-size:.81rem}
+.dv-fate .dv-fs:last-child{border-bottom:none;margin-top:auto}
+.dv-fate .dv-fs .dv-st{font-size:.68rem;font-weight:700;color:var(--dv-mut);letter-spacing:.04em;display:block;margin-bottom:3px}
+.dv-fate .dv-mono{font-family:var(--dv-mono);font-size:.73rem;word-break:break-word}
+
+/* ---- 파이프라인 지도(map) ---- */
+.dv-map{display:flex;gap:0;flex-wrap:wrap;align-items:stretch}
+.dv-mi{flex:1 1 120px;min-width:118px;background:var(--dv-card);border:1px solid var(--dv-line);
+  border-radius:9px;padding:9px 10px;margin:3px;position:relative}
+.dv-mi .dv-n{font-size:.68rem;color:var(--dv-mut);font-weight:700}
+.dv-mi .dv-t{font-size:.82rem;font-weight:700;margin:2px 0 5px;line-height:1.35}
+.dv-mi .dv-f{font-family:var(--dv-mono);font-size:.68rem;color:var(--dv-mut);word-break:break-all;margin-top:5px}
+.dv-mi.dv-on{box-shadow:0 0 0 2px var(--dv-llm)}
+
+/* ---- 저울(before/after) ---- */
+.dv-ba{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+.dv-ba>div{flex:1 1 240px;border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;background:var(--dv-card)}
+.dv-ba .dv-h{padding:8px 13px;font-weight:700;font-size:.84rem;border-bottom:1px solid var(--dv-line)}
+.dv-ba .dv-before .dv-h{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-ba .dv-after .dv-h{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-ba .dv-b{padding:10px 13px;font-size:.83rem}
+.dv-ba ul{margin:0;padding-left:1.15em}
+.dv-ba li{margin:4px 0}
+
+/* ---- 막대(비율) ---- */
+.dv-bar{margin:9px 0 4px}
+.dv-bar .dv-bl{display:flex;justify-content:space-between;font-size:.79rem;color:var(--dv-mut);margin-bottom:4px}
+.dv-bar .dv-bt{display:flex;height:32px;border-radius:7px;overflow:hidden;border:1px solid var(--dv-line)}
+.dv-bar .dv-sg{display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;min-width:0}
+.dv-bar .dv-sg.dv-c{background:#1565c0}.dv-bar .dv-sg.dv-h{background:#6a1b9a}
+.dv-bar .dv-sg.dv-l{background:#e65100}.dv-bar .dv-sg.dv-e{background:#00796b}
+.dv-bar .dv-sg.dv-g{background:#78909c}
+
+.dv-scroll{overflow-x:auto}
+.dv-tbl{border-collapse:collapse;width:100%;font-size:.83rem;min-width:340px}
+.dv-tbl th,.dv-tbl td{border:1px solid var(--dv-line);padding:7px 10px;text-align:left;vertical-align:top}
+.dv-tbl th{background:var(--dv-bg);font-size:.78rem}
+.dv-tbl td.dv-n,.dv-tbl th.dv-n{text-align:right;font-variant-numeric:tabular-nums}
+@media (max-width:640px){.dv{font-size:14px}.dv-hd .dv-fn{margin-left:0;flex-basis:100%}}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>증거가 주장을 뒷받침하지 못할 때</h1>
+  <p class="sub">근거 검문소는 무엇이 잘못됐고, 어떻게 고쳐야 하는가 — 그리고 왜 쉬운 해법 두 개가 다 부러지는가</p>
+  <p class="meta">2026-08-06 · ContentCompare fact 엔진 F7 · 실측 출처 <code>artifacts/</code></p>
+</header>
+
+<p>
+지난 대화에서 제가 "하한을 없애되 대체물이 필요하고, 이름 필수도 그대로는 안 되고, 검증이 순환이다"라는
+이야기를 한꺼번에 쏟아냈습니다. 너무 압축돼 있었습니다. 이 글에서 처음부터 천천히 풀겠습니다.
+</p>
+<p>
+결론부터 말하면 이렇습니다. <strong>지금 우리 프로그램은 "이름이 같다"고 주장하면서 "값"을 증거로 내고 있습니다.</strong>
+그게 왜 문제인지, 그리고 왜 "그럼 값 대신 이름을 증거로 내라"는 당연해 보이는 해법이
+곧바로 부러지는지가 이 글의 내용입니다.
+</p>
+
+<div class="callout">
+  <span class="t">📝 읽다가 막히면 그 자리에 적으세요</span>
+  <p>
+  섹션마다 <strong>「질문 메모」</strong> 상자가 있습니다. 적으면 이 브라우저에 자동 저장되고,
+  맨 아래 <strong>질문 저장</strong> 을 누르면 질문이 박힌 페이지 사본이 다운로드됩니다.
+  그 파일을 <code>docs/understanding/</code> 의 원본 자리에 덮어쓴 뒤 답해달라고 하시면 됩니다.
+  </p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#s1">아주 기초 — 이 프로그램이 하는 일 <span class="small">(아시면 건너뛰세요)</span></a></li>
+    <li><a href="#s2">검문소는 왜 있나</a></li>
+    <li><a href="#s3">무엇이 어긋났나 — 키로 형제를 증명하기</a></li>
+    <li><a href="#s4">실제 피해 — 카드 세 장이 한 덩어리로</a></li>
+    <li><a href="#s5">쉬운 해법 ① "하한만 없앤다" 가 부러지는 곳</a></li>
+    <li><a href="#s6">쉬운 해법 ② "이름을 증거로 내라" 가 부러지는 곳</a></li>
+    <li><a href="#s7">숨은 문제 — 검증이 자기 자신을 검증한다</a></li>
+    <li><a href="#s8">그래서 제안하는 3단계</a></li>
+    <li><a href="#s9">코드로 보기 — 무엇을 어디서 고치나</a></li>
+    <li><a href="#s10">퀴즈</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================= -->
+<h2 id="s1"><span class="num">1</span>아주 기초 — 이 프로그램이 하는 일</h2>
+
+<p>
+회사에 <strong>정답이 적힌 엑셀 표</strong>가 하나 있습니다. 배터리 규격이 스무 줄쯤 적혀 있어요.
+같은 내용이 워드 규격서에도, PPT 발표자료에도 들어갑니다. 누가 하나만 고치고 나머지를 안 고치면
+서로 다른 숫자가 고객에게 나갑니다. 그걸 자동으로 잡아내는 프로그램입니다.
+</p>
+
+<p>
+프로그램은 문서를 통째로 AI에게 주지 않습니다. 먼저 잘게 잘라 <strong>카드</strong> 한 장씩으로 만듭니다.
+카드 한 장이 "사실 하나"예요.
+</p>
+
+<div class="cards">
+  <div class="fcard a">
+    <div class="hd">📗 엑셀에서 만든 카드</div>
+    <div class="row"><div class="k">항목</div><div class="v">공칭용량</div></div>
+    <div class="row"><div class="k">값</div><div class="v">1150.0</div></div>
+    <div class="row hi"><div class="k">근거 원문</div><div class="v">1150.0</div></div>
+  </div>
+  <div class="fcard b">
+    <div class="hd">📘 워드에서 만든 카드</div>
+    <div class="row"><div class="k">항목</div><div class="v">Nominal capacity</div></div>
+    <div class="row"><div class="k">값</div><div class="v">1150 mAh</div></div>
+    <div class="row hi"><div class="k">근거 원문</div><div class="v">Nominal capacity, 1150, mAh</div></div>
+  </div>
+</div>
+
+<p>
+카드에는 <strong>항목</strong>(무엇에 대한 이야기인가), <strong>값</strong>, 그리고 <strong>근거 원문</strong>이 있습니다.
+근거 원문은 "문서에 실제로 이렇게 적혀 있었다"는 기록입니다.
+</p>
+
+<p>
+노란색으로 칠한 <strong>근거 원문</strong>을 잘 봐 두세요. 이 글은 사실상 이 칸에 대한 이야기입니다.
+엑셀 카드는 <code>1150.0</code> — 숫자 하나뿐입니다. 워드 카드는 문장 하나가 통째로 들어 있습니다.
+</p>
+
+<div class="callout key">
+  <span class="t">🔑 왜 다를까</span>
+  <p>
+  엑셀은 <strong>표</strong>입니다. 이름은 왼쪽 칸에, 값은 오른쪽 칸에 따로 있어요.
+  그래서 "값 칸에 적혀 있던 것"을 근거로 남기면 숫자 하나가 됩니다.
+  </p>
+  <p>
+  워드는 <strong>줄글</strong>입니다. 이름과 값이 한 문장에 섞여 있으니 문장째로 남습니다.
+  </p>
+  <p>
+  사소해 보이는 이 차이가 이 글의 모든 문제를 만듭니다.
+  </p>
+</div>
+
+<h3>비교는 두 단계로 한다</h3>
+<p>
+카드가 다 만들어지면 비교를 시작하는데, 한 번에 하지 않고 <strong>둘로 쪼갭니다.</strong>
+</p>
+<ul>
+  <li><strong>1단계 — 짝 찾기.</strong> "공칭용량"과 "Nominal capacity"는 같은 것에 대한 이야기인가?</li>
+  <li><strong>2단계 — 값 대조.</strong> 짝이 맞다면, 1150 과 1150 은 같은가?</li>
+</ul>
+<p>
+쪼개는 이유가 중요합니다. 1단계에서는 <strong>값을 보면 안 됩니다.</strong>
+"값이 다르니까 다른 항목이겠지"라고 판단해 버리면, 우리가 찾으려던 오류를 스스로 지워버리게 되니까요.
+그래서 AI에게 주는 지시문에 이렇게 적혀 있습니다.
+</p>
+<pre class="wrap-pre">원칙 1. **값이 다른 것은 differs_by 의 근거가 아닙니다.**
+   값의 차이는 우리가 찾으려는 결과이지 판단 재료가 아닙니다.
+   항목이 **무엇에 대한 것인지**만 보세요.</pre>
+
+<div class="qmemo" data-qid="s1-basics" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">기초 부분에서 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s2"><span class="num">2</span>검문소는 왜 있나</h2>
+<div class="dv"><div class="dv-title">짝을 정하는 세 갈래 길 — 검문소는 한 곳에만 있다</div>
+<figure style="margin:6px 0 0">
+<svg viewBox="0 0 760 350" role="img" aria-label="짝을 정하는 세 갈래 길" style="max-width:100%;height:auto">
+ <defs><marker id="dvA" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+   <path d="M0,0 L9,3.5 L0,7 z" fill="#78909c"/></marker></defs>
+ <rect x="8" y="146" width="116" height="60" rx="10" fill="#eceff1" stroke="#b0bec5"/>
+ <text x="66" y="171" font-size="12.5" font-weight="700" text-anchor="middle" fill="#37474f">후보 쌍</text>
+ <text x="66" y="191" font-size="11.5" text-anchor="middle" fill="#546e7a">임베딩이 좁힌 것</text>
+
+ <path d="M129,164 C182,164 182,56 236,56" fill="none" stroke="#1565c0" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="244" y="28" width="214" height="56" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+ <text x="257" y="50" font-size="12.5" font-weight="700" fill="#0d47a1">① 이름이 글자까지 같다</text>
+ <text x="257" y="70" font-size="11" fill="#1565c0">⚙️ 코드가 즉시 확정</text>
+ <text x="257" y="100" font-size="10.5" font-family="monospace" fill="#607d8b">공칭전압 == 공칭전압 → score 1.0</text>
+
+ <path d="M129,176 C186,176 186,148 236,148" fill="none" stroke="#6a1b9a" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="244" y="120" width="214" height="56" rx="10" fill="#f4e9f7" stroke="#6a1b9a" stroke-width="1.5"/>
+ <text x="257" y="142" font-size="12.5" font-weight="700" fill="#4a148c">② 사람이 적어놨다</text>
+ <text x="257" y="162" font-size="11" fill="#6a1b9a">👤 knowledge/ontology.yaml</text>
+ <text x="257" y="192" font-size="10.5" font-family="monospace" fill="#607d8b">한 번 승격하면 영구 · LLM 을 안 부른다</text>
+
+ <path d="M129,190 C186,190 186,256 236,256" fill="none" stroke="#e65100" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="244" y="228" width="214" height="56" rx="10" fill="#fdf0e3" stroke="#e65100" stroke-width="1.5"/>
+ <text x="257" y="250" font-size="12.5" font-weight="700" fill="#bf360c">③ 나머지 → AI 에게 묻는다</text>
+ <text x="257" y="270" font-size="11" fill="#e65100">🤖 판단 + 원문 인용을 함께 제출</text>
+
+ <path d="M460,256 L494,256" stroke="#e65100" stroke-width="2.5" marker-end="url(#dvA)"/>
+ <rect x="502" y="222" width="98" height="68" rx="10" fill="#fbeaea" stroke="#c62828" stroke-width="2"/>
+ <text x="551" y="246" font-size="19" text-anchor="middle">🚧</text>
+ <text x="551" y="266" font-size="11.5" font-weight="700" text-anchor="middle" fill="#c62828">근거 검문소</text>
+ <text x="551" y="282" font-size="9.5" text-anchor="middle" fill="#c62828">인용이 진짜인가?</text>
+ <text x="551" y="312" font-size="10.5" text-anchor="middle" fill="#c62828">탈락 = 연결 소멸 = 「대상에 없음」</text>
+
+ <path d="M458,56 C556,56 588,116 618,152" fill="none" stroke="#78909c" stroke-width="2" marker-end="url(#dvA)"/>
+ <path d="M458,148 C536,148 566,152 616,164" fill="none" stroke="#78909c" stroke-width="2" marker-end="url(#dvA)"/>
+ <path d="M602,252 C628,252 632,212 636,192" fill="none" stroke="#78909c" stroke-width="2" marker-end="url(#dvA)"/>
+ <rect x="626" y="136" width="124" height="58" rx="10" fill="#e2f2f0" stroke="#00796b" stroke-width="1.5"/>
+ <text x="688" y="159" font-size="12.5" font-weight="700" text-anchor="middle" fill="#00695c">개념 그래프</text>
+ <text x="688" y="178" font-size="10.5" text-anchor="middle" fill="#00695c">같은 것끼리 묶인 덩어리</text>
+</svg>
+</figure>
+<div class="dv-cap">③번 길에만 검문소가 있는 이유: ①은 코드가 글자를 직접 맞춰 본 것이고 ②는 사람이 확정한 것이라 <b>지어냈을 걱정이 없다</b>. 검문소는 'AI 가 지어냈는가'만 막는 장치다.</div></div>
+
+
+<p>
+짝을 찾는 방법은 세 갈래인데, 그중 <strong>AI에게 물어보는 길에만 검문소가 있습니다.</strong>
+아래 그림에서 그 구조를 먼저 보시죠.
+</p>
+
+<p>
+검문소가 있는 이유는 하나입니다. <strong>AI는 가끔 그럴듯한 거짓말을 합니다.</strong>
+"이 둘은 같은 항목입니다"라고 자신 있게 말하는데 실제로는 문서에 그런 내용이 없을 수 있어요.
+그래서 이렇게 요구합니다.
+</p>
+
+<blockquote style="border-left:3px solid var(--llm);margin:20px 0;padding:4px 0 4px 16px;color:var(--muted)">
+같다고 주장하려면, <strong>문서에서 그대로 베껴온 글자</strong>를 함께 제출해라.
+</blockquote>
+
+<p>
+그 베껴온 글자가 <code>left_text</code>(왼쪽 문서에서 베낀 것)와 <code>right_text</code>(오른쪽에서 베낀 것)입니다.
+코드는 그 글자가 진짜 그 카드의 원문에 있는지 확인하고, 없으면 그 판단을 <strong>무효</strong>로 만듭니다.
+숙제를 냈으면 풀이 과정을 적으라는 것과 같습니다.
+</p>
+
+<h3>검문소는 두 가지를 봅니다</h3>
+
+<figure>
+<svg viewBox="0 0 740 210" role="img" aria-label="검문소의 두 단계 검사">
+  <defs><marker id="ga" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <path d="M0,0 L9,3.5 L0,7 z" fill="#78909c"/></marker></defs>
+  <rect x="8" y="72" width="132" height="62" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
+  <text x="74" y="96" font-size="12.5" font-weight="700" text-anchor="middle" fill="#bf360c">AI 가 낸 인용</text>
+  <text x="74" y="116" font-size="11" font-family="monospace" text-anchor="middle" fill="#e65100">"1150.0"</text>
+
+  <path d="M144,103 L186,103" stroke="#78909c" stroke-width="2" marker-end="url(#ga)"/>
+
+  <rect x="194" y="52" width="196" height="102" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="206" y="76" font-size="12.5" font-weight="700" fill="#0d47a1">검사 ① 커버리지</text>
+  <text x="206" y="97" font-size="11" fill="#1565c0">베껴온 낱말이 진짜</text>
+  <text x="206" y="114" font-size="11" fill="#1565c0">원문에 있는가?</text>
+  <text x="206" y="137" font-size="10.5" font-family="monospace" fill="#607d8b">80% 이상이면 통과</text>
+
+  <path d="M394,103 L436,103" stroke="#78909c" stroke-width="2" marker-end="url(#ga)"/>
+
+  <rect x="444" y="52" width="196" height="102" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="1.5"/>
+  <text x="456" y="76" font-size="12.5" font-weight="700" fill="#c62828">검사 ② 낱말 개수</text>
+  <text x="456" y="97" font-size="11" fill="#c62828">인용이 너무 짧지</text>
+  <text x="456" y="114" font-size="11" fill="#c62828">않은가?</text>
+  <text x="456" y="137" font-size="10.5" font-family="monospace" fill="#8a5a5a">3개 이상이면 통과</text>
+
+  <path d="M644,103 L680,103" stroke="#2e7d32" stroke-width="2" marker-end="url(#ga)"/>
+  <text x="706" y="99" font-size="13" text-anchor="middle" fill="#2e7d32">✅</text>
+  <text x="706" y="119" font-size="10" text-anchor="middle" fill="#2e7d32">연결</text>
+
+  <text x="542" y="182" font-size="11" text-anchor="middle" fill="#c62828">↑ 이 검사가 이 글의 주인공입니다</text>
+</svg>
+<figcaption>
+둘 다 통과해야 연결이 성립합니다. <strong>검사 ①</strong>은 "지어내지 마라",
+<strong>검사 ②</strong>는 "한 조각만 떼어오지 마라"는 뜻입니다.
+</figcaption>
+</figure>
+
+<p>
+검사 ②가 왜 필요한지 예를 들면 이렇습니다. 원문이 <code>Nominal capacity, 1150, mAh</code> 인데
+AI가 <code>1150</code> 하나만 베껴 오면? 그 낱말은 진짜 원문에 있으니 <strong>검사 ①은 통과합니다.</strong>
+하지만 "1150이 적혀 있다"는 사실이 "이 둘이 같은 항목이다"를 증명하지는 않죠.
+그래서 "최소한 3개 낱말은 가져와라"라는 하한을 뒀습니다.
+</p>
+
+<div class="qmemo" data-qid="s2-gate" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">검문소의 두 검사에 대해 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s3"><span class="num">3</span>무엇이 어긋났나 — 키로 형제를 증명하기</h2>
+
+<p>
+법정을 상상해 봅시다. 검사가 주장합니다.
+</p>
+<blockquote style="border-left:3px solid var(--accent);margin:20px 0;padding:4px 0 4px 16px">
+"피고 A와 피고 B는 <strong>형제</strong>입니다."
+</blockquote>
+<p>
+판사가 증거를 요구합니다. 검사가 제출한 증거는 — <strong>두 사람의 키</strong>입니다.
+"둘 다 175cm입니다."
+</p>
+<p>
+뭔가 이상하죠? 키가 같다고 형제는 아닙니다. 게다가 더 나쁜 게 있습니다.
+<strong>175cm인 사람은 세상에 아주 많습니다.</strong> 그 증거로는 이 사람과 저 사람을 <strong>구별할 수가 없어요</strong>.
+</p>
+
+<p>우리 프로그램이 지금 딱 이걸 하고 있습니다.</p>
+
+<figure>
+<svg viewBox="0 0 720 260" role="img" aria-label="주장과 증거가 어긋난 저울">
+  <line x1="360" y1="40" x2="360" y2="196" stroke="#8a8a84" stroke-width="3"/>
+  <line x1="150" y1="60" x2="570" y2="60" stroke="#8a8a84" stroke-width="3"/>
+  <polygon points="360,196 330,226 390,226" fill="#8a8a84"/>
+
+  <line x1="180" y1="60" x2="180" y2="92" stroke="#8a8a84" stroke-width="1.5"/>
+  <rect x="34" y="92" width="292" height="88" rx="10" fill="#e0f2f1" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="48" y="115" font-size="12.5" font-weight="700" fill="#0f766e">주장 (LLM 이 말한 것)</text>
+  <text x="48" y="139" font-size="11.5" fill="#0f766e">"공칭용량의 영문 표기는</text>
+  <text x="48" y="157" font-size="11.5" fill="#0f766e">Nominal capacity 입니다"</text>
+  <text x="48" y="174" font-size="10.5" font-weight="700" fill="#00695c">→ 이름에 대한 주장</text>
+
+  <line x1="540" y1="60" x2="540" y2="92" stroke="#8a8a84" stroke-width="1.5"/>
+  <rect x="394" y="92" width="292" height="88" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="1.5"/>
+  <text x="408" y="115" font-size="12.5" font-weight="700" fill="#c62828">증거 (제출된 인용)</text>
+  <text x="408" y="141" font-size="15" font-family="monospace" font-weight="700" fill="#c62828">"1150.0"</text>
+  <text x="408" y="163" font-size="10.5" font-weight="700" fill="#8a5a5a">→ 값에 대한 것</text>
+  <text x="408" y="176" font-size="10" fill="#8a5a5a">이름과 아무 상관이 없다</text>
+
+  <text x="360" y="30" font-size="13" font-weight="700" text-anchor="middle" fill="#c62828">서로 다른 이야기를 하고 있다</text>
+  <text x="360" y="250" font-size="11" text-anchor="middle" fill="#6b6b66">"이름이 같다"는 주장에 "값"을 증거로 내면 — 증명이 되지 않는다</text>
+</svg>
+<figcaption>
+지시문 <strong>원칙 1</strong>은 "값을 보지 마라"이고, <strong>원칙 2</strong>는 "원문을 인용하라"입니다.
+그런데 엑셀 카드에서 인용할 수 있는 원문이 값밖에 없습니다. <strong>두 원칙이 서로 모순입니다.</strong>
+</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="t">⚠️ 실제로 이렇게 남아 있습니다</span>
+  <p>
+  사용자 실행에서 나온 실제 기록입니다.
+  </p>
+  <pre style="margin:8px 0 0">reason: [거부됨: 근거 인용이 원문에 없음]
+        거부된 주장: 공칭용량의 영문 표기는 Nominal capacity 입니다.</pre>
+  <p style="margin-top:10px">
+  <strong>주장은 이름</strong>인데 <strong>제출된 증거는 값</strong>. 그리고 그 값이 짧다는 이유로 거부됐습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s3-mismatch" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"주장과 증거가 어긋났다"는 말이 잘 와닿지 않으면 여기에 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s4"><span class="num">4</span>실제 피해 — 카드 세 장이 한 덩어리로</h2>
+
+<p>
+"증거가 구별을 못 한다"는 게 추상적으로 들릴 수 있으니, 실제 데이터를 보여드리겠습니다.
+기준 엑셀의 카드 20장에서 <strong>근거 원문이 완전히 똑같은 카드</strong>를 세어 봤습니다.
+</p>
+
+<div class="cards">
+  <div class="fcard a">
+    <div class="hd">카드 1</div>
+    <div class="row"><div class="k">항목</div><div class="v">공칭용량</div></div>
+    <div class="row hi"><div class="k">근거 원문</div><div class="v">1150.0</div></div>
+  </div>
+  <div class="fcard a">
+    <div class="hd">카드 2</div>
+    <div class="row"><div class="k">항목</div><div class="v">정격용량</div></div>
+    <div class="row hi"><div class="k">근거 원문</div><div class="v">1150.0</div></div>
+  </div>
+  <div class="fcard a">
+    <div class="hd">카드 3</div>
+    <div class="row"><div class="k">항목</div><div class="v">최대방전전류</div></div>
+    <div class="row hi"><div class="k">근거 원문</div><div class="v">1150.0</div></div>
+  </div>
+</div>
+
+<p>
+<strong>세 장이 완전히 똑같은 증거를 갖고 있습니다.</strong> 용량 두 개와 전류 하나 — 물리량조차 다른데도요.
+증거만 보면 이 셋을 구별할 방법이 <strong>전혀 없습니다.</strong> 아까 "175cm인 사람은 아주 많다"고 한 게 바로 이겁니다.
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>기준 엑셀 카드 20장의 근거 원문 길이</th><th class="num">건수</th></tr>
+  <tr><td>낱말 0개 <span class="small">(근거 원문이 비어 있음)</span></td><td class="num">3</td></tr>
+  <tr><td>낱말 1개 <span class="small">(<code>1150.0</code> 같은 숫자 하나)</span></td><td class="num">8</td></tr>
+  <tr><td>낱말 2개</td><td class="num">1</td></tr>
+  <tr><td>낱말 3개 이상</td><td class="num">8</td></tr>
+  <tr><td><strong>낱말 1개 이하 = 검문소를 통과할 수 없는 카드</strong></td><td class="num"><strong>11 (55%)</strong></td></tr>
+</table>
+</div>
+
+<p>
+기준 문서 카드의 <strong>절반 이상</strong>이 "3개 낱말"을 낼 방법이 원천적으로 없습니다.
+100점 만점 시험에서 120점을 받아야 합격이라고 한 셈입니다.
+</p>
+
+<h3>그래서 벌어진 일</h3>
+<p>
+영어 문서와 대조했을 때 실제로 이런 개념 덩어리가 만들어졌습니다.
+</p>
+<pre>c-0002 = { 공칭용량, 정격용량, Nominal capacity, Rated capacity }</pre>
+<p>
+넷이 한 덩어리입니다. 공칭용량과 정격용량은 <strong>다른 항목</strong>인데,
+증거가 둘을 구별하지 못하니 아무거나 이어져 버린 겁니다.
+이번엔 값이 다 1150이라 결과가 안 바뀌었지만, 값이 달랐다면 <strong>엉뚱한 짝을 비교</strong>했을 겁니다.
+</p>
+
+<div class="callout key">
+  <span class="t">🔑 여기까지 요약</span>
+  <p>
+  <strong>①</strong> 검문소는 "이름이 같다"는 주장에 대해 "값" 인용을 받고 있다 — 주장과 증거가 어긋났다.<br>
+  <strong>②</strong> 값 인용은 카드를 구별하지 못한다 — 실제로 세 장이 같은 증거를 갖고 있다.<br>
+  <strong>③</strong> 그리고 기준 카드의 55%는 그 값이 너무 짧아 하한을 통과할 수도 없다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s4-damage" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">과잉 병합(c-0002)에 대해 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s5"><span class="num">5</span>쉬운 해법 ① "하한만 없앤다" 가 부러지는 곳</h2>
+
+<p>
+문제가 "낱말 3개 하한"에서 터졌으니, 그럼 <strong>하한을 없애면</strong> 되지 않을까요?
+자연스러운 생각이고, 저도 방향은 맞다고 봅니다. 그런데 <strong>그것만</strong> 하면 어떻게 되는지 보시죠.
+</p>
+
+<p>
+하한을 빼면 검사가 하나만 남습니다 — <strong>커버리지</strong>("베껴온 낱말이 진짜 원문에 있는가").
+그런데 커버리지는 <strong>보여준 것 중 아무 낱말이나</strong> 통과시킵니다. 실제로 돌려본 결과입니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 700 230" role="img" aria-label="하한을 없앴을 때 통과하는 퇴화한 인용들">
+  <rect x="14" y="16" width="672" height="44" rx="8" fill="#eceff1" stroke="#b0bec5"/>
+  <text x="28" y="35" font-size="11" fill="#546e7a">대상 카드의 근거 원문</text>
+  <text x="28" y="52" font-size="12.5" font-family="monospace" font-weight="700" fill="#37474f">"Nominal capacity, 1150, mAh"</text>
+
+  <text x="28" y="86" font-size="11.5" font-weight="700" fill="#c62828">하한을 없애면 이런 인용이 전부 통과합니다</text>
+
+  <rect x="28" y="98" width="200" height="38" rx="7" fill="#ffebee" stroke="#c62828"/>
+  <text x="42" y="115" font-size="12" font-family="monospace" fill="#c62828">"1150"</text>
+  <text x="42" y="130" font-size="10" fill="#8a5a5a">커버리지 1.00 → 통과</text>
+
+  <rect x="240" y="98" width="200" height="38" rx="7" fill="#ffebee" stroke="#c62828"/>
+  <text x="254" y="115" font-size="12" font-family="monospace" fill="#c62828">"capacity"</text>
+  <text x="254" y="130" font-size="10" fill="#8a5a5a">커버리지 1.00 → 통과</text>
+
+  <rect x="452" y="98" width="200" height="38" rx="7" fill="#ffebee" stroke="#c62828"/>
+  <text x="466" y="115" font-size="12" font-family="monospace" fill="#c62828">"mAh"</text>
+  <text x="466" y="130" font-size="10" fill="#8a5a5a">커버리지 1.00 → 통과</text>
+
+  <rect x="28" y="156" width="624" height="56" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
+  <text x="42" y="177" font-size="12.5" font-weight="700" fill="#bf360c">즉 이렇게 됩니다</text>
+  <text x="42" y="198" font-size="11.5" fill="#e65100">AI 가 &lt;mAh&gt; 세 글자만 적어 놓고 "이 둘은 같은 항목입니다" 라고 해도 통과한다</text>
+</svg>
+<figcaption>
+커버리지 검사는 "우리가 보여준 글자 중 아무거나 베껴 왔는가"만 봅니다.
+하한이 사라지면 <strong>검문소가 장식이 됩니다.</strong>
+</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="t">⚠️ 그래서</span>
+  <p>
+  <strong>하한을 없애는 것 자체는 옳습니다.</strong> 다만 <strong>대체물이 반드시 같이 들어와야</strong> 합니다.
+  없애기만 하면 검문소가 아무것도 안 막게 됩니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s5-remove-threshold" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"하한만 없애면 왜 안 되는지"가 이해되셨나요? 막히는 부분을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s6"><span class="num">6</span>쉬운 해법 ② "이름을 증거로 내라" 가 부러지는 곳</h2>
+
+<p>
+그럼 대체물은 뻔해 보입니다. 주장이 이름에 대한 것이니 <strong>증거도 이름이어야</strong> 하죠.
+"인용문에 그 카드의 항목명이 통째로 들어 있어야 통과" 라고 바꾸면 되지 않을까요?
+</p>
+<p>
+방향은 맞습니다. 그런데 <strong>지금 데이터에 그대로 적용하면 두 군데서 부러집니다.</strong>
+LLM이 뽑은 카드 33장을 검사해 봤더니 <strong>8장은 이름이 본문에 통째로 없었습니다.</strong>
+이유가 두 가지인데, 성격이 완전히 다릅니다.
+</p>
+
+<h3>부러지는 곳 (a) — 한국어 조사</h3>
+
+<p>
+이건 진짜로 이름이 없는 게 아니라, <strong>낱말을 세는 방식의 문제</strong>입니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 700 200" role="img" aria-label="한국어 조사 때문에 이름이 안 잡히는 문제">
+  <rect x="14" y="16" width="330" height="76" rx="9" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="28" y="37" font-size="11" fill="#1565c0">카드의 항목명</text>
+  <text x="28" y="58" font-size="14" font-family="monospace" font-weight="700" fill="#0d47a1">공칭전압</text>
+  <text x="28" y="80" font-size="10.5" font-family="monospace" fill="#607d8b">낱말: 공칭 · 칭전 · 전압 · 공칭전압</text>
+
+  <rect x="356" y="16" width="330" height="76" rx="9" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="370" y="37" font-size="11" fill="#2e7d32">문서 본문</text>
+  <text x="370" y="58" font-size="14" font-family="monospace" font-weight="700" fill="#1b5e20">공칭전압은 3.85V 이다.</text>
+  <text x="370" y="80" font-size="10.5" font-family="monospace" fill="#607d8b">낱말: 공칭 · 칭전 · 전압 · 압은 · 공칭전압은 …</text>
+
+  <rect x="14" y="106" width="672" height="78" rx="9" fill="#ffebee" stroke="#c62828" stroke-width="1.5"/>
+  <text x="28" y="128" font-size="12.5" font-weight="700" fill="#c62828">"이름이 본문에 통째로 있는가?" → False</text>
+  <text x="28" y="150" font-size="11.5" fill="#8a5a5a">빠진 낱말: <tspan font-family="monospace" font-weight="700">공칭전압</tspan>
+    — 본문에는 조사 <tspan font-family="monospace">은</tspan> 이 붙어 <tspan font-family="monospace">공칭전압은</tspan> 이 되어 있다</text>
+  <text x="28" y="172" font-size="11.5" font-weight="700" fill="#c62828">눈으로는 명백히 같은 말인데, 규칙이 못 본다</text>
+</svg>
+<figcaption>
+한국어는 조사가 붙는 게 정상입니다. 이름 필수 규칙을 그대로 넣으면
+<strong>한국어 산문에서 상시 오탐</strong>이 납니다.
+</figcaption>
+</figure>
+
+<h3>부러지는 곳 (b) — 정당한 '요약 이름'</h3>
+
+<p>
+이쪽은 더 근본적입니다. AI가 문단을 읽고 카드를 만들 때, 항목명을 <strong>본문에 없는 말로 요약</strong>하는 경우가 있습니다.
+그리고 그건 <strong>나쁜 게 아니라 좋은 겁니다.</strong>
+</p>
+
+<div class="cards">
+  <div class="fcard c">
+    <div class="hd">📙 PPT 스피커노트에서 만든 카드</div>
+    <div class="row"><div class="k">항목</div><div class="v">충전 규격 상세조건</div></div>
+    <div class="row hi"><div class="k">근거 원문</div><div class="v">공칭전압 3.89V, 0.1C 조건 기준 / 측정 조건: 0.1C, 4.55V</div></div>
+  </div>
+  <div class="fcard c">
+    <div class="hd">📙 같은 PPT의 다른 카드</div>
+    <div class="row"><div class="k">항목</div><div class="v">1개월 저장 조건</div></div>
+    <div class="row hi"><div class="k">근거 원문</div><div class="v">1개월 저장: -10 ~ 80℃ (기준 35℃)</div></div>
+  </div>
+</div>
+
+<p>
+<code>충전 규격 상세조건</code> 이라는 말은 본문 어디에도 없습니다. AI가 내용을 읽고 <strong>붙여준 이름</strong>이에요.
+그런데 이 카드는 <strong>지금 올바른 결과를 만들어내고 있습니다</strong> —
+엑셀의 <code>공칭전압 3.89</code> 와 짝지어져 <span class="pill ok">✅ 일치</span> 판정을 내고 있어요.
+</p>
+<p>
+이름 필수 규칙을 넣으면 이런 카드는 AI 경로로 <strong>영원히 이어질 수 없습니다.</strong>
+잘 되던 것을 망가뜨리는 셈입니다.
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>AI가 뽑은 카드 33장 중</th><th class="num">건수</th></tr>
+  <tr><td>항목명이 본문에 통째로 있음 <span class="small">(이름 규칙 적용 가능)</span></td><td class="num">25</td></tr>
+  <tr><td><strong>항목명이 본문에 없음</strong> <span class="small">(조사 문제 + 요약 이름)</span></td><td class="num"><strong>8</strong></td></tr>
+</table>
+</div>
+
+<div class="qmemo" data-qid="s6-name-required" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">조사 문제와 요약 이름 문제 중 헷갈리는 쪽을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s7"><span class="num">7</span>숨은 문제 — 검증이 자기 자신을 검증한다</h2>
+
+<p>
+여기까지 읽으셨으면 "그래도 이름 쪽이 낫겠는데?" 싶으실 겁니다.
+그런데 코드를 열어 보면 더 이상한 게 있습니다. 검문소가 인용을 대조하는 <strong>대상</strong>이 이렇게 만들어집니다.
+</p>
+
+<pre>source = tokenize(fact.evidence_text + fact.search_text + <span style="background:rgba(198,40,40,.18);font-weight:700">fact.entity_name</span>)</pre>
+
+<p>
+빨간 부분을 보세요. 대조할 원문 더미에 <strong>항목명 자체가 들어가 있습니다.</strong>
+그러면 무슨 일이 벌어질까요?
+</p>
+
+<figure>
+<svg viewBox="0 0 700 250" role="img" aria-label="순환 검증 고리">
+  <rect x="30" y="26" width="230" height="70" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
+  <text x="145" y="50" font-size="12" font-weight="700" text-anchor="middle" fill="#bf360c">AI 가 항목명을 인용한다</text>
+  <text x="145" y="74" font-size="12" font-family="monospace" text-anchor="middle" fill="#e65100">"Nominal capacity"</text>
+
+  <path d="M264,61 C310,61 310,61 350,61" stroke="#78909c" stroke-width="2" fill="none"
+        marker-end="url(#ga2)"/>
+  <defs><marker id="ga2" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <path d="M0,0 L9,3.5 L0,7 z" fill="#78909c"/></marker></defs>
+
+  <rect x="356" y="26" width="316" height="70" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="370" y="50" font-size="12" font-weight="700" fill="#0d47a1">대조할 원문 더미</text>
+  <text x="370" y="72" font-size="10.5" font-family="monospace" fill="#1565c0">근거원문 + 검색문 + <tspan font-weight="700">항목명("Nominal capacity")</tspan></text>
+
+  <path d="M514,100 L514,132" stroke="#c62828" stroke-width="2" marker-end="url(#ga2)"/>
+
+  <rect x="200" y="138" width="472" height="60" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+  <text x="436" y="162" font-size="13" font-weight="700" text-anchor="middle" fill="#c62828">커버리지 = 1.00 — 언제나</text>
+  <text x="436" y="184" font-size="11.5" text-anchor="middle" fill="#8a5a5a">항목명을 인용하면 반드시 통과한다. 검사가 아무것도 검사하지 않는다.</text>
+
+  <text x="350" y="228" font-size="11.5" text-anchor="middle" fill="#6b6b66">AI 가 낸 답을 AI 가 낸 답으로 채점하는 셈 — 순환이다</text>
+</svg>
+<figcaption>
+"이 이름이 문서에 진짜 있나?"를 확인하려는 건데, 대조 대상에 그 이름을 넣어 두면
+<strong>정의상 항상 통과</strong>합니다.
+</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="t">⚠️ 이게 왜 중요한가</span>
+  <p>
+  이름 기반 검증으로 옮기면서 이 부분을 그대로 두면, 검문소는 <strong>말로만 검사하고 실제로는 아무것도 안 하게</strong> 됩니다.
+  옮기려면 대조 대상에서 <code>entity_name</code>(과 그것을 포함하는 <code>search_text</code>)을 <strong>빼야</strong> 합니다.
+  </p>
+  <p>
+  그런데 빼면? §6의 문제 8건이 곧바로 터집니다. <strong>서로 엮여 있습니다.</strong>
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s7-circular" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">'순환 검증'이라는 말이 애매하면 여기에 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s8"><span class="num">8</span>그래서 제안하는 3단계</h2>
+
+<p>
+정리하면 선택지 세 개가 이렇습니다.
+</p>
+
+<div class="opts">
+  <div class="opt no">
+    <div class="oh">❌ 하한만 없앤다</div>
+    <div class="ob">
+      <p>검문소가 장식이 됩니다. <code>mAh</code> 세 글자로 통과.</p>
+      <p class="small">§5</p>
+    </div>
+  </div>
+  <div class="opt no">
+    <div class="oh">❌ 이름 필수로 바꾼다</div>
+    <div class="ob">
+      <p>조사 문제로 상시 오탐 + 잘 되던 요약 이름 카드 8장이 죽습니다. 게다가 순환이라 검사도 안 됩니다.</p>
+      <p class="small">§6 · §7</p>
+    </div>
+  </div>
+  <div class="opt yes">
+    <div class="oh">✅ 기대를 낮추고 방어를 옮긴다</div>
+    <div class="ob">
+      <p>검문소는 <strong>"인용이 진짜인가"</strong>만 맡고, <strong>"연결이 맞는가"</strong>는 다른 층이 맡습니다.</p>
+      <p class="small">아래 3단계</p>
+    </div>
+  </div>
+</div>
+
+<div class="callout key">
+  <span class="t">🔑 생각을 바꾸는 지점</span>
+  <p>
+  설계 문서가 이미 인정하고 있습니다 — <em>"막지 못하는 것: 관련 없는 두 fact 를 잇는 것 자체."</em>
+  </p>
+  <p>
+  검문소는 <strong>인용이 진짜인지</strong>만 볼 수 있지 <strong>주장이 맞는지</strong>는 <strong>원리적으로 못 봅니다.</strong>
+  AI가 양쪽에서 실재하는 글자를 골라 인용하면, 두 카드가 전혀 무관해도 통과하니까요.
+  </p>
+  <p>
+  지금 우리는 그 <strong>못 하는 일</strong>을 검문소에 시키려다가 언어 편향만 만들고 있습니다.
+  그러니 검문소한테 할 수 있는 일만 시키고, 나머지는 다른 데서 막는 게 맞습니다.
+  </p>
+</div>
+
+<div class="steps">
+  <div class="step s1">
+    <div class="no">1</div>
+    <div class="bd">
+      <div class="ti">검문소를 '진위 확인'으로 축소한다 <span class="pill code">코드만</span></div>
+      <p style="margin:6px 0">
+      ① <strong>엑셀 쪽은 검증에서 뺀다.</strong> 엑셀 카드는 코드가 좌표까지 확정해 만든 데이터입니다.
+      <strong>지어낼 주체가 없습니다.</strong> 코드가 만든 걸 "AI 거짓말 탐지기"로 검사하는 건 애초에 앞뒤가 안 맞습니다.<br>
+      ② <strong>Word/PPT 쪽만</strong> 검사하되 대조 대상에서 항목명을 빼 <strong>순환을 끊습니다.</strong><br>
+      ③ <strong>하한 제거</strong> — 말씀하신 대로.
+      </p>
+      <div class="mt">예측 가능 · 되돌리기 쉬움 · LLM 거동 안 바뀜</div>
+    </div>
+  </div>
+  <div class="step s2">
+    <div class="no">2</div>
+    <div class="bd">
+      <div class="ti">과잉 병합은 리포트로 잡는다 <span class="pill code">코드만</span></div>
+      <p style="margin:6px 0">
+      <strong>한 기준 항목이 같은 대상 문서의 카드 여럿과 이어지면 '검토 필요'에 노출</strong>합니다.
+      <code>c-0002</code> 같은 건 검문소로는 <strong>원리적으로 못 잡습니다</strong> — 사람에게 보여주는 게 유일한 실질 방어입니다.
+      이미 실측 보고서에 후보로 적혀 있던 항목입니다.
+      </p>
+      <div class="mt">판정에 영향 없음 · 정보만 추가 · 가장 안전</div>
+    </div>
+  </div>
+  <div class="step s3">
+    <div class="no">3</div>
+    <div class="bd">
+      <div class="ti">프롬프트에서 값 인용 요구를 없앤다 <span class="pill llm">LLM 거동 변화</span></div>
+      <p style="margin:6px 0">
+      <strong>근본 원인입니다.</strong> <code>left_text</code>/<code>right_text</code> 를 "원문 인용"이 아니라
+      <strong>"이 항목이 무엇에 대한 것인지 가리키는 말"</strong> 로 재정의합니다.
+      값은 다음 단계가 <code>attributes</code> 에서 직접 읽으므로 여기서 값을 인용할 이유가 애초에 없습니다.
+      </p>
+      <div class="mt">⚠️ LLM 거동이 바뀝니다 — 실측 없이는 결과를 장담할 수 없습니다</div>
+    </div>
+  </div>
+</div>
+
+<div class="callout good">
+  <span class="t">✅ 순서를 2 → 1 → 3 으로 제안하는 이유</span>
+  <p>
+  2단계는 판정을 전혀 건드리지 않고 정보만 더하므로 <strong>가장 안전</strong>합니다. 게다가 이걸 먼저 넣으면
+  1·3단계를 적용했을 때 <strong>과잉 병합이 늘었는지 줄었는지 눈으로 볼 수 있게</strong> 됩니다 — 계측을 먼저 깔아두는 셈입니다.
+  </p>
+  <p>
+  3단계를 마지막에 두는 이유는 <strong>유일하게 결과를 예측할 수 없는 단계</strong>이기 때문입니다.
+  프롬프트를 바꾸면 LLM이 다르게 답할 수 있고, 지금 잘 되던 연결이 사라질 수도 있습니다.
+  앞의 둘이 자리 잡은 뒤에 <strong>같은 문서를 두 번 돌려 비교</strong>하면서 바꿔야 합니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s8-plan" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">3단계 계획에서 납득이 안 되는 부분이나 다르게 하고 싶은 것을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s9"><span class="num">9</span>코드로 보기 — 무엇을 어디서 고치나</h2>
+
+<h3>지금 코드</h3>
+<p>
+검문소 전체가 <code>contentcompare/fact/concept_assembler.py</code> 의 이 함수입니다.
+</p>
+<pre>def verify_evidence(edge, left, right) -> bool:
+    """``same_as`` 의 양쪽 인용이 각 fact 원문에 실재하는가."""
+    for claim, fact in ((edge.left_text, left), (edge.right_text, right)):
+        if not (claim or "").strip():
+            return False
+        source = set(tokenize(f"{fact.evidence_text} {fact.search_text} {fact.entity_name}"))
+        if evidence_coverage(claim, source) &lt; EVIDENCE_MIN_COVERAGE:   # 검사 ①
+            return False
+        if not _quote_long_enough(claim, fact):                        # 검사 ②
+            return False
+    return True</pre>
+
+<p>
+<code>for</code> 문이 <strong>왼쪽·오른쪽을 똑같이 취급</strong>하는 게 보이시나요?
+엑셀 카드(코드가 만든 것)와 워드 카드(AI가 만든 것)를 구별하지 않습니다. 1단계 ①이 여기를 건드립니다.
+</p>
+
+<h3>1단계 — 이렇게 바뀝니다</h3>
+<pre class="wrap-pre">for claim, fact in ((edge.left_text, left), (edge.right_text, right)):
+    if _is_code_generated(fact):      # ① 엑셀 카드는 지어낼 주체가 없다 → 건너뛴다
+        continue
+    if not (claim or "").strip():
+        return False
+    source = set(tokenize(fact.evidence_text))    # ② 항목명·검색문을 뺀다 → 순환 끊기
+    if evidence_coverage(claim, source) &lt; EVIDENCE_MIN_COVERAGE:
+        return False
+    # ③ _quote_long_enough 호출 삭제 — 하한 제거
+return True</pre>
+
+<p class="small">
+<code>_is_code_generated</code> 는 새로 필요합니다. 카드의 <code>source.doc_type</code> 이
+<code>"excel"</code> 인지 보면 됩니다 — 엑셀 경로만 코드가 결정적으로 만들기 때문입니다.
+</p>
+
+<h3>2단계 — 어디에 붙나</h3>
+<p>
+개념 그래프가 완성된 뒤(<code>concept_assembler.assemble</code>), 리포트를 만들기 전에
+"한 기준 카드가 같은 대상 문서의 카드 <strong>2장 이상</strong>과 이어졌는가"를 세면 됩니다.
+그 정보는 이미 그래프 안에 다 있습니다.
+</p>
+<pre class="wrap-pre">c-0002 = { 공칭용량, 정격용량, Nominal capacity, Rated capacity }
+                ↑ 기준 카드 2장이 같은 대상 문서 카드 2장과 뒤엉켰다
+→ 리포트 '검토 필요' 에 노출:
+  "공칭용량 이 spec_en.docx 의 fact 2건과 이어졌습니다 — 확인이 필요합니다"</pre>
+
+<h3>3단계 — 프롬프트의 어느 줄인가</h3>
+<p>
+<code>contentcompare/fact/prompts.py</code> 의 <code>CONCEPT_SYSTEM</code> 입니다.
+</p>
+<pre class="wrap-pre">지금:
+  2. "same_as" 를 쓰려면 양쪽에서 **원문을 그대로 인용**해야 합니다(left_text/right_text).
+     인용할 원문이 없으면 same_as 를 쓸 수 없습니다.
+
+바꾼 뒤(안):
+  2. "same_as" 를 쓰려면 양쪽에서 **그 항목이 무엇에 대한 것인지 가리키는 말**을
+     원문에서 찾아 옮기세요(left_text/right_text). 값·숫자는 근거가 아닙니다 —
+     값 비교는 다음 단계가 합니다.</pre>
+
+<p>
+그리고 카드를 LLM에게 보여주는 방식(<code>_render_fact</code>)도 함께 봐야 합니다.
+지금은 <code>근거 원문: 1150.0</code> 이라고 보여주니 AI 입장에서는 그걸 인용하는 게 자연스럽습니다.
+<strong>보여주는 것이 곧 인용되는 것</strong>이라, 프롬프트 문구만 바꾸고 화면을 그대로 두면 효과가 반감됩니다.
+</p>
+
+<div class="qmemo" data-qid="s9-code" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드 변경안에서 더 보고 싶은 부분을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s10"><span class="num">10</span>퀴즈</h2>
+
+<p>다섯 문제입니다. 답을 고르면 바로 채점되고 왜 그런지 설명이 나옵니다.</p>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q1. "주장과 증거가 어긋났다"는 말은 무슨 뜻인가?</div>
+  <button class="opt2">AI가 문서에 없는 내용을 지어냈다는 뜻</button>
+  <button class="opt2">인용문이 너무 짧아서 믿을 수 없다는 뜻</button>
+  <button class="opt2">"이름이 같다"는 주장에 "값"을 증거로 내고 있다는 뜻</button>
+  <button class="opt2">임베딩 점수가 낮아 후보에 못 올랐다는 뜻</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">그건 검문소가 <em>막으려던</em> 것이고, 실제로는 AI가 정확히 인용했는데도 막혔습니다.</span>
+    <span data-i="1">길이는 증상이지 원인이 아닙니다. 길이가 문제가 된 건 애초에 증거가 값이었기 때문입니다.</span>
+    <span data-i="2">맞습니다. 개념 판정의 주장은 "이 둘은 같은 항목이다"인데, 제출되는 증거는 <code>1150.0</code> 같은 값입니다. 키가 같다고 형제를 증명할 수 없는 것과 같습니다.</span>
+    <span data-i="3">그건 후보 선정(recall) 단계의 이야기로, 검문소와는 다른 단계입니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q2. 값을 증거로 쓰는 것이 왜 특히 해로운가?</div>
+  <button class="opt2">값은 문서마다 표기가 달라 인용이 어렵기 때문</button>
+  <button class="opt2">서로 다른 카드가 같은 값을 가지면 증거가 둘을 구별하지 못하기 때문</button>
+  <button class="opt2">값은 숫자라 tokenize 가 처리하지 못하기 때문</button>
+  <button class="opt2">LLM 이 값을 자주 틀리게 읽기 때문</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">표기 차이는 커버리지 검사에서 걸릴 수 있지만 핵심 문제는 아닙니다.</span>
+    <span data-i="1">정확합니다. 실측에서 <code>공칭용량</code>·<code>정격용량</code>·<code>최대방전전류</code> 세 장이 근거 원문 <code>"1150.0"</code> 으로 <strong>완전히 동일</strong>했습니다. 구별력이 0이라 아무거나 이어질 수 있고, 실제로 <code>c-0002</code> 에 넷이 뭉쳤습니다.</span>
+    <span data-i="2">숫자도 정상 처리됩니다(<code>1150.0</code> → 토큰 1개).</span>
+    <span data-i="3">이번 사례에서 LLM 은 정확히 인용했습니다. 문제는 그 인용이 <em>무엇에 대한 것이냐</em>였습니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. 낱말 하한을 <strong>없애기만</strong> 하면 어떻게 되는가?</div>
+  <button class="opt2">한국어와 영어가 드디어 공평해진다</button>
+  <button class="opt2">엑셀 카드가 전부 통과해 문제가 해결된다</button>
+  <button class="opt2">커버리지 검사가 대신 강해져서 균형이 맞는다</button>
+  <button class="opt2">커버리지만 남는데, 원문의 아무 낱말 하나로도 통과하게 된다</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">언어 편향은 없어지지만, 그 대가로 게이트가 아무것도 막지 못하게 됩니다.</span>
+    <span data-i="1">엑셀 카드는 통과하지만 <strong>모든 것</strong>이 통과합니다. 그게 문제입니다.</span>
+    <span data-i="2">커버리지는 그대로입니다 — 하한을 없앤다고 다른 검사가 강해지지는 않습니다.</span>
+    <span data-i="3">맞습니다. 원문 <code>Nominal capacity, 1150, mAh</code> 에 대해 <code>mAh</code> 하나만 인용해도 커버리지 1.00 으로 통과합니다. 하한 제거는 <strong>대체물과 함께</strong>여야 합니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q4. "인용에 항목명이 통째로 들어 있어야 한다"를 지금 그대로 도입하면 무엇이 깨지는가?</div>
+  <button class="opt2">조사가 붙은 한국어 본문과, AI가 요약해 붙인 이름을 가진 카드 8장</button>
+  <button class="opt2">엑셀에서 만든 카드 전부</button>
+  <button class="opt2">임베딩 후보 생성 단계</button>
+  <button class="opt2">아무것도 깨지지 않는다 — 그래서 이게 정답이다</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">맞습니다. <code>공칭전압</code> 이 본문에서는 <code>공칭전압은</code> 이 되어 토큰이 안 잡히고, <code>충전 규격 상세조건</code> 처럼 AI가 붙인 요약 이름은 본문에 아예 없습니다. 33장 중 8장이 여기 해당하고, 그중에는 <strong>지금 올바른 판정을 내고 있는</strong> 카드도 있습니다.</span>
+    <span data-i="1">엑셀 카드의 항목명은 셀 값이라 오히려 잘 잡힙니다.</span>
+    <span data-i="2">후보 생성은 임베딩이 하는 별개 단계로, 검문소와 무관합니다.</span>
+    <span data-i="3">방향은 옳지만 그대로는 안 됩니다 — 8장이 연결 불가가 됩니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q5. 3단계 중 <strong>2단계(리포트 노출)를 먼저</strong> 하자고 제안한 이유는?</div>
+  <button class="opt2">가장 빨리 구현할 수 있어서</button>
+  <button class="opt2">과잉 병합을 검문소가 잡을 수 있게 만들어 주기 때문에</button>
+  <button class="opt2">판정을 건드리지 않아 안전하고, 뒤 단계의 효과를 측정할 계측이 되기 때문에</button>
+  <button class="opt2">프롬프트를 바꾸기 전에 LLM 을 학습시켜야 해서</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">구현량은 판단 기준이 아니었습니다.</span>
+    <span data-i="1">반대입니다 — 과잉 병합은 검문소가 <strong>원리적으로 못 잡습니다</strong>. 그래서 사람에게 보여주는 겁니다.</span>
+    <span data-i="2">맞습니다. 2단계는 판정에 영향 없이 정보만 더하므로 가장 안전하고, 먼저 깔아 두면 1·3단계 적용 후 과잉 병합이 늘었는지 줄었는지 <strong>눈으로 볼 수 있게</strong> 됩니다.</span>
+    <span data-i="3">이 프로젝트는 LLM 을 학습시키지 않습니다. 프롬프트만 바꿉니다.</span>
+  </div>
+</div>
+
+<div class="qmemo" data-qid="s10-quiz" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">헷갈린 문제나 답이 납득되지 않는 부분을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>한 장 요약</h3>
+<div class="callout key">
+  <p>
+  <strong>문제</strong> — 검문소가 "이름이 같다"는 주장에 "값" 인용을 받고 있다. 값은 카드를 구별하지 못해
+  세 장이 같은 증거를 갖는다. 게다가 기준 카드의 55%는 그 값이 짧아 통과 자체가 불가능하다.
+  </p>
+  <p>
+  <strong>쉬운 해법이 안 되는 이유</strong> — 하한만 없애면 게이트가 장식이 되고,
+  이름 필수로 바꾸면 조사 문제와 요약 이름 8장이 죽는다. 게다가 지금 검증은 순환이라 검사 자체가 무의미하다.
+  </p>
+  <p>
+  <strong>방향</strong> — 검문소는 "인용이 진짜인가"만 맡기고(1단계), 잘못된 연결은 사람에게 보여서 잡고(2단계),
+  근본 원인인 "값을 인용하라"는 요구는 프롬프트에서 없앤다(3단계). 안전한 순서는 <strong>2 → 1 → 3</strong>.
+  </p>
+</div>
+
+<p class="small" style="margin-top:36px;padding-top:18px;border-top:1px solid var(--line)">
+관련 문서 —
+<a href="2026-08-06-explanation-what-the-llm-sees.html">LLM 은 무엇을 보고 판단할까</a> ·
+<a href="2026-08-05-explanation-english-document-fix.html">영어로 쓴 문서는 왜 비교가 안 됐을까</a> ·
+<a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 개념 그래프</a><br>
+설계 — <code>docs/FACT_F7_DESIGN.md</code> §2.3 · 실측 — <code>docs/FACT_F3_5_LIVE_REPORT.md</code> §12
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = Array.prototype.slice.call(quiz.querySelectorAll('.opt2'));
+    var fb = quiz.querySelector('.fb');
+    var texts = quiz.querySelector('.fbtext');
+    opts.forEach(function (opt, i) {
+      opt.addEventListener('click', function () {
+        if (quiz.dataset.done === '1') return;
+        quiz.dataset.done = '1';
+        opts.forEach(function (o) { o.disabled = true; });
+        opts[answer].classList.add('correct');
+        if (i !== answer) opt.classList.add('wrong');
+        var span = texts.querySelector('[data-i="' + i + '"]');
+        var head = (i === answer) ? '✅ 정답입니다. ' : '❌ 아쉽네요. ';
+        fb.innerHTML = '<strong>' + head + '</strong>' + (span ? span.innerHTML : '');
+        fb.classList.add('show');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
