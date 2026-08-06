@@ -59,6 +59,16 @@ llm:
                              # 출력이 숫자 벡터라 trace 만 지저분해진다
     flush_timeout: 5.0       # 종료 시 전송 대기 상한(초)
     debug: false             # SDK 자체 디버그 로그
+
+    # 사내 사설 인증서를 쓰는 자체호스팅이면 여기에 CA 를 지정한다.
+    # 지정하지 않으면 Python 은 certifi 의 공인 CA 만 믿으므로
+    # SSLError: CERTIFICATE_VERIFY_FAILED 가 난다.
+    ssl_cert: ""             # 예) "C:/Users/SDI_USER/SDI_certificate.pem"
+                             # ⚠️ 반드시 PEM 형식. .cer 은 바이너리(DER)인 경우가 많다.
+                             #    확인:  head -1 파일.cer  → "-----BEGIN" 이 보여야 PEM
+                             #    변환:  openssl x509 -inform DER -in x.cer -out corp-ca.pem
+    verify_ssl: true         # false 면 검증을 끈다 — **최후의 수단**.
+                             # 인증서를 못 구할 때만. ssl_cert 쪽이 안전하다.
   # ⚠️ 프롬프트에는 문서 본문이 그대로 들어간다. 사내 자체호스팅을 전제로 하며,
   #    Langfuse 서버의 접근 권한은 문서 열람 권한과 같은 수준이어야 한다.
   # ⚠️ artifacts 캐시가 적중한 단계는 LLM 을 호출하지 않아 trace 가 없다.

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import sys
 import time
 from contextvars import ContextVar
@@ -170,6 +171,106 @@ class LangfuseTracer:
             flush()
 
 
+# --------------------------------------------------------------------------- #
+# 사설 CA (사내 자체호스팅)
+# --------------------------------------------------------------------------- #
+_PEM_MARK = b"-----BEGIN"
+
+
+def ca_bundle(lf: Any) -> Any:
+    """SSL 검증에 쓸 값 — 인증서 경로 / ``False``(검증 끔) / ``None``(기본).
+
+    Python 은 ``certifi`` 의 공인 CA 번들만 믿는다. 사내 CA 로 서명된 Langfuse 에
+    붙으면 ``CERTIFICATE_VERIFY_FAILED`` 가 나는 이유가 이것이다.
+
+    문제가 있는 경로는 **조용히 넘기지 않는다.** 오타나 DER 파일을 그냥 무시하면
+    "설정은 했는데 왜 여전히 SSL 오류지"로 시간을 잃는다 — 원인과 해결책을 로그로 남긴다.
+    """
+    path = (getattr(lf, "ssl_cert", "") or "").strip()
+    if not path:
+        # 인증서가 없을 때만 verify_ssl 을 본다. 인증서가 있으면 그것이 우선이다.
+        return None if getattr(lf, "verify_ssl", True) else False
+    if not os.path.isfile(path):
+        logger.warning("Langfuse ssl_cert 파일을 찾을 수 없습니다: %s", path)
+        return None
+    try:
+        head = open(path, "rb").read(64)
+    except OSError as exc:
+        logger.warning("Langfuse ssl_cert 를 읽을 수 없습니다(%s): %s", path, exc)
+        return None
+    if _PEM_MARK not in head:
+        logger.warning(
+            "Langfuse ssl_cert 가 PEM 형식이 아닙니다(DER 로 보임): %s\n"
+            "  변환: openssl x509 -inform DER -in \"%s\" -out corp-ca.pem",
+            path, path,
+        )
+        return None
+    return path
+
+
+def apply_ssl_env(lf: Any) -> None:
+    """CA 번들을 환경변수로도 깔아둔다 — SDK 내부가 무엇을 쓰든 타도록.
+
+    Langfuse 는 내부적으로 ``requests``(OpenTelemetry 익스포터)와 ``httpx`` 를 섞어
+    쓰고 버전마다 다르다. 생성자 인자만으로는 전부 덮지 못하므로, 표준 환경변수를
+    함께 설정해 어느 경로로 나가든 같은 CA 를 보게 한다.
+
+    :func:`contentcompare.config.disable_proxy` 와 같이 **프로세스 전역**을 바꾸며
+    복원하지 않는다. 사용자가 ``ssl_cert`` 를 명시했을 때만 건드린다.
+    """
+    bundle = ca_bundle(lf)
+    if not isinstance(bundle, str):
+        return
+    for var in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+        os.environ[var] = bundle
+    logger.info("사내 CA 적용: REQUESTS_CA_BUNDLE/SSL_CERT_FILE = %s", bundle)
+
+
+def _http_client(lf: Any) -> Any:
+    """사설 CA(또는 검증 끔)를 문 httpx 클라이언트. 필요 없으면 ``None``.
+
+    경로를 ``verify=`` 에 직접 넘기는 방식은 최신 httpx 에서 deprecated 라
+    :func:`ssl.create_default_context` 로 컨텍스트를 만들어 넘긴다. 인증서가
+    깨졌으면 여기서 걸리므로(``[X509] PEM lib``) 사유를 남기고 기본 동작으로 돌아간다.
+    """
+    bundle = ca_bundle(lf)
+    if bundle is None:
+        return None
+    try:
+        import httpx  # noqa: WPS433 — 지연 import (langfuse 의 의존성)
+    except ImportError:
+        return None
+    try:
+        if bundle is False:
+            return httpx.Client(verify=False)
+        import ssl
+
+        return httpx.Client(verify=ssl.create_default_context(cafile=bundle))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Langfuse 용 인증서를 불러오지 못했습니다(%s): %s", bundle, exc)
+        return None
+
+
+def new_langfuse_client(lf: Any, factory: Any) -> Any:
+    """Langfuse 클라이언트를 만든다. ``httpx_client`` 는 **받아주면** 넘긴다.
+
+    SDK 버전에 따라 이 인자가 없을 수 있어 ``TypeError`` 면 빼고 다시 시도한다
+    (환경변수 경로는 이미 깔려 있으므로 그것만으로도 대개 붙는다).
+    """
+    apply_ssl_env(lf)
+    host, public, secret = lf.resolved()
+    kwargs: dict[str, Any] = {"public_key": public, "secret_key": secret,
+                              "host": host, "debug": lf.debug}
+    client = _http_client(lf)
+    if client is not None:
+        try:
+            return factory(httpx_client=client, **kwargs)
+        except TypeError as exc:
+            logger.info("이 Langfuse SDK 는 httpx_client 를 받지 않습니다(%s) "
+                        "— 환경변수 CA 경로로 진행합니다.", exc)
+    return factory(**kwargs)
+
+
 _TRACER: Optional[Any] = None
 
 
@@ -210,10 +311,14 @@ def build_tracer(config: AppConfig) -> Any:
         )
         return NullTracer()
     try:
-        client = Langfuse(public_key=public, secret_key=secret, host=host,
-                          debug=lf.debug)
+        client = new_langfuse_client(lf, Langfuse)
     except Exception as exc:  # noqa: BLE001 — 관측 실패가 실행을 막으면 안 된다
         logger.warning("Langfuse 초기화 실패(host=%s): %s", host, exc)
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc):
+            logger.warning(
+                "사내 CA 인증서가 필요해 보입니다 — llm.langfuse.ssl_cert 에 "
+                "PEM 파일 경로를 지정하세요."
+            )
         return NullTracer()
     logger.info("Langfuse 추적 활성 (host=%s)", host)
     return LangfuseTracer(client, flush_timeout=lf.flush_timeout)

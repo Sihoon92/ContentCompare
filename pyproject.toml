@@ -44,6 +44,8 @@ dev = [
     # scripts/make_synthetic_targets.py — 테스트용 대상 문서 생성(COM 불필요).
     "python-docx>=1.1",
     "python-pptx>=0.6",
+    # 사내 CA 경로 테스트용 자체서명 인증서 생성(없으면 해당 2건만 skip).
+    "cryptography>=42.0",
 ]
 
 [project.scripts]

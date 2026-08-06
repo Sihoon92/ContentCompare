@@ -80,6 +80,21 @@ class LangfuseConfig:
     trace_embeddings: bool = False
     """임베딩 호출도 추적할지. 기본 false — 한 번에 20건씩 묶여 오고 출력이 숫자
     벡터라 trace 가 지저분해지는 반면, 디버깅이 어려운 것은 chat 프롬프트다."""
+    ssl_cert: str = ""
+    """사내 CA 인증서 경로(**PEM 형식**). 사설 인증서를 쓰는 자체호스팅에 필요.
+
+    Python 은 ``certifi`` 의 공인 CA 번들만 믿으므로, 사내 CA 로 서명된 Langfuse
+    서버에 붙으면 ``CERTIFICATE_VERIFY_FAILED`` 가 난다. 이 값을 주면 그 인증서를
+    신뢰 목록에 얹는다 — :attr:`verify_ssl` 을 끄는 것보다 안전하다.
+
+    ⚠️ ``.cer`` 확장자는 DER(바이너리)인 경우가 많은데 requests/httpx 는 **PEM 만**
+    읽는다. 변환: ``openssl x509 -inform DER -in x.cer -out x.pem``
+    """
+    verify_ssl: bool = True
+    """false 면 인증서 검증을 끈다. **최후의 수단** — 인증서를 구할 수 없을 때만.
+
+    :attr:`ssl_cert` 를 쓰는 편이 낫다. 검증을 끄면 중간자 공격을 막지 못한다.
+    """
     flush_timeout: float = 5.0
     """종료 시 전송 대기 상한(초). 짧은 실행이 전송 전에 끝나는 것을 막는다."""
     debug: bool = False

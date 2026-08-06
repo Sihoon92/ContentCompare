@@ -13,6 +13,7 @@
 """
 
 import os
+import sys
 
 import pytest
 
@@ -273,6 +274,161 @@ def test_missing_sdk_degrades_to_noop():
 
 
 # --------------------------------------------------------------------- #
+# 사설 CA (사내 인증서)
+# --------------------------------------------------------------------- #
+DER = b"\x30\x82\x01\xa2\x02\x01\x00\x30\x0d"      # 바이너리 .cer 의 시작 바이트
+PEM = b"-----BEGIN CERTIFICATE-----\nMIIBogIBADAN\n-----END CERTIFICATE-----\n"
+"""형식 판별용 가짜 PEM. 경로/형식 검사에는 이걸로 충분하다."""
+
+
+def _cert(tmp_path, name="corp.cer", data=None):
+    p = tmp_path / name
+    p.write_bytes(PEM if data is None else data)
+    return str(p)
+
+
+@pytest.fixture
+def real_cert(tmp_path):
+    """**실제로 로드 가능한** 자체서명 인증서 경로.
+
+    모양만 PEM 인 문자열은 OpenSSL 이 ``[X509] PEM lib`` 로 거부하므로 "인증서를
+    물린 httpx 클라이언트" 경로는 진짜 인증서가 아니면 검증할 수 없다.
+    ``cryptography`` 는 dev extra 로 들어 있고, 없으면 이 두 건만 건너뛴다
+    (나머지 테스트는 의존성 없이 돈다 — 플랫폼 독립 규약).
+    """
+    import datetime
+
+    x509 = pytest.importorskip("cryptography.x509")
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Corp Test CA")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name).issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=3650))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    path = tmp_path / "corp-ca.pem"
+    path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    return str(path)
+
+
+def test_ca_bundle_accepts_a_pem_certificate(tmp_path):
+    from contentcompare.llm.tracing import ca_bundle
+
+    path = _cert(tmp_path)
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC, ssl_cert=path)
+    assert ca_bundle(cfg) == path
+
+
+def test_ca_bundle_rejects_a_missing_file(tmp_path, caplog):
+    """경로 오타를 조용히 넘기면 '왜 여전히 SSL 오류지'로 시간을 잃는다."""
+    from contentcompare.llm.tracing import ca_bundle
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC,
+                         ssl_cert=str(tmp_path / "없는파일.cer"))
+    assert ca_bundle(cfg) is None
+    assert "찾을 수 없" in caplog.text
+
+
+def test_ca_bundle_rejects_a_der_certificate(tmp_path, caplog):
+    """``.cer`` 는 DER(바이너리)인 경우가 많은데 requests/httpx 는 PEM 만 읽는다.
+
+    이걸 안 걸러주면 '파일은 맞는데 왜 안 되지'가 된다 — 변환 명령까지 안내한다.
+    """
+    from contentcompare.llm.tracing import ca_bundle
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC,
+                         ssl_cert=_cert(tmp_path, data=DER))
+    assert ca_bundle(cfg) is None
+    assert "PEM" in caplog.text and "openssl" in caplog.text
+
+
+def test_apply_ssl_env_points_requests_and_openssl_at_the_bundle(tmp_path, monkeypatch):
+    """SDK 내부가 requests 든 httpx 든 타도록 환경변수로도 깔아둔다."""
+    from contentcompare.llm.tracing import apply_ssl_env
+
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    path = _cert(tmp_path)
+    apply_ssl_env(LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC,
+                                 ssl_cert=path))
+    assert os.environ["REQUESTS_CA_BUNDLE"] == path
+    assert os.environ["SSL_CERT_FILE"] == path
+
+
+def test_apply_ssl_env_does_nothing_without_a_cert(monkeypatch):
+    """설정하지 않은 사람의 환경변수를 건드리면 안 된다."""
+    from contentcompare.llm.tracing import apply_ssl_env
+
+    monkeypatch.setenv("SSL_CERT_FILE", "기존값")
+    apply_ssl_env(LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC))
+    assert os.environ["SSL_CERT_FILE"] == "기존값"
+
+
+def test_client_is_built_with_httpx_client_when_supported(real_cert):
+    """SDK 가 httpx_client 를 받으면 사설 CA 를 문 클라이언트를 넘긴다."""
+    from contentcompare.llm.tracing import new_langfuse_client
+
+    seen = {}
+
+    def factory(**kwargs):
+        seen.update(kwargs)
+        return "client"
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC,
+                         ssl_cert=real_cert)
+    assert new_langfuse_client(cfg, factory) == "client"
+    assert "httpx_client" in seen
+
+
+def test_client_falls_back_when_sdk_rejects_httpx_client(real_cert):
+    """SDK 버전에 따라 httpx_client 를 안 받을 수 있다 — 그때도 살아남아야 한다.
+
+    환경변수 CA 경로는 이미 깔려 있으므로 인자 없이도 대개 붙는다.
+    """
+    from contentcompare.llm.tracing import new_langfuse_client
+
+    calls = []
+
+    def picky_factory(**kwargs):
+        calls.append(kwargs)
+        if "httpx_client" in kwargs:
+            raise TypeError("unexpected keyword argument 'httpx_client'")
+        return "client"
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC,
+                         ssl_cert=real_cert)
+    assert new_langfuse_client(cfg, picky_factory) == "client"
+    assert len(calls) == 2 and "httpx_client" not in calls[1]
+
+
+def test_broken_certificate_does_not_crash_the_run(tmp_path):
+    """깨진 인증서를 줘도 실행은 계속된다 — 사유는 로그에 남는다."""
+    from contentcompare.llm.tracing import new_langfuse_client
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC,
+                         ssl_cert=_cert(tmp_path))   # 모양만 PEM 인 가짜
+    assert new_langfuse_client(cfg, lambda **kw: "client") == "client"
+
+
+def test_verify_ssl_false_is_the_last_resort(tmp_path):
+    """인증서를 못 구했을 때의 탈출구 — 켜져 있으면 경고가 남아야 한다."""
+    from contentcompare.llm.tracing import ca_bundle
+
+    cfg = LangfuseConfig(host=HOST, public_key=PUB, secret_key=SEC, verify_ssl=False)
+    assert ca_bundle(cfg) is False        # False = 검증 끔 (None = 기본 동작)
+
+
+# --------------------------------------------------------------------- #
 # 연결 점검(--check)
 # --------------------------------------------------------------------- #
 def test_health_says_nothing_when_langfuse_is_unused():
@@ -290,6 +446,73 @@ def test_health_reports_which_key_is_missing():
     r = _langfuse_result(cfg)
     assert r is not None and r.ok is False
     assert "public_key" in r.detail and "secret_key" in r.detail
+
+
+@pytest.fixture
+def fake_langfuse_sdk(monkeypatch):
+    """``langfuse`` 모듈을 흉내 내 SDK 설치 이후의 경로를 검증한다.
+
+    로컬에 SDK 가 없어 ``--check`` 가 '미설치'에서 멈추면 정작 사내에서 가장 흔한
+    실패(SSL)와 성공 메시지를 한 번도 확인하지 못한 채 배포하게 된다.
+    """
+    import types
+
+    def _install(behaviour):
+        mod = types.ModuleType("langfuse")
+
+        class _Langfuse:
+            def __init__(self, **kwargs):
+                behaviour(kwargs)
+
+            def auth_check(self):
+                return True
+
+        mod.Langfuse = _Langfuse
+        monkeypatch.setitem(sys.modules, "langfuse", mod)
+
+    return _install
+
+
+def test_health_success_line_shows_the_ca_in_use(fake_langfuse_sdk, tmp_path):
+    from contentcompare.llm.health import _langfuse_result
+
+    fake_langfuse_sdk(lambda kwargs: None)
+    cfg = AppConfig.from_dict({"llm": {"langfuse": {
+        "host": HOST, "public_key": PUB, "secret_key": SEC,
+        "ssl_cert": _cert(tmp_path, name="SDI_certificate.pem")}}})
+    r = _langfuse_result(cfg)
+    assert r.ok is True
+    assert "SDI_certificate.pem" in r.detail       # 어느 CA 를 쓰는지 보여준다
+
+
+def test_health_warns_when_verification_is_off(fake_langfuse_sdk):
+    """검증을 끈 채로 돌고 있다는 사실이 화면에 남아야 한다."""
+    from contentcompare.llm.health import _langfuse_result
+
+    fake_langfuse_sdk(lambda kwargs: None)
+    cfg = AppConfig.from_dict({"llm": {"langfuse": {
+        "host": HOST, "public_key": PUB, "secret_key": SEC, "verify_ssl": False}}})
+    r = _langfuse_result(cfg)
+    assert r.ok is True and "검증 꺼짐" in r.detail
+
+
+def test_health_explains_how_to_fix_a_certificate_error(fake_langfuse_sdk):
+    """사내에서 가장 흔한 실패 — 원인만 보여주지 말고 해결책까지 준다."""
+    from contentcompare.llm.health import _langfuse_result
+
+    def boom(_kwargs):
+        raise Exception(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+            "unable to get local issuer certificate"
+        )
+
+    fake_langfuse_sdk(boom)
+    cfg = AppConfig.from_dict({"llm": {"langfuse": {
+        "host": HOST, "public_key": PUB, "secret_key": SEC}}})
+    r = _langfuse_result(cfg)
+    assert r.ok is False
+    assert "ssl_cert" in r.detail          # 어느 설정을 만져야 하는지
+    assert "openssl x509" in r.detail      # DER → PEM 변환 명령까지
 
 
 def test_health_never_prints_the_secret():

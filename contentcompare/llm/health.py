@@ -118,13 +118,27 @@ def _langfuse_result(config: AppConfig) -> Optional[CheckResult]:
         return CheckResult("Langfuse", False,
                            'SDK 미설치 — pip install -e ".[langfuse]"')
     try:
-        client = Langfuse(public_key=public, secret_key=secret, host=host)
+        from .tracing import new_langfuse_client
+
+        client = new_langfuse_client(lf, Langfuse)   # 사내 CA 적용 포함
         auth = getattr(client, "auth_check", None)
         if auth is not None and auth() is False:
             return CheckResult("Langfuse", False, f"인증 실패 (host={host})")
     except Exception as exc:  # noqa: BLE001 — 원인을 사용자에게 그대로 보여준다
-        return CheckResult("Langfuse", False, f"{_err(exc)} (host={host})")
-    return CheckResult("Langfuse", True, f"host={host}")
+        detail = f"{_err(exc)} (host={host})"
+        # 사내 자체호스팅에서 가장 흔한 실패다. 원인 모르고 헤매지 않도록 해법을 붙인다.
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc) or "SSLError" in type(exc).__name__:
+            detail += (
+                "\n     → 사내 CA 인증서가 필요합니다. llm.langfuse.ssl_cert 에 "
+                "PEM 파일 경로를 지정하세요."
+                "\n       .cer 이 바이너리(DER)면 변환: "
+                "openssl x509 -inform DER -in x.cer -out corp-ca.pem"
+            )
+        return CheckResult("Langfuse", False, detail)
+    ca = "" if not lf.ssl_cert else f", ca={os.path.basename(lf.ssl_cert)}"
+    if not lf.verify_ssl and not lf.ssl_cert:
+        ca = ", ⚠️ 인증서 검증 꺼짐"
+    return CheckResult("Langfuse", True, f"host={host}{ca}")
 
 
 def all_ok(results: list[CheckResult]) -> bool:
