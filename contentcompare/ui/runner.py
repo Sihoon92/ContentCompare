@@ -11,6 +11,8 @@ from typing import Any, Iterable, Optional, Union
 
 from ..config import AppConfig
 from ..models import ComparisonResult, RecordResult, Verdict
+from ..report.fact_report import LABEL as FACT_LABEL
+from ..report.fact_report import ORDER as FACT_ORDER
 
 Result = Union[ComparisonResult, RecordResult]
 
@@ -27,6 +29,11 @@ VERDICT_LABEL = {
     Verdict.UNKNOWN: "❓ 판단보류",
     Verdict.NOT_FOUND: "⚪ 미발견",
 }
+"""RAG 엔진(``Verdict`` enum)용. **fact 엔진에는 쓰지 말 것.**
+
+같은 이모지를 쓰지만 뜻이 다르다(RAG ✅=같음 / fact ✅=일치, 🟡 부분일치는 RAG 에만
+있다). fact 쪽은 :data:`FACT_LABEL`/:data:`FACT_ORDER` 를 쓴다 — 리포트가 단일 출처다.
+"""
 
 
 # --------------------------------------------------------------------------- #
@@ -192,6 +199,60 @@ def summary_rows(results: Iterable[Result]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+# --------------------------------------------------------------------------- #
+# fact 엔진 결과 집계 — RAG 쪽과 **같은 모양**의 순수 함수
+# --------------------------------------------------------------------------- #
+# RAG 의 ``VERDICT_LABEL`` 을 재사용하지 않는다. 같은 이모지를 쓰지만 뜻이 다르다
+# (RAG ✅=같음 / fact ✅=일치, RAG 에만 🟡 부분일치가 있다). 섞으면 사용자가 두 엔진의
+# 결과를 같은 것으로 오해한다.
+def fact_verdict_counts(comparisons: Iterable[Any]) -> dict[str, int]:
+    """fact 비교 결과의 판정별 건수. ``FactComparison`` 객체와 dict 를 모두 받는다."""
+    counts = {k: 0 for k in FACT_ORDER}
+    for c in comparisons:
+        key = c.get("result") if isinstance(c, dict) else getattr(c, "result", "")
+        if key in counts:
+            counts[key] += 1
+    return counts
+
+
+def fact_summary_rows(comparisons: Iterable[Any]) -> list[dict[str, Any]]:
+    """fact 요약 표 행. 정렬은 리포트와 같다 — **확인이 필요한 것부터**."""
+    rank = {r: i for i, r in enumerate(FACT_ORDER)}
+    items = [_fact_row_source(c) for c in comparisons]
+    items.sort(key=lambda d: (rank.get(d["result"], 9), d["target_doc"], d["entity_name"]))
+    return [
+        {
+            "#": i,
+            "기준 항목": _truncate(d["entity_name"], 40),
+            "대상 문서": d["target_doc"],
+            "판정": FACT_LABEL.get(d["result"], d["result"]),
+            "어긋난 속성": ", ".join(d["mismatch"]) or "-",
+            "사유": _truncate(d["reason"], 60),
+        }
+        for i, d in enumerate(items, start=1)
+    ]
+
+
+def _fact_row_source(c: Any) -> dict[str, Any]:
+    """``FactComparison`` 과 ``comparison_result.json`` 항목을 같은 dict 로 정규화."""
+    if isinstance(c, dict):
+        ref = c.get("reference") or {}
+        return {
+            "result": str(c.get("result") or ""),
+            "entity_name": str(c.get("entity_name") or ref.get("entity_name") or ""),
+            "target_doc": str(c.get("target_doc") or ""),
+            "mismatch": [str(a) for a in (c.get("mismatch_attributes") or [])],
+            "reason": str(c.get("reason") or ""),
+        }
+    return {
+        "result": str(getattr(c, "result", "")),
+        "entity_name": str(getattr(getattr(c, "reference_fact", None), "entity_name", "")),
+        "target_doc": str(getattr(c, "target_doc", "")),
+        "mismatch": [str(a) for a in (getattr(c, "mismatch_attributes", None) or [])],
+        "reason": str(getattr(c, "reason", "")),
+    }
 
 
 def field_rows(result: RecordResult) -> list[dict[str, Any]]:

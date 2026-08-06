@@ -17,13 +17,21 @@ from typing import Any, Iterable, Optional
 from ..fact.fact_comparator import MATCH, MISMATCH, MISSING, UNKNOWN, FactComparison
 from ..fact.fact_models import Fact
 
-_LABEL = {
+LABEL = {
     MATCH: "✅ 일치",
     MISMATCH: "❌ 불일치",
     MISSING: "⚪ 대상에 없음",
     UNKNOWN: "❓ 판단보류",
 }
-_ORDER = (MISMATCH, UNKNOWN, MISSING, MATCH)  # 확인이 필요한 것부터 보여준다
+"""판정 라벨의 **단일 출처**. 화면(``ui/micro_world``·``ui/runner``)도 이것을 쓴다 —
+리포트와 화면의 문구가 갈라지면 사람이 둘을 대조할 수 없다."""
+
+ORDER = (MISMATCH, UNKNOWN, MISSING, MATCH)
+"""확인이 필요한 것부터 보여준다. 이 순서가 리포트의 설계 철학이다."""
+
+# 하위호환(내부 호출부).
+_LABEL = LABEL
+_ORDER = ORDER
 
 
 def render_fact_markdown(

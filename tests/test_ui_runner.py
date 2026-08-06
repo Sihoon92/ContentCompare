@@ -181,3 +181,61 @@ def test_summary_rows_supports_comparison_result():
     )
     rows = runner.summary_rows([cr])
     assert rows[0]["판정"] == runner.VERDICT_LABEL[Verdict.DIFFERENT]
+
+
+# --------------------------------------------------------------------------- #
+# fact 엔진 결과 집계 — RAG 라벨과 섞이면 안 된다
+# --------------------------------------------------------------------------- #
+def _fact_dict(entity, result, target_doc="규격서.docx", reason="사유", mismatch=None):
+    return {
+        "entity_name": entity, "target_doc": target_doc, "result": result,
+        "mismatch_attributes": mismatch or [], "reason": reason,
+        "reference": {"fact_id": "f1", "entity_name": entity},
+        "target": None,
+    }
+
+
+def test_fact_verdict_counts_uses_fact_keys():
+    counts = runner.fact_verdict_counts([
+        _fact_dict("A", "match"), _fact_dict("B", "mismatch"),
+        _fact_dict("C", "match"),
+    ])
+    assert counts["match"] == 2 and counts["mismatch"] == 1
+    assert counts["missing"] == 0 and counts["unknown"] == 0
+
+
+def test_fact_labels_are_not_the_rag_labels():
+    """같은 이모지, 다른 뜻 — 섞으면 두 엔진 결과를 같은 것으로 오해한다."""
+    assert runner.FACT_LABEL["match"] == "✅ 일치"
+    assert runner.VERDICT_LABEL[Verdict.SAME] == "✅ 같음"
+    assert "🟡" not in "".join(runner.FACT_LABEL.values())  # 부분일치는 RAG 에만 있다
+
+
+def test_fact_summary_rows_sort_review_first():
+    rows = runner.fact_summary_rows([
+        _fact_dict("가나", "match"),
+        _fact_dict("다라", "missing"),
+        _fact_dict("마바", "mismatch", mismatch=["target_value"]),
+        _fact_dict("사아", "unknown"),
+    ])
+    assert [r["기준 항목"] for r in rows] == ["마바", "사아", "다라", "가나"]
+    assert rows[0]["어긋난 속성"] == "target_value"
+    assert rows[0]["#"] == 1
+
+
+def test_fact_summary_rows_accept_objects_too():
+    """``FactRunResult.comparisons`` 는 dataclass 이고 artifacts 는 dict 다."""
+    class _C:
+        result = "mismatch"
+        target_doc = "규격서.docx"
+        mismatch_attributes = ["v"]
+        reason = "값이 다릅니다"
+        reference_fact = type("F", (), {"entity_name": "공칭전압"})()
+
+    rows = runner.fact_summary_rows([_C()])
+    assert rows[0]["기준 항목"] == "공칭전압"
+    assert rows[0]["판정"] == runner.FACT_LABEL["mismatch"]
+
+
+def test_fact_counts_ignore_unknown_result_values():
+    assert runner.fact_verdict_counts([_fact_dict("A", "이상한값")])["match"] == 0
