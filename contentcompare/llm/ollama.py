@@ -16,6 +16,12 @@ from .http import LLMRequestError, RetryPolicy, extract, post_json
 class OllamaBackend:
     """Ollama chat + embedding 백엔드 (LLMClient & EmbeddingClient 동시 구현)."""
 
+    handles_rate_limit = True
+    """429 를 HTTP 레벨(:mod:`.http`)에서 직접 처리한다.
+
+    자세한 이유는 :attr:`.internal.InternalBackend.handles_rate_limit` 참고.
+    """
+
     def __init__(
         self,
         config: LLMConfig,

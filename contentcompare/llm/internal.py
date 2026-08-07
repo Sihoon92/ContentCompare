@@ -26,6 +26,14 @@ _PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 class InternalBackend:
     """사내 OpenAI 호환 백엔드 (LLMClient & EmbeddingClient 동시 구현)."""
 
+    handles_rate_limit = True
+    """429 를 HTTP 레벨(:mod:`.http`)에서 직접 처리한다 — Retry-After 까지 읽는다.
+
+    :mod:`.ratelimit` 래퍼가 이 플래그를 보고 **사후 재시도를 건너뛴다**. 안 그러면
+    예산 소진 메시지("요청 한도(429)로 …")를 래퍼가 다시 한도로 인식해 5회×60초가
+    두 겹으로 쌓인다. 사전 스로틀은 그대로 적용된다.
+    """
+
     def __init__(
         self,
         config: LLMConfig,

@@ -165,6 +165,25 @@ class LLMConfig:
     """
     rate_limit_max_retries: int = 5
     """요청 한도(429) 전용 재시도 횟수(일반 일시오류와 별도 예산)."""
+    max_calls_per_minute: int = 0
+    """**사전** 스로틀 — 분당 이 횟수를 넘지 않게 호출 페이스를 조절한다. 0=끔.
+
+    :attr:`rate_limit_wait` 가 "걸린 뒤 기다리는" 사후 대응이라면 이쪽은 애초에 안
+    걸리게 하는 사전 대응이다. 사후 대응만으로는 한도에 부딪힐 때마다 1분씩 멈추는
+    일이 반복되는데, fact 엔진은 실행 한 번에 수백 회를 부르므로 그 손실이 크다.
+
+    사내 한도가 분당 60회면 **55** 정도를 권한다(다른 프로세스·재시도 여유분).
+    """
+    rate_limit_status_codes: list = field(default_factory=lambda: [429])
+    """한도 초과로 볼 HTTP 상태코드. 표준은 429 지만 사내 게이트웨이는 다를 수 있다."""
+    rate_limit_markers: list = field(default_factory=lambda: [
+        "rate limit", "too many requests", "quota", "요청 한도",
+    ])
+    """예외 메시지에서 한도 초과로 볼 문자열(소문자 비교).
+
+    상태코드를 주지 않고 본문 메시지로만 알리는 게이트웨이가 있어 필요하다.
+    과하게 넓히면 진짜 오류를 1분씩 재시도하며 숨기므로 신중히 늘릴 것.
+    """
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     internal: InternalConfig = field(default_factory=InternalConfig)
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
