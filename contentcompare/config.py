@@ -374,6 +374,26 @@ class FactConfig:
 
 
 @dataclass
+class LoggingConfig:
+    """로그 잡음 조절. 기본 목록(``logging_setup.NOISY_LOGGERS``)을 덧대는 용도다.
+
+    기본 목록을 코드 상수로 둔 이유는 순서다 — :func:`logging_setup.setup_logging` 은
+    ``AppConfig.load`` **보다 먼저** 불려야 설정 파일을 읽는 동안의 로그까지 잡는다.
+    그래서 config 는 "그 뒤에 얹는 조정"만 담당한다.
+    """
+
+    quiet_extra: list = field(default_factory=list)
+    """기본 목록 외에 추가로 조용히 만들 로거 이름(접두어). 예: ``["pptx", "docx"]``."""
+
+    verbose_extra: list = field(default_factory=list)
+    """반대로 전부 보고 싶은 로거. 기본 목록에 있어도 DEBUG 로 되돌린다.
+
+    예: 사내 LLM HTTP 를 의심할 때 ``["urllib3", "httpcore"]``. 환경변수
+    ``CONTENTCOMPARE_LOG_NOISY=1`` 이 전체를 여는 것과 달리 **골라서** 연다.
+    """
+
+
+@dataclass
 class AppConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     excel: ExcelConfig = field(default_factory=ExcelConfig)
@@ -381,6 +401,7 @@ class AppConfig:
     report: ReportConfig = field(default_factory=ReportConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     fact: FactConfig = field(default_factory=FactConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     # ----------------------------------------------------------------- #
     # 로딩
@@ -410,6 +431,7 @@ class AppConfig:
             report=ReportConfig(**data.get("report", {}) or {}),
             knowledge=KnowledgeConfig(**data.get("knowledge", {}) or {}),
             fact=FactConfig(**data.get("fact", {}) or {}),
+            logging=LoggingConfig(**data.get("logging", {}) or {}),
         )
 
 

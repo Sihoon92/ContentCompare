@@ -16,7 +16,7 @@ from .config import AppConfig
 from .fact.engine import make_pipeline
 from .llm.health import all_ok, check_llm
 from .llm.tracing import get_tracer, run_metadata, trace_run, tracing_enabled
-from .logging_setup import log_print, setup_logging
+from .logging_setup import apply_logger_overrides, log_print, setup_logging
 from .report import render_markdown, save_report
 
 
@@ -123,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     log_print(f"로그 파일: {log_path}")
 
     config = AppConfig.load(args.config)
+    # 기본 잡음 필터 위에 설정 파일의 조정을 얹는다(config 는 여기서야 읽히므로 순서가 이렇다).
+    apply_logger_overrides(config.logging.quiet_extra, config.logging.verbose_extra)
 
     # 연결 점검 모드: chat/embedding 핑 후 종료.
     if args.check:

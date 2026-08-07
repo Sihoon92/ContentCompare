@@ -156,3 +156,12 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
   # ※ compare_use_llm: false 는 더 이상 '무 LLM 실행'을 보장하지 않는다. 개념 단계(F7)는
   #    max_llm_calls_per_concept 라는 별도 예산으로 LLM 을 호출한다. 완전히 끄려면
   #    use_concept_graph: false 로 둘 것(온톨로지에 이미 승격된 쌍은 원래 LLM 을 안 쓴다).
+
+logging:                   # 로그 파일 잡음 조절 (둘 다 로거 이름의 '접두어')
+  # 서드파티 저수준 로거(urllib3·httpcore·httpx·openai·matplotlib 등)는 기본으로 이미
+  # WARNING 으로 올려 숨긴다 — 목록은 contentcompare/logging_setup.py 의 NOISY_LOGGERS.
+  # 아래 두 값은 그 위에 얹는 조정이며, 같은 이름이 양쪽에 있으면 verbose 가 이긴다.
+  quiet_extra: []          # 추가로 숨길 로거. 예: ["pptx", "docx", "fontTools"]
+  verbose_extra: []        # 반대로 전부 볼 로거. 예: ["urllib3", "httpcore"] (HTTP 의심 시)
+  # ※ 우리 코드(contentcompare.*)의 DEBUG(프롬프트·LLM 원문 응답)는 어느 쪽도 건드리지 않는다.
+  # ※ 한 번만 전부 열려면 설정 대신 환경변수: CONTENTCOMPARE_LOG_NOISY=1

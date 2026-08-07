@@ -25,7 +25,7 @@ from contentcompare.fact.artifacts import ArtifactStore
 from contentcompare.fact.engine import make_pipeline
 from contentcompare.llm.health import all_ok, check_llm
 from contentcompare.llm.tracing import get_tracer, run_metadata, trace_run
-from contentcompare.logging_setup import read_log_text, setup_logging
+from contentcompare.logging_setup import apply_logger_overrides, read_log_text, setup_logging
 from contentcompare.pipeline import ComparePipeline
 from contentcompare.models import RecordResult, Verdict
 from contentcompare.report import list_reports, read_report, render_markdown, save_report
@@ -68,6 +68,8 @@ def _init_state() -> None:
 def _load_config_into_state(path: str) -> None:
     """config.yaml 을 읽어 위젯 상태(session_state)에 채운다."""
     config = AppConfig.load(path or None)
+    # 로그 잡음 조정은 위젯이 아니라 파일 전용 설정이라, 파일을 읽는 이 지점에서 적용한다.
+    apply_logger_overrides(config.logging.quiet_extra, config.logging.verbose_extra)
     for k, v in runner.config_to_state(config).items():
         st.session_state[k] = v
 

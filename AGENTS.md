@@ -114,3 +114,7 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 ### 로깅
 
 `logging_setup.setup_logging()` 으로 실행 로그를 파일에 저장(파일엔 DEBUG=프롬프트/LLM 원문/HTTP 까지), `log_print()` 는 화면+로그 동시 출력. 오판 추적이 목적이므로 프롬프트·응답 로깅을 제거하지 말 것.
+
+단, **서드파티 저수준 로거**(`urllib3`·`httpcore`·`httpx`·`openai`·`matplotlib` 등 `NOISY_LOGGERS`)는 기본적으로 WARNING 으로 올려 숨긴다 — 소켓 연결/재시도/폰트 캐시 내용이라 오판 추적에 쓸모없으면서 로그의 대부분을 차지했다(실측: 최근 로그의 최다 항목이 `urllib3.connectionpool` DEBUG). 우리 코드(`contentcompare.*`)의 DEBUG 는 그대로 남으므로 위 원칙과 충돌하지 않는다.
+
+조절 지점이 **두 층**인 것은 순서 때문이다 — `setup_logging()` 은 `AppConfig.load()` 보다 먼저 불려야 설정 파일을 읽는 동안의 로그까지 잡는다. 그래서 기본 목록은 코드 상수(`logging_setup.NOISY_LOGGERS`)로 두고, config 의 `logging.quiet_extra`/`verbose_extra` 는 그 뒤에 `apply_logger_overrides()` 로 얹는다(같은 이름이 양쪽에 있으면 **verbose 가 이긴다** — 디버깅하려고 연 것을 덮지 않기 위해). 전체를 한 번에 열려면 환경변수 `CONTENTCOMPARE_LOG_NOISY=1`.
