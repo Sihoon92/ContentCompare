@@ -34,8 +34,22 @@ onnx = [
     "tokenizers>=0.15",
     "numpy>=1.24",
 ]
+# LLM 입출력 추적. 설정(llm.langfuse)이 비어 있으면 import 조차 하지 않으므로
+# 설치하지 않아도 동작에 영향이 없다.
+langfuse = [
+    "langfuse>=3.0,<4",
+    # 사내 사설 CA 대응. 파이썬은 certifi(공인 CA)만 믿어서 자체호스팅 Langfuse 에
+    # CERTIFICATE_VERIFY_FAILED 가 나는데, 브라우저가 붙는 PC 는 루트 CA 가 이미 OS
+    # 저장소에 있다. truststore 가 그걸 쓰게 해 PEM 파일을 손으로 만들 필요를 없앤다.
+    "truststore>=0.9",
+]
 dev = [
     "pytest>=7.0",
+    # scripts/make_synthetic_targets.py — 테스트용 대상 문서 생성(COM 불필요).
+    "python-docx>=1.1",
+    "python-pptx>=0.6",
+    # 사내 CA 경로 테스트용 자체서명 인증서 생성(없으면 해당 2건만 skip).
+    "cryptography>=42.0",
 ]
 
 [project.scripts]

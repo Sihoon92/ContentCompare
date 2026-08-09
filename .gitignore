@@ -16,8 +16,12 @@ report.md
 .pytest_cache/
 logs/
 reports/
+artifacts/
 
 # OS / IDE
 .DS_Store
 .idea/
 .vscode/
+
+# spike/일회성 스크립트 산출물
+out/

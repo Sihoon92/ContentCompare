@@ -88,7 +88,59 @@ def check_llm(
     except Exception as exc:  # noqa: BLE001
         results.append(CheckResult(f"embeddings ({llm.embed_model})", False, _err(exc)))
 
+    # 3) Langfuse(선택). 켜져 있을 때만 점검한다 — 안 쓰는 사람에게 실패 줄이 뜨면 안 된다.
+    lf_result = _langfuse_result(config)
+    if lf_result is not None:
+        results.append(lf_result)
+
     return results
+
+
+def _langfuse_result(config: AppConfig) -> Optional[CheckResult]:
+    """LLM 입출력 추적 설정 점검. 꺼져 있으면 ``None``(줄 자체를 만들지 않는다).
+
+    **키 값은 절대 출력하지 않는다** — 점검 결과는 화면과 로그에 그대로 남는다.
+    """
+    lf = config.llm.langfuse
+    host, public, secret = lf.resolved()
+    if not lf.enabled:
+        return None
+    if not (host or public or secret):
+        return None  # 아무것도 설정하지 않음 = 이 기능을 안 쓴다
+    if not lf.is_active():
+        missing = [n for n, v in (("host", host), ("public_key", public),
+                                  ("secret_key", secret)) if not v]
+        return CheckResult("Langfuse", False,
+                           f"설정이 불완전합니다 — 누락: {', '.join(missing)}")
+    try:
+        from langfuse import Langfuse  # type: ignore[import-not-found]
+    except ImportError:
+        return CheckResult("Langfuse", False,
+                           'SDK 미설치 — pip install -e ".[langfuse]"')
+    try:
+        from .tracing import new_langfuse_client
+
+        client = new_langfuse_client(lf, Langfuse)   # 사내 CA 적용 포함
+        auth = getattr(client, "auth_check", None)
+        if auth is not None and auth() is False:
+            return CheckResult("Langfuse", False, f"인증 실패 (host={host})")
+    except Exception as exc:  # noqa: BLE001 — 원인을 사용자에게 그대로 보여준다
+        detail = f"{_err(exc)} (host={host})"
+        # 사내 자체호스팅에서 가장 흔한 실패다. 원인 모르고 헤매지 않도록 해법을 붙인다.
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc) or "SSLError" in type(exc).__name__:
+            detail += (
+                "\n     → 먼저 `pip install truststore` 를 시도하세요 — OS 인증서 "
+                "저장소를 쓰므로 브라우저로 Langfuse 웹이 열리는 PC 면 대개 이걸로 끝납니다."
+                "\n       그래도 안 되면 llm.langfuse.ssl_cert 에 사내 CA 의 PEM 경로를 "
+                "지정하세요(.cer 이 DER 이면 변환: "
+                "openssl x509 -inform DER -in x.cer -out corp-ca.pem)."
+                "\n       원인 격리: python scripts/langfuse_test.py [--insecure]"
+            )
+        return CheckResult("Langfuse", False, detail)
+    ca = "" if not lf.ssl_cert else f", ca={os.path.basename(lf.ssl_cert)}"
+    if not lf.verify_ssl and not lf.ssl_cert:
+        ca = ", ⚠️ 인증서 검증 꺼짐"
+    return CheckResult("Langfuse", True, f"host={host}{ca}")
 
 
 def all_ok(results: list[CheckResult]) -> bool:

@@ -94,6 +94,9 @@ class LangChainBackend:
                 base_url=self.config.internal.base_url,
                 api_key=self._api_key() or "sk-none",
                 timeout=self.config.timeout,
+                # chat 에만 있고 여기 빠져 있던 비대칭. 임베딩도 같은 엔드포인트라
+                # 일시 오류·한도에 똑같이 노출된다.
+                max_retries=self.config.max_retries,
             )
             http_client = self._http_client()
             if http_client is not None:

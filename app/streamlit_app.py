@@ -16,15 +16,20 @@ import logging
 import os
 
 import streamlit as st
+from streamlit.components.v1 import html as st_html
 
 from contentcompare import knowledge as kb
 from contentcompare.config import AppConfig
+from contentcompare.fact.artifact_reader import list_runs, load_snapshot
+from contentcompare.fact.artifacts import ArtifactStore
+from contentcompare.fact.engine import make_pipeline
 from contentcompare.llm.health import all_ok, check_llm
-from contentcompare.logging_setup import read_log_text, setup_logging
+from contentcompare.llm.tracing import get_tracer, run_metadata, trace_run
+from contentcompare.logging_setup import apply_logger_overrides, read_log_text, setup_logging
 from contentcompare.pipeline import ComparePipeline
 from contentcompare.models import RecordResult, Verdict
 from contentcompare.report import list_reports, read_report, render_markdown, save_report
-from contentcompare.ui import runner
+from contentcompare.ui import micro_world, runner
 
 logger = logging.getLogger("contentcompare.ui")
 
@@ -63,6 +68,8 @@ def _init_state() -> None:
 def _load_config_into_state(path: str) -> None:
     """config.yaml 을 읽어 위젯 상태(session_state)에 채운다."""
     config = AppConfig.load(path or None)
+    # 로그 잡음 조정은 위젯이 아니라 파일 전용 설정이라, 파일을 읽는 이 지점에서 적용한다.
+    apply_logger_overrides(config.logging.quiet_extra, config.logging.verbose_extra)
     for k, v in runner.config_to_state(config).items():
         st.session_state[k] = v
 
@@ -410,7 +417,38 @@ def knowledge_panel(config: AppConfig):
         st.code(merged or "(지식 없음)", language="markdown")
 
 
+def show_fact_results(result, reference_doc: str):
+    """fact 엔진 결과 표시. RAG 와 결과 타입이 달라 ``show_results`` 를 못 쓴다."""
+    counts = runner.fact_verdict_counts(result.comparisons)
+    cols = st.columns(len(counts))
+    for col, (key, n) in zip(cols, counts.items()):
+        col.metric(runner.FACT_LABEL[key], n)
+
+    failed = result.failed_docs
+    if failed:
+        st.error(f"문서 {len(failed)}건 처리 실패 — 나머지는 계속 처리했습니다.")
+        for s in failed:
+            st.caption(f"⚠ {os.path.basename(str(s.get('path')))}: {s.get('error')}")
+
+    st.dataframe(runner.fact_summary_rows(result.comparisons), width="stretch")
+    if result.markdown:
+        path = save_report(result.markdown, base=config_report_dir())
+        st.caption(f"리포트 저장: `{path}`")
+        with st.expander("리포트 미리보기"):
+            st.markdown(result.markdown)
+    st.info("판정이 이상하면 옆의 **🔬 파이프라인 현미경** 탭에서 원인을 추적하세요.")
+
+
+def config_report_dir() -> str:
+    return st.session_state.get("report_dir", "reports")
+
+
 def _run_tab(config: AppConfig):
+    engine = st.radio(
+        "엔진", ["rag", "fact"], horizontal=True,
+        help="rag=하이브리드 검색 후 LLM 종합 판정 / "
+             "fact=문서를 fact 로 정규화한 뒤 개념 그래프로 짝을 찾아 코드가 값 대조",
+    )
     ref_path, target_paths = collect_inputs()
 
     if st.button("🚀 비교 실행", type="primary"):
@@ -421,20 +459,38 @@ def _run_tab(config: AppConfig):
             st.error("대상 문서를 하나 이상 지정하세요.")
             return
 
+        st.session_state["report_dir"] = config.report.output_dir
         progress = st.progress(0.0)
         status = st.empty()
 
-        def on_progress(i, total, result):
+        # 두 엔진의 progress 콜백 시그니처가 다르다: RAG 는 결과 객체를, fact 는
+        # 처리 중인 문서 경로를 준다.
+        def on_progress_rag(i, total, result):
             progress.progress(i / total)
             msg = f"[{i}/{total}] {result.verdict.value} — {result.reference.source_label}"
             status.text(msg)
             logger.info(msg)  # 진행 상황도 로그에 기록(요청 4번)
 
-        logger.info("비교 실행 시작: 기준=%s, 대상=%d개", ref_path, len(target_paths))
+        def on_progress_fact(i, total, path):
+            progress.progress(i / total)
+            msg = f"[{i}/{total}] {os.path.basename(str(path))} 처리 완료"
+            status.text(msg)
+            logger.info(msg)
+
+        logger.info("비교 실행 시작(%s): 기준=%s, 대상=%d개",
+                    engine, ref_path, len(target_paths))
         try:
-            pipeline = ComparePipeline(config)
-            results = pipeline.run(ref_path, target_paths, progress=on_progress)
-            logger.info("비교 실행 완료: %d개 항목", len(results))
+            pipeline = make_pipeline(config, engine)
+            # LLM 입출력 추적. 미설정이면 NullTracer 라 아무 일도 하지 않는다.
+            # 실행 하나를 trace 하나로 묶어야 "이 실행의 프롬프트들"로 볼 수 있다.
+            tracer = get_tracer(config)
+            with trace_run(tracer, f"contentcompare {engine} (ui)",
+                           run_metadata(config, engine, ref_path, list(target_paths))):
+                results = pipeline.run(
+                    ref_path, target_paths,
+                    progress=on_progress_fact if engine == "fact" else on_progress_rag,
+                )
+            logger.info("비교 실행 완료(%s)", engine)
         except Exception as exc:  # noqa: BLE001 - 사용자에게 오류 노출
             logger.exception("비교 실행 실패")
             st.exception(exc)
@@ -444,12 +500,97 @@ def _run_tab(config: AppConfig):
         finally:
             progress.empty()
 
+        if engine == "fact":
+            # 현미경 탭이 방금 실행을 바로 열도록 기억해 둔다.
+            st.session_state["micro_run"] = ArtifactStore.slug(os.path.basename(ref_path))
+            st.success(f"완료: {len(results.comparisons)}개 항목 비교")
+            show_fact_results(results, reference_doc=os.path.basename(ref_path))
+            return
+
         st.success(f"완료: {len(results)}개 항목 비교")
         show_results(
             results,
             reference_doc=os.path.basename(ref_path),
             target_docs=[os.path.basename(p) for p in target_paths],
         )
+
+
+def micro_world_panel(config: AppConfig):
+    """🔬 파이프라인 현미경 — 실행 산출물을 읽어 학습/디버깅 두 모드로 보여 준다.
+
+    이 탭은 **읽기 전용**이다. 화면 로직은 여기, 그림 조립은
+    :mod:`contentcompare.ui.micro_world`(streamlit 비의존)에 있어 단위테스트가 된다.
+    """
+    root = st.text_input(
+        "artifacts 폴더", value=config.fact.artifacts_dir,
+        help="fact 엔진이 단계별 산출물을 남기는 곳. 과거 실행을 백업해 뒀다면 그 경로를 넣어도 된다.",
+    )
+    runs = list_runs(root)
+    if not runs:
+        st.info(
+            f"'{root}' 에서 실행을 찾지 못했습니다. "
+            "`contentcompare --engine fact ...` 로 한 번 실행하면 이 탭이 채워집니다."
+        )
+        return
+
+    labels = [r.label + (" (스냅샷)" if r.is_snapshot else "") for r in runs]
+    default = 0
+    picked = st.session_state.get("micro_run")
+    if picked in [r.label for r in runs]:
+        default = [r.label for r in runs].index(picked)
+    idx = st.selectbox("실행", range(len(runs)), index=default,
+                       format_func=lambda i: labels[i])
+    snap = load_snapshot(runs[idx])
+
+    mode = st.radio("모드", ["🔎 디버깅", "📚 학습"], horizontal=True,
+                    help="디버깅=이 판정이 왜 이렇게 나왔나 / 학습=파이프라인이 어떻게 도는가")
+    theme = "dark" if st.get_option("theme.base") == "dark" else "light"
+
+    if mode.startswith("📚"):
+        if "learn" not in snap.capabilities:
+            st.warning("이 실행에는 단계별 산출물이 없어 학습 모드를 쓸 수 없습니다"
+                       "(스냅샷은 비교 결과 3종만 보관합니다).")
+            for p in snap.problems:
+                st.caption(f"⚠ {p}")
+            return
+        rendered = _learn_view(snap)
+    else:
+        rendered = _debug_view(snap)
+
+    # iframe 은 내용에 맞춰 자동으로 늘어나지 않으므로 빌더가 계산한 높이를 기본값으로
+    # 주고, 모자라면 사람이 늘릴 수 있게 한다.
+    height = st.slider("화면 높이", 400, 3000, value=min(3000, rendered.height), step=100)
+    st_html(rendered.html, height=height, scrolling=True)
+
+
+def _learn_view(snap):
+    docs = [d for d in snap.docs if snap.doc(d) and "facts" in snap.doc(d).available]
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        doc_name = st.selectbox("문서", docs or [snap.reference_doc])
+    facts = snap.facts_of(doc_name)
+    with col2:
+        options = list(facts)
+        fact_id = st.selectbox(
+            "따라갈 항목", options,
+            format_func=lambda fid: f"{facts[fid].get('entity_name') or fid}  ({fid})",
+        ) if options else ""
+    return micro_world.render_learn_html(snap, doc_name=doc_name, fact_id=fact_id)
+
+
+def _debug_view(snap):
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        target = st.selectbox("대상 문서", ["(전체)"] + snap.target_docs)
+    with col2:
+        wanted = st.multiselect(
+            "볼 판정", list(micro_world.RESULT_ORDER),
+            default=["mismatch", "unknown", "missing"],
+            format_func=lambda r: micro_world.RESULT_LABEL[r][0],
+            help="기본은 '확인이 필요한 것'만. 일치까지 보려면 match 를 추가하세요.",
+        )
+    return micro_world.render_debug_html(
+        snap, target_doc="" if target == "(전체)" else target, results=wanted)
 
 
 def main():
@@ -463,11 +604,16 @@ def main():
     config = sidebar_config()
     _log_panel()
 
-    tab_run, tab_report, tab_kb = st.tabs(["🚀 비교 실행", "📄 리포트 보기", "📚 도메인 지식"])
+    # 현미경을 리포트 옆에 둔다 — "리포트에서 이상한 판정을 봤다 → 옆 탭에서 추적"이
+    # 실제 동선이기 때문이다.
+    tab_run, tab_report, tab_micro, tab_kb = st.tabs(
+        ["🚀 비교 실행", "📄 리포트 보기", "🔬 파이프라인 현미경", "📚 도메인 지식"])
     with tab_run:
         _run_tab(config)
     with tab_report:
         report_viewer_panel(config)
+    with tab_micro:
+        micro_world_panel(config)
     with tab_kb:
         knowledge_panel(config)
 

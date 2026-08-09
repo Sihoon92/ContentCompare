@@ -9,6 +9,7 @@ LLM 으로 분석·서술해 주는 에이전트 서비스입니다.
 > (남은 환경 의존부: win32com 기반 Word/PPT 실제 파싱.) 실제 실행은 Windows + MS Office 환경이 필요합니다.
 > 단계별 진행 현황은 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md), 사용법은
 > [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) 참고.
+> 차세대(fact 기반) 비교 방식 구현 계획은 [`docs/FACT_PIPELINE_PLAN.md`](docs/FACT_PIPELINE_PLAN.md) 참고(현행 방식과 비교·공존).
 
 ## 핵심 설계 포인트 (기획 대응)
 

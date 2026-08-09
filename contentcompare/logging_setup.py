@@ -10,18 +10,90 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from typing import Iterable
 
 _HANDLER: logging.Handler | None = None
 _PATH: str | None = None
 
+#: 저수준 잡음을 쏟아내는 서드파티 로거들(접두어 매칭 — ``urllib3`` 은 하위
+#: ``urllib3.connectionpool`` 까지 함께 조용해진다). 소켓 연결·재시도·폰트 캐시
+#: 같은 내용이라 오판 추적에 쓸모가 없으면서 로그 파일의 대부분을 차지한다.
+#: 우리 코드(``contentcompare.*``)의 DEBUG(프롬프트·LLM 원문 응답)는 건드리지 않는다.
+NOISY_LOGGERS: tuple[str, ...] = (
+    "urllib3",
+    "httpcore",
+    "httpx",
+    "openai",
+    "langchain",
+    "langchain_core",
+    "langchain_openai",
+    "langfuse",
+    "asyncio",
+    "matplotlib",
+    "PIL",
+    "numexpr",
+    "filelock",
+    "fsspec",
+    "charset_normalizer",
+    "comtypes",
+)
 
-def setup_logging(log_dir: str = "logs", level: int = logging.DEBUG, *, force_new: bool = False) -> str:
+#: 이 환경변수를 참으로 두면 잡음 필터를 끄고 서드파티 로그까지 전부 남긴다
+#: (HTTP 계층 자체를 의심할 때만 쓰는 탈출구).
+NOISE_ENV = "CONTENTCOMPARE_LOG_NOISY"
+
+
+def quiet_noisy_loggers(level: int = logging.WARNING, names: tuple[str, ...] = NOISY_LOGGERS) -> None:
+    """서드파티 로거의 하한을 올려 저수준 잡음을 걸러낸다.
+
+    로거 레벨을 올리는 방식이라 파일·콘솔 등 **모든 핸들러**에 동시에 적용된다.
+    ``level`` 이상(기본 WARNING)은 그대로 통과하므로 진짜 오류는 잃지 않는다.
+    ``logging.NOTSET`` 을 주면 필터를 걷어내고 다시 루트 레벨을 따르게 한다.
+    """
+    for name in names:
+        logging.getLogger(name).setLevel(level)
+
+
+def apply_logger_overrides(
+    quiet: Iterable[str] = (),
+    verbose: Iterable[str] = (),
+    *,
+    quiet_level: int = logging.WARNING,
+    verbose_level: int = logging.DEBUG,
+) -> None:
+    """설정 파일이 지정한 조정을 기본 잡음 필터 **위에** 얹는다.
+
+    :func:`setup_logging` 이 :data:`NOISY_LOGGERS` 로 큰 그림을 잡은 뒤, 프로젝트마다
+    다른 사정(특정 라이브러리가 시끄럽다 / 이 라이브러리만은 다 보고 싶다)을 반영한다.
+    ``verbose`` 를 나중에 적용해 같은 이름이 양쪽에 있으면 "보이게" 쪽이 이긴다 —
+    디버깅하려고 연 것을 조용히 덮는 편보다 낫다.
+    """
+    for name in quiet:
+        logging.getLogger(str(name)).setLevel(quiet_level)
+    for name in verbose:
+        logging.getLogger(str(name)).setLevel(verbose_level)
+
+
+def setup_logging(
+    log_dir: str = "logs",
+    level: int = logging.DEBUG,
+    *,
+    force_new: bool = False,
+    quiet_third_party: bool = True,
+) -> str:
     """루트 로거에 파일 핸들러를 붙이고 로그 파일 경로를 반환한다(멱등적).
 
     파일에는 기본적으로 DEBUG 까지(프롬프트·LLM 원문 응답·HTTP 요청 포함) 모두 남긴다.
     화면(콘솔)에 무엇을 보일지는 호출 측의 ``basicConfig`` 등 별도 핸들러가 정한다.
+
+    ``quiet_third_party`` 가 참이면 :data:`NOISY_LOGGERS` 를 WARNING 으로 올려
+    ``urllib3``/``httpcore``/``openai._base_client`` 같은 저수준 로그를 숨긴다.
+    환경변수 :data:`NOISE_ENV` 로 실행 단위 해제가 가능하다.
     """
     global _HANDLER, _PATH
+    keep_noise = os.environ.get(NOISE_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+    # NOTSET 을 주는 쪽은 "필터 해제" — 앞선 실행이 올려 둔 하한을 되돌린다.
+    quiet_noisy_loggers(logging.WARNING if (quiet_third_party and not keep_noise) else logging.NOTSET)
     if _HANDLER is not None and not force_new:
         return _PATH or ""
 

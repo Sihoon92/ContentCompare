@@ -167,6 +167,40 @@ def test_ollama_complete_parses_content():
     assert be.complete("sys", "usr") == "안녕"
 
 
+def test_ollama_context_options_sent_only_when_configured():
+    """num_ctx/think 는 설정했을 때만 payload 에 실린다(미설정 시 기존 동작 유지)."""
+    captured = {}
+
+    def poster(url, **kwargs):
+        captured.update(kwargs.get("json") or {})
+        return FakeResponse(200, {"message": {"content": "ok"}})
+
+    cfg = LLMConfig()
+    OllamaBackend(cfg, poster=poster, sleep=_NOSLEEP).complete("s", "u")
+    assert "num_ctx" not in captured["options"] and "think" not in captured
+
+    cfg.ollama.num_ctx = 16384
+    cfg.ollama.think = False
+    OllamaBackend(cfg, poster=poster, sleep=_NOSLEEP).complete("s", "u")
+    assert captured["options"]["num_ctx"] == 16384
+    assert captured["think"] is False
+
+
+def test_ollama_empty_content_explains_context_exhaustion():
+    """컨텍스트 소진(빈 응답)은 원인을 알려주는 에러가 된다.
+
+    Ollama 는 이 경우 오류가 아니라 빈 content 를 주므로, 그대로 두면 상위에서
+    "JSON 파싱 실패: ''" 로만 보여 원인을 찾을 수 없다.
+    """
+    poster = scripted_poster([FakeResponse(200, {
+        "message": {"content": "", "thinking": "생각 중..."},
+        "done_reason": "length", "prompt_eval_count": 2177, "eval_count": 1919,
+    })])
+    be = OllamaBackend(LLMConfig(), poster=poster, sleep=_NOSLEEP)
+    with pytest.raises(LLMRequestError, match="num_ctx"):
+        be.complete("sys", "usr")
+
+
 def test_ollama_embed_loops_texts():
     poster = scripted_poster([
         FakeResponse(200, {"embedding": [0.1, 0.2]}),

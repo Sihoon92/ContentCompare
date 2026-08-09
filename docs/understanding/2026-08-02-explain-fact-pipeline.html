@@ -1,0 +1,1101 @@
+<title>엑셀과 워드는 같은 말을 하고 있을까? — ContentCompare 새 비교 방식 이야기</title>
+<style>
+  :root{
+    --bg:#fbf9f4; --panel:#ffffff; --ink:#2b2620; --sub:#6b6255;
+    --line:#e7e0d3; --accent:#c0552b; --accent-soft:#f4e3d6;
+    --good:#2f7a4f; --good-soft:#e4f3e9;
+    --bad:#b23a3a; --bad-soft:#fbe7e6;
+    --blue:#2d5f8a; --blue-soft:#e2edf6;
+    --gold:#a6791f; --gold-soft:#f7ecd2;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --serif:Georgia,"Noto Serif KR","Nanum Myeongjo",serif;
+    --sans:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); line-height:1.75; font-size:17px;
+  }
+  .wrap{max-width:880px; margin:0 auto; padding:0 22px 120px;}
+  header.hero{
+    padding:64px 22px 40px; text-align:center;
+    background:
+      radial-gradient(circle at 20% 20%, var(--accent-soft) 0%, transparent 45%),
+      radial-gradient(circle at 80% 0%, var(--blue-soft) 0%, transparent 40%);
+    border-bottom:1px solid var(--line);
+  }
+  header.hero h1{
+    font-family:var(--serif); font-size:2.1em; line-height:1.35; margin:0 0 14px;
+    max-width:760px; margin-left:auto; margin-right:auto;
+  }
+  header.hero p.lede{
+    max-width:620px; margin:0 auto; color:var(--sub); font-size:1.08em;
+  }
+  .badge-row{display:flex; gap:10px; justify-content:center; margin-top:22px; flex-wrap:wrap;}
+  .badge{
+    font-size:.82em; padding:5px 12px; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel); color:var(--sub);
+  }
+  nav.toc{
+    max-width:880px; margin:36px auto 0; padding:20px 24px;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+  }
+  nav.toc h2{margin:0 0 10px; font-size:1em; letter-spacing:.02em; color:var(--sub); text-transform:uppercase;}
+  nav.toc ol{margin:0; padding-left:1.3em;}
+  nav.toc li{margin:6px 0;}
+  nav.toc a{color:var(--accent); text-decoration:none; font-weight:600;}
+  nav.toc a:hover{text-decoration:underline;}
+  nav.toc span.sub{color:var(--sub); font-weight:400; font-size:.92em;}
+
+  section{padding:56px 0 10px; border-top:1px solid var(--line);}
+  section:first-of-type{border-top:none;}
+  .kicker{
+    color:var(--accent); font-weight:700; letter-spacing:.06em; font-size:.85em;
+    text-transform:uppercase; margin-bottom:8px;
+  }
+  h2{font-family:var(--serif); font-size:1.75em; margin:0 0 20px;}
+  h3{font-family:var(--serif); font-size:1.32em; margin:36px 0 12px;}
+  h4{font-size:1.05em; margin:22px 0 8px; color:var(--ink);}
+  p{margin:0 0 16px;}
+  a{color:var(--accent);}
+  strong{color:var(--ink);}
+  ul,ol{margin:0 0 16px; padding-left:1.4em;}
+  li{margin:6px 0;}
+
+  .callout{
+    border:1px solid var(--line); border-left:5px solid var(--gold);
+    background:var(--gold-soft); border-radius:10px; padding:16px 18px; margin:20px 0;
+  }
+  .callout .cal-title{font-weight:700; color:#7a5a12; margin-bottom:4px; display:flex; align-items:center; gap:8px;}
+  .callout.bad{border-left-color:var(--bad); background:var(--bad-soft);}
+  .callout.bad .cal-title{color:var(--bad);}
+  .callout.good{border-left-color:var(--good); background:var(--good-soft);}
+  .callout.good .cal-title{color:var(--good);}
+  .callout.blue{border-left-color:var(--blue); background:var(--blue-soft);}
+  .callout.blue .cal-title{color:var(--blue);}
+
+  pre{
+    background:#2b2620; color:#f2ece0; padding:16px 18px; border-radius:12px;
+    overflow-x:auto; font-family:var(--mono); font-size:.86em; line-height:1.6;
+    white-space:pre; margin:14px 0 20px;
+  }
+  code{font-family:var(--mono); background:#efe8d9; padding:.1em .35em; border-radius:5px; font-size:.9em;}
+  pre code{background:none; padding:0;}
+  .cap{font-size:.85em; color:var(--sub); margin:-12px 0 22px;}
+
+  /* ---- Pipeline diagram ---- */
+  .pipeline{
+    display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin:22px 0 8px;
+    overflow-x:auto; padding-bottom:6px;
+  }
+  .stage{
+    flex:1 1 120px; min-width:120px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:14px 12px; text-align:center; position:relative;
+  }
+  .stage .num{
+    display:inline-block; width:22px; height:22px; border-radius:50%; background:var(--accent);
+    color:#fff; font-size:.75em; line-height:22px; margin-bottom:8px; font-weight:700;
+  }
+  .stage .name{font-weight:700; font-size:.95em; margin-bottom:4px;}
+  .stage .desc{font-size:.78em; color:var(--sub);}
+  .stage.llm{border-color:var(--accent); background:var(--accent-soft);}
+  .stage.code{border-color:var(--blue); background:var(--blue-soft);}
+  .arrow{
+    display:flex; align-items:center; justify-content:center; color:var(--sub);
+    font-size:1.3em; padding:0 6px; flex:0 0 auto;
+  }
+  .legend{display:flex; gap:18px; font-size:.82em; color:var(--sub); margin:6px 0 24px; flex-wrap:wrap;}
+  .legend .dot{display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:middle;}
+  .dot.llm{background:var(--accent);} .dot.code{background:var(--blue);}
+
+  /* ---- doc mock ---- */
+  .doc-mock-row{display:flex; gap:16px; flex-wrap:wrap; margin:18px 0 8px;}
+  .doc-mock{
+    flex:1 1 260px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px; min-width:240px;
+  }
+  .doc-mock .title{font-weight:700; font-size:.85em; color:var(--sub); margin-bottom:10px; text-transform:uppercase; letter-spacing:.03em;}
+  table.grid-mock{width:100%; border-collapse:collapse; font-size:.9em;}
+  table.grid-mock th, table.grid-mock td{border:1px solid var(--line); padding:6px 8px; text-align:center;}
+  table.grid-mock th{background:#f4efe2; font-weight:700;}
+  .para-mock{font-size:.92em; line-height:1.7; padding:8px 2px;}
+  .para-mock mark{background:#ffe3b0; padding:0 2px; border-radius:3px;}
+  .para-mock.split{border-top:1px dashed var(--line); margin-top:8px; padding-top:8px; color:var(--sub);}
+
+  /* ---- fact card ---- */
+  .fact-card{
+    background:var(--panel); border:2px solid var(--blue); border-radius:14px; padding:16px 18px;
+    margin:16px 0; max-width:460px;
+  }
+  .fact-card .fc-head{font-weight:700; font-size:1.05em; color:var(--blue); margin-bottom:10px;}
+  .fact-card .fc-attr{display:flex; justify-content:space-between; font-size:.9em; padding:4px 0; border-bottom:1px dashed var(--line);}
+  .fact-card .fc-attr:last-of-type{border-bottom:none;}
+  .fact-card .fc-foot{margin-top:12px; font-size:.78em; color:var(--sub); background:#f4efe2; padding:8px 10px; border-radius:8px;}
+
+  /* ---- compare panel ---- */
+  .vs-row{display:flex; gap:16px; align-items:stretch; flex-wrap:wrap; margin:20px 0;}
+  .vs-col{flex:1 1 260px; border-radius:14px; padding:18px 20px; border:1px solid var(--line);}
+  .vs-col.rag{background:var(--bad-soft); border-color:#e6b9b6;}
+  .vs-col.fact{background:var(--good-soft); border-color:#b9dcc4;}
+  .vs-col h4{margin-top:0;}
+  .vs-col ul{padding-left:1.2em;}
+
+  table.cmp{width:100%; border-collapse:collapse; margin:18px 0; font-size:.92em;}
+  table.cmp th, table.cmp td{border:1px solid var(--line); padding:9px 10px; text-align:left; vertical-align:top;}
+  table.cmp th{background:#f4efe2;}
+  table.cmp tr:nth-child(even) td{background:#fdfbf6;}
+
+  .status-table{width:100%; border-collapse:collapse; margin:14px 0 24px; font-size:.92em;}
+  .status-table th, .status-table td{border:1px solid var(--line); padding:8px 10px;}
+  .status-table th{background:#f4efe2; text-align:left;}
+  .st{display:inline-block; padding:2px 10px; border-radius:999px; font-size:.82em; font-weight:700;}
+  .st.done{background:var(--good-soft); color:var(--good);}
+  .st.wait{background:var(--gold-soft); color:#7a5a12;}
+  .st.todo{background:#efe8de; color:var(--sub);}
+
+  /* ---- quiz ---- */
+  .quiz-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px 22px 18px;
+    margin:22px 0;
+  }
+  .quiz-card .qn{font-weight:700; font-size:.8em; color:var(--accent); text-transform:uppercase; letter-spacing:.04em;}
+  .quiz-card h4{margin:6px 0 16px; font-size:1.08em;}
+  .quiz-opts{display:flex; flex-direction:column; gap:9px;}
+  .quiz-opt{
+    text-align:left; padding:11px 14px; border-radius:10px; border:1px solid var(--line);
+    background:#fdfbf6; cursor:pointer; font-size:.95em; font-family:inherit; color:var(--ink);
+  }
+  .quiz-opt:hover{border-color:var(--accent);}
+  .quiz-opt.correct{background:var(--good-soft); border-color:var(--good); font-weight:700;}
+  .quiz-opt.incorrect{background:var(--bad-soft); border-color:var(--bad);}
+  .quiz-opt:disabled{cursor:default;}
+  .quiz-fb{margin-top:12px; padding:12px 14px; border-radius:10px; font-size:.92em; display:none;}
+  .quiz-fb.show{display:block;}
+  .quiz-fb.ok{background:var(--good-soft); color:#1d5636;}
+  .quiz-fb.no{background:var(--bad-soft); color:#7a2626;}
+
+  footer{
+    text-align:center; color:var(--sub); font-size:.85em; padding:50px 0 10px;
+  }
+
+  @media (max-width:640px){
+    header.hero{padding:44px 16px 30px;}
+    header.hero h1{font-size:1.55em;}
+    section{padding:40px 0 6px;}
+    .pipeline{flex-direction:column;}
+    .arrow{transform:rotate(90deg); padding:4px 0;}
+    .vs-row{flex-direction:column;}
+  }
+
+/* === dv-components v1 === */
+.dv{--dv-fg:#1c1c1a;--dv-mut:#6b6b66;--dv-line:#dcdcd6;--dv-card:#fff;--dv-bg:#f6f6f4;
+    --dv-code:#1565c0;--dv-code-bg:#e8f1fb;--dv-llm:#e65100;--dv-llm-bg:#fdf0e3;
+    --dv-emb:#00796b;--dv-emb-bg:#e2f2f0;--dv-human:#6a1b9a;--dv-human-bg:#f4e9f7;
+    --dv-ok:#2e7d32;--dv-ok-bg:#e9f5ea;--dv-bad:#c62828;--dv-bad-bg:#fbeaea;
+    --dv-gray:#607d8b;--dv-gray-bg:#eceff1;--dv-amber:#ef6c00;--dv-amber-bg:#fdf0e0;
+    --dv-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace;
+    margin:26px 0;font-size:15px;line-height:1.6;color:var(--dv-fg)}
+@media (prefers-color-scheme:dark){.dv{--dv-fg:#e8e8e4;--dv-mut:#a2a29c;--dv-line:#3a3d44;
+    --dv-card:#1f2229;--dv-bg:#191c21;
+    --dv-code:#8ec5f5;--dv-code-bg:#16283a;--dv-llm:#ffb074;--dv-llm-bg:#3a2412;
+    --dv-emb:#6fc9bd;--dv-emb-bg:#123430;--dv-human:#d09ada;--dv-human-bg:#2c1936;
+    --dv-ok:#83c98a;--dv-ok-bg:#173620;--dv-bad:#ef9a9a;--dv-bad-bg:#3a1e1e;
+    --dv-gray:#a8bcc6;--dv-gray-bg:#272d33;--dv-amber:#ffb74d;--dv-amber-bg:#3a2a12}}
+.dv *{box-sizing:border-box}
+.dv-title{font-weight:700;font-size:.95rem;margin:0 0 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dv-title .dv-tag{font-size:.68rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:99px;background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-sub{font-size:.83rem;color:var(--dv-mut);margin:0 0 14px}
+.dv-cap{font-size:.8rem;color:var(--dv-mut);margin-top:12px;line-height:1.6}
+
+/* 주체 배지 */
+.dv-who{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;
+  padding:2px 9px;border-radius:99px;white-space:nowrap;border:1px solid transparent}
+.dv-who.dv-c{background:var(--dv-code-bg);color:var(--dv-code);border-color:var(--dv-code)}
+.dv-who.dv-l{background:var(--dv-llm-bg);color:var(--dv-llm);border-color:var(--dv-llm)}
+.dv-who.dv-e{background:var(--dv-emb-bg);color:var(--dv-emb);border-color:var(--dv-emb)}
+.dv-who.dv-h{background:var(--dv-human-bg);color:var(--dv-human);border-color:var(--dv-human)}
+.dv-who.dv-f{background:var(--dv-gray-bg);color:var(--dv-gray);border-color:var(--dv-gray)}
+.dv-legend{display:flex;gap:9px;flex-wrap:wrap;margin:0 0 14px}
+
+/* 판정 알약 */
+.dv-v{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.dv-v.dv-ok{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-v.dv-bad{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-v.dv-gray{background:var(--dv-gray-bg);color:var(--dv-gray)}
+.dv-v.dv-amber{background:var(--dv-amber-bg);color:var(--dv-amber)}
+
+/* ---- 여정(journey) ---- */
+.dv-jrn{position:relative;padding-left:30px}
+.dv-jrn:before{content:"";position:absolute;left:9px;top:14px;bottom:14px;width:2px;background:var(--dv-line)}
+.dv-stop{position:relative;margin:0 0 12px}
+.dv-stop:before{content:"";position:absolute;left:-25px;top:14px;width:12px;height:12px;border-radius:50%;
+  background:var(--dv-card);border:2.5px solid var(--dv-line)}
+.dv-stop.dv-c:before{border-color:var(--dv-code)}
+.dv-stop.dv-l:before{border-color:var(--dv-llm)}
+.dv-stop.dv-e:before{border-color:var(--dv-emb)}
+.dv-stop.dv-f:before{border-color:var(--dv-gray);background:var(--dv-gray)}
+.dv-box{background:var(--dv-card);border:1px solid var(--dv-line);border-radius:10px;overflow:hidden}
+.dv-hd{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:9px 13px;background:var(--dv-bg);border-bottom:1px solid var(--dv-line)}
+.dv-hd .dv-nm{font-weight:700;font-size:.88rem}
+.dv-hd .dv-fn{font-family:var(--dv-mono);font-size:.74rem;color:var(--dv-mut);margin-left:auto}
+.dv-bd{padding:11px 13px}
+.dv-io{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.dv-io>div{flex:1 1 230px;min-width:0}
+.dv-io .dv-lb{font-size:.7rem;font-weight:700;color:var(--dv-mut);letter-spacing:.05em;margin-bottom:3px}
+.dv-data{font-family:var(--dv-mono);font-size:.73rem;line-height:1.55;background:var(--dv-bg);
+  border:1px solid var(--dv-line);border-radius:7px;padding:8px 10px;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.dv-note{font-size:.8rem;color:var(--dv-mut);margin-top:9px;padding-left:10px;border-left:2px solid var(--dv-line)}
+.dv-hi{background:rgba(230,81,0,.15);border-radius:3px;padding:0 3px;font-weight:700}
+
+/* ---- 갈림길(fates) ---- */
+.dv-fates{display:flex;gap:12px;flex-wrap:wrap}
+.dv-fate{flex:1 1 250px;background:var(--dv-card);border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
+.dv-fate .dv-fh{padding:9px 13px;font-size:.83rem;font-weight:700;border-bottom:1px solid var(--dv-line)}
+.dv-fate.dv-a .dv-fh{background:var(--dv-code-bg);color:var(--dv-code)}
+.dv-fate.dv-b .dv-fh{background:var(--dv-llm-bg);color:var(--dv-llm)}
+.dv-fate.dv-c2 .dv-fh{background:var(--dv-emb-bg);color:var(--dv-emb)}
+.dv-fate .dv-fs{padding:9px 13px;border-bottom:1px dashed var(--dv-line);font-size:.81rem}
+.dv-fate .dv-fs:last-child{border-bottom:none;margin-top:auto}
+.dv-fate .dv-fs .dv-st{font-size:.68rem;font-weight:700;color:var(--dv-mut);letter-spacing:.04em;display:block;margin-bottom:3px}
+.dv-fate .dv-mono{font-family:var(--dv-mono);font-size:.73rem;word-break:break-word}
+
+/* ---- 파이프라인 지도(map) ---- */
+.dv-map{display:flex;gap:0;flex-wrap:wrap;align-items:stretch}
+.dv-mi{flex:1 1 120px;min-width:118px;background:var(--dv-card);border:1px solid var(--dv-line);
+  border-radius:9px;padding:9px 10px;margin:3px;position:relative}
+.dv-mi .dv-n{font-size:.68rem;color:var(--dv-mut);font-weight:700}
+.dv-mi .dv-t{font-size:.82rem;font-weight:700;margin:2px 0 5px;line-height:1.35}
+.dv-mi .dv-f{font-family:var(--dv-mono);font-size:.68rem;color:var(--dv-mut);word-break:break-all;margin-top:5px}
+.dv-mi.dv-on{box-shadow:0 0 0 2px var(--dv-llm)}
+
+/* ---- 저울(before/after) ---- */
+.dv-ba{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+.dv-ba>div{flex:1 1 240px;border:1px solid var(--dv-line);border-radius:11px;overflow:hidden;background:var(--dv-card)}
+.dv-ba .dv-h{padding:8px 13px;font-weight:700;font-size:.84rem;border-bottom:1px solid var(--dv-line)}
+.dv-ba .dv-before .dv-h{background:var(--dv-bad-bg);color:var(--dv-bad)}
+.dv-ba .dv-after .dv-h{background:var(--dv-ok-bg);color:var(--dv-ok)}
+.dv-ba .dv-b{padding:10px 13px;font-size:.83rem}
+.dv-ba ul{margin:0;padding-left:1.15em}
+.dv-ba li{margin:4px 0}
+
+/* ---- 막대(비율) ---- */
+.dv-bar{margin:9px 0 4px}
+.dv-bar .dv-bl{display:flex;justify-content:space-between;font-size:.79rem;color:var(--dv-mut);margin-bottom:4px}
+.dv-bar .dv-bt{display:flex;height:32px;border-radius:7px;overflow:hidden;border:1px solid var(--dv-line)}
+.dv-bar .dv-sg{display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;min-width:0}
+.dv-bar .dv-sg.dv-c{background:#1565c0}.dv-bar .dv-sg.dv-h{background:#6a1b9a}
+.dv-bar .dv-sg.dv-l{background:#e65100}.dv-bar .dv-sg.dv-e{background:#00796b}
+.dv-bar .dv-sg.dv-g{background:#78909c}
+
+.dv-scroll{overflow-x:auto}
+.dv-tbl{border-collapse:collapse;width:100%;font-size:.83rem;min-width:340px}
+.dv-tbl th,.dv-tbl td{border:1px solid var(--dv-line);padding:7px 10px;text-align:left;vertical-align:top}
+.dv-tbl th{background:var(--dv-bg);font-size:.78rem}
+.dv-tbl td.dv-n,.dv-tbl th.dv-n{text-align:right;font-variant-numeric:tabular-nums}
+@media (max-width:640px){.dv{font-size:14px}.dv-hd .dv-fn{margin-left:0;flex-basis:100%}}
+
+</style>
+
+<header class="hero">
+  <h1>엑셀과 워드는 정말 같은 말을 하고 있을까?<br>— ContentCompare가 문서를 대조하는 두 가지 방법</h1>
+  <p class="lede">
+    엑셀 표에 "충전환경온도는 -5도에서 55도"라고 적혀 있는데, 워드 문서에는 뭐라고 적혀 있을까요?
+    같은 말일까요, 아니면 누군가 옮겨 적다가 숫자를 실수한 걸까요? 이 이야기는 그걸 컴퓨터가
+    대신 확인해주는 프로그램, <strong>ContentCompare</strong>가 <em>지금까지 어떻게 일해왔는지</em>와
+    <em>앞으로 어떻게 더 똑똑해지려는지</em>에 대한 이야기입니다.
+  </p>
+  <div class="badge-row">
+    <span class="badge">배경 지식 불필요</span>
+    <span class="badge">RAG 방식 vs Fact 방식</span>
+    <span class="badge">실제 코드 포함</span>
+    <span class="badge">퀴즈 5문제</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">이야기의 배경</a> — <span class="sub">이 프로그램은 뭘 하는 프로그램일까?</span></li>
+    <li><a href="#intuition">핵심 아이디어</a> — <span class="sub">옛날 방식의 문제, 새 방식의 차별점</span></li>
+    <li><a href="#code">코드로 보는 새 방식</a> — <span class="sub">F0~F3, 실제로 뭘 만들었나</span></li>
+    <li><a href="#quiz">이해도 퀴즈</a> — <span class="sub">잘 이해했는지 확인해보기</span></li>
+  </ol>
+</nav>
+
+<section id="bg">
+  <div class="kicker">Section 1 · Background</div>
+  <h2>이야기의 배경</h2>
+
+  <p>
+    큰 회사에서 새 제품을 만들 때는 문서가 정말 많이 생깁니다. 제품의 규격(예: "이 배터리는
+    영하 5도에서 55도 사이에서만 충전해야 안전하다")을 적어둔 <strong>엑셀 표</strong>가 하나 있고,
+    그걸 풀어서 설명하는 <strong>워드 문서</strong>가 있고, 회의에서 발표할 <strong>PPT</strong>도 있습니다.
+  </p>
+  <p>
+    문제는, 이 문서들을 사람이 한 땀 한 땀 손으로 옮겨 적는다는 거예요. 사람은 실수를 합니다.
+    엑셀에는 분명히 "-5도"라고 적혀 있는데, 워드 문서를 쓰던 사람이 깜빡하고 "5도"라고 적으면?
+    아무도 눈치채지 못한 채 회의 자료가 나가버릴 수도 있어요.
+  </p>
+  <p>
+    <strong>ContentCompare</strong>는 이 실수를 컴퓨터가 대신 잡아주는 프로그램입니다. 엑셀을
+    "기준"으로 놓고, 워드나 PPT 같은 다른 문서들과 항목 하나하나를 대조해서 <strong>같다 / 다르다
+    / 잘 모르겠다</strong> 세 가지 중 하나로 표시해주고, "어디에 그렇게 적혀 있길래 그렇게
+    판단했는지" 증거까지 같이 보여줍니다. 사람이 다시 한번 눈으로 확인하기 쉽도록요.
+  </p>
+
+  <div class="callout blue">
+    <div class="cal-title">📌 잠깐! 이 저장소 안에는 방법이 두 가지 있어요</div>
+    지금 이 프로젝트 안에는 문서를 대조하는 <strong>완전히 다른 두 가지 방법</strong>이 나란히
+    들어있습니다. 하나는 <strong>이미 완성돼서 실제로 쓰이고 있는 "RAG 방식"</strong>이고, 다른 하나는
+    <strong>지금 한창 새로 만들고 있는 "Fact 방식"</strong>입니다. 둘 다 목적지(정확한 대조)는 같지만,
+    가는 길이 완전히 다릅니다. 이 이야기는 두 길이 어떻게 다른지, 그리고 왜 새 길을 만들고
+    있는지를 설명합니다.
+  </div>
+
+  <h3>1) 지금 쓰이고 있는 방법 — "도서관 사서" 방식 (RAG)</h3>
+  <p>
+    이 방법을 사람에 비유하면 이렇습니다. 도서관에 정말 많은 책(워드/PPT 문서 조각들)이 꽂혀
+    있어요. 엑셀의 한 행을 "질문 쪽지"로 만들어서 <strong>사서</strong>에게 건네주면, 사서는 그
+    질문과 가장 관련 있어 보이는 페이지 10장 정도를 뽑아옵니다. 그러면 <strong>심사위원</strong>이
+    그 10장만 딱 보고 "네, 같은 내용이네요" 또는 "아니요, 다르네요"라고 판단합니다.
+  </p>
+
+  <div class="pipeline">
+    <div class="stage code"><div class="num">1</div><div class="name">문서 읽기</div><div class="desc">엑셀 행, 워드 문단,<br>PPT 도형을 꺼냄</div></div>
+    <div class="arrow">→</div>
+    <div class="stage code"><div class="num">2</div><div class="name">조각내고 색인</div><div class="desc">긴 글은 800자씩 자르고<br>의미 지문(임베딩) 저장</div></div>
+    <div class="arrow">→</div>
+    <div class="stage code"><div class="num">3</div><div class="name">후보 찾기</div><div class="desc">사서: 뜻으로+낱말로<br>후보 10개 추림</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">4</div><div class="name">LLM 판정</div><div class="desc">심사위원: 후보만 보고<br>같다/다르다 결정</div></div>
+    <div class="arrow">→</div>
+    <div class="stage code"><div class="num">5</div><div class="name">리포트</div><div class="desc">결과 + 근거를<br>표로 정리</div></div>
+  </div>
+  <div class="legend">
+    <span><span class="dot code"></span>컴퓨터가 규칙대로 처리(코드)</span>
+    <span><span class="dot llm"></span>AI(LLM)에게 물어봄</span>
+  </div>
+  <p class="cap"><code>contentcompare/pipeline.py</code>의 <code>ComparePipeline.run</code> 5단계를 그대로 그린 그림입니다.</p>
+
+  <p>
+    "사서가 후보를 찾는다"는 게 정확히는 두 가지 방법을 합친 거예요.
+  </p>
+  <ul>
+    <li>
+      <strong>뜻으로 찾기 (임베딩)</strong> — 모든 문장을 숫자 목록(벡터)으로 바꿔서, 비슷한
+      뜻을 가진 문장은 숫자 목록도 비슷하게 만듭니다. "매출액은 1,200억원이다"와 "작년 매출
+      1200억"은 단어가 다르지만 뜻이 비슷하니까 숫자 목록도 가깝게 나옵니다.
+    </li>
+    <li>
+      <strong>낱말로 찾기 (BM25)</strong> — 옛날부터 쓰던 검색엔진 방식으로, 정확히 같은 단어가
+      들어있는지를 봅니다. 제품 이름이나 숫자처럼 "정확히 똑같아야 의미 있는" 것들을 잘 잡아냅니다.
+    </li>
+    <li>
+      <strong>두 리스트 합치기 (RRF)</strong> — 뜻으로 찾은 순위표와 낱말로 찾은 순위표를 합쳐서
+      최종 후보를 뽑습니다.
+    </li>
+    <li>
+      <strong>골고루 뽑기 (MMR)</strong> — 후보 10개가 전부 비슷비슷한 문장이면 손해니까, 서로
+      다른 위치에서 온 후보들이 섞이도록 골고루 뽑습니다.
+    </li>
+  </ul>
+
+  <h3>2) 지금 진행 상황</h3>
+  <p>
+    새 방식(Fact 방식)은 아직 완성되지 않았습니다. 아래는 지금까지 어디까지 만들어졌는지를
+    보여주는 표예요 (<code>docs/FACT_PIPELINE_PLAN.md</code> 기준).
+  </p>
+  <table class="status-table">
+    <tr><th>단계</th><th>하는 일</th><th>상태</th></tr>
+    <tr><td>F0</td><td>문서에서 있는 그대로의 정보(글자·표·위치) 꺼내기</td><td><span class="st done">완료</span></td></tr>
+    <tr><td>F1</td><td>이 문서가 대충 뭘 말하는 문서인지, 표의 각 열이 무슨 뜻인지 AI가 추측</td><td><span class="st done">완료</span></td></tr>
+    <tr><td>F2</td><td>엑셀의 각 행을 깔끔한 형태로 정리 (레코드)</td><td><span class="st done">완료</span></td></tr>
+    <tr><td>F3</td><td>레코드/문단을 "사실 카드"(Fact)로 바꾸기 — 오늘의 주인공</td><td><span class="st wait">구현 완료, 실전 검증 대기</span></td></tr>
+    <tr><td>F3.5</td><td>진짜 문서로 제대로 되는지 확인 + 정답지 만들기</td><td><span class="st todo">시작 전</span></td></tr>
+    <tr><td>F4</td><td>사실 카드가 틀리지 않았는지 검사하고 고치기</td><td><span class="st todo">시작 전</span></td></tr>
+    <tr><td>F5</td><td>사실 카드끼리 짝지어서 같다/다르다 비교하기</td><td><span class="st todo">시작 전</span></td></tr>
+    <tr><td>F6</td><td>최종 리포트 + 옛날 방식과 성능 비교</td><td><span class="st todo">시작 전</span></td></tr>
+  </table>
+  <p>
+    이 글은 <strong>F0~F3, 즉 "사실 카드를 만드는 부분까지"</strong>를 중심으로 설명합니다.
+    아직 카드끼리 비교하는 부분(F5)은 만들어지지 않았다는 걸 기억해두세요 — 지금은 "재료를
+    깨끗하게 다듬는 단계"까지 온 거예요.
+  </p>
+</section>
+
+<section id="intuition">
+  <div class="kicker">Section 2 · Intuition</div>
+  <h2>핵심 아이디어</h2>
+<div class="dv"><div class="dv-title">전체 지도 — 새 방식은 문서를 이렇게 분해한다</div>
+<div class="dv-sub">아래에서 이야기할 F0~F3 이 어디에 해당하는지 먼저 보고 가자. <b>각 단계가 파일 하나를 남긴다</b>는 점이 이 방식의 핵심이다.</div>
+<div class="dv-legend"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-who dv-l">🤖 LLM</span><span class="dv-who dv-e">🔢 임베딩</span><span class="dv-who dv-h">👤 사람</span></div>
+<div class="dv-map">
+<div class="dv-mi"><div class="dv-n">F0</div><div class="dv-t">있는 그대로 꺼내기</div><span class="dv-who dv-c">⚙️ 코드</span><div class="dv-f">physical_raw.json</div></div>
+<div class="dv-mi"><div class="dv-n">F0</div><div class="dv-t">압축하기</div><span class="dv-who dv-c">⚙️ 코드</span><div class="dv-f">compact_raw.json</div></div>
+<div class="dv-mi"><div class="dv-n">F1</div><div class="dv-t">이 문서 뭐야?</div><span class="dv-who dv-l">🤖 LLM</span><div class="dv-f">document_profile.json</div></div>
+<div class="dv-mi"><div class="dv-n">F1</div><div class="dv-t">표·열의 뜻</div><span class="dv-who dv-l">🤖 LLM</span><div class="dv-f">table_profile.json<br>column_schema.json</div></div>
+<div class="dv-mi"><div class="dv-n">F2</div><div class="dv-t">행 → 레코드</div><span class="dv-who dv-l">🤖 LLM</span><div class="dv-f">records.json</div></div>
+<div class="dv-mi"><div class="dv-n">F3</div><div class="dv-t">카드 만들기</div><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-who dv-l">🤖 LLM</span><div class="dv-f">facts.json</div></div>
+<div class="dv-mi"><div class="dv-n">F4a</div><div class="dv-t">카드 검사</div><span class="dv-who dv-c">⚙️ 코드</span><div class="dv-f">validation_report.json</div></div>
+<div class="dv-mi"><div class="dv-n">F7</div><div class="dv-t">짝 찾기(개념)</div><span class="dv-who dv-e">🔢 임베딩</span><span class="dv-who dv-l">🤖 LLM</span><span class="dv-who dv-h">👤 사람</span><div class="dv-f">concept_graph.json</div></div>
+<div class="dv-mi"><div class="dv-n">F5</div><div class="dv-t">값 대조</div><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-who dv-l">🤖 LLM</span><div class="dv-f">comparison_result.json</div></div>
+<div class="dv-mi"><div class="dv-n">F6</div><div class="dv-t">리포트</div><span class="dv-who dv-c">⚙️ 코드</span><div class="dv-f">report.md</div></div>
+</div>
+<div class="dv-cap">LLM 이 개입하는 자리는 <b>네 곳뿐</b>이고, 나머지는 코드가 한다. 그리고 LLM 은 어디서도 '제어 흐름'을 정하지 않는다 — 언제나 <b>단일 목적 JSON 만 만들고 끝</b>이며, 다음에 무엇을 할지는 100% 코드가 정한다.</div>
+</div>
+
+
+  <h3>도서관 사서 방식의 함정</h3>
+<div class="dv"><div class="dv-title">두 방식의 결정적 차이 — 무엇과 무엇을 견주는가</div>
+<figure style="margin:6px 0 0">
+<svg viewBox="0 0 780 340" role="img" aria-label="RAG 방식과 fact 방식의 비교" style="max-width:100%;height:auto">
+ <defs><marker id="dvB" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+   <path d="M0,0 L9,3.5 L0,7 z" fill="#8a8a84"/></marker></defs>
+
+ <rect x="6" y="6" width="372" height="328" rx="12" fill="none" stroke="#b23a3a" stroke-width="1.5"/>
+ <text x="22" y="30" font-size="13.5" font-weight="700" fill="#b23a3a">지금 방식 · 도서관 사서 (RAG)</text>
+ <text x="22" y="49" font-size="11" fill="#8a6a6a">"비슷해 보이는 조각을 찾아다 LLM 에게 읽힌다"</text>
+
+ <rect x="22" y="64" width="150" height="46" rx="7" fill="#e9f0fb" stroke="#7a9cc6"/>
+ <text x="32" y="83" font-size="11" fill="#2a4a6a">엑셀 <tspan font-weight="700">행</tspan> 하나</text>
+ <text x="32" y="99" font-size="10" font-family="monospace" fill="#5a6a7a">공칭전압 · 3.89</text>
+
+ <rect x="212" y="60" width="144" height="24" rx="5" fill="#f2efe9" stroke="#c9c2b4"/>
+ <text x="220" y="76" font-size="9.5" font-family="monospace" fill="#6b6255">…앞 문단의 끝부분</text>
+ <rect x="212" y="88" width="144" height="24" rx="5" fill="#f2efe9" stroke="#c9c2b4"/>
+ <text x="220" y="104" font-size="9.5" font-family="monospace" fill="#6b6255">공칭전압은 3.85V 이다</text>
+ <rect x="212" y="116" width="144" height="24" rx="5" fill="#f2efe9" stroke="#c9c2b4"/>
+ <text x="220" y="132" font-size="9.5" font-family="monospace" fill="#6b6255">…다음 문단 시작</text>
+ <text x="284" y="55" font-size="10.5" text-anchor="middle" fill="#8a8a84">대상 문서를 잘라 만든 조각들</text>
+
+ <path d="M176,86 C192,86 194,100 208,100" fill="none" stroke="#8a8a84" stroke-width="1.8" marker-end="url(#dvB)"/>
+ <text x="192" y="150" font-size="10" text-anchor="middle" fill="#8a8a84">임베딩</text>
+
+ <rect x="22" y="164" width="334" height="62" rx="8" fill="#fbe7e6" stroke="#b23a3a" stroke-dasharray="4 3"/>
+ <text x="34" y="183" font-size="11.5" font-weight="700" fill="#b23a3a">모양이 다른 둘을 견준다</text>
+ <text x="34" y="200" font-size="10.5" fill="#8a5a5a">행(구조가 있음) ↔ 문단 조각(그냥 글줄)</text>
+ <text x="34" y="216" font-size="10.5" fill="#8a5a5a">표현이 다르면 조각이 후보에 아예 안 뜬다 → 「없음」</text>
+
+ <rect x="22" y="238" width="334" height="34" rx="7" fill="#fdf0e3" stroke="#e65100"/>
+ <text x="34" y="259" font-size="11" fill="#bf360c">🤖 LLM 이 조각을 읽고 <tspan font-weight="700">혼자 다 판단한다</tspan> (기준 행마다 1회)</text>
+ <rect x="22" y="282" width="334" height="34" rx="7" fill="#f2efe9" stroke="#c9c2b4"/>
+ <text x="34" y="303" font-size="11" fill="#6b6255">중간 산출물 없음 → 왜 그렇게 나왔는지 되짚을 수 없다</text>
+
+ <rect x="402" y="6" width="372" height="328" rx="12" fill="none" stroke="#2f7a4f" stroke-width="1.5"/>
+ <text x="418" y="30" font-size="13.5" font-weight="700" fill="#2f7a4f">새 방식 · 사실 카드 (fact)</text>
+ <text x="418" y="49" font-size="11" fill="#5a7a66">"양쪽을 같은 모양으로 만든 뒤 견준다"</text>
+
+ <rect x="418" y="64" width="150" height="60" rx="7" fill="#e9f0fb" stroke="#7a9cc6"/>
+ <text x="428" y="82" font-size="10" fill="#5a6a7a">엑셀 행 → 카드</text>
+ <text x="428" y="98" font-size="9.5" font-family="monospace" fill="#2a4a6a">항목: 공칭전압</text>
+ <text x="428" y="113" font-size="9.5" font-family="monospace" fill="#2a4a6a">값: 3.89 · 단위: —</text>
+
+ <rect x="606" y="64" width="150" height="60" rx="7" fill="#e4f3e9" stroke="#69a882"/>
+ <text x="616" y="82" font-size="10" fill="#5a7a66">워드 문단 → 카드</text>
+ <text x="616" y="98" font-size="9.5" font-family="monospace" fill="#2a5a3a">항목: Nominal voltage</text>
+ <text x="616" y="113" font-size="9.5" font-family="monospace" fill="#2a5a3a">값: 3.85 · 단위: V</text>
+
+ <path d="M572,94 L602,94" stroke="#2f7a4f" stroke-width="2" marker-end="url(#dvB)"/>
+ <path d="M602,104 L572,104" stroke="#2f7a4f" stroke-width="2" marker-end="url(#dvB)"/>
+ <text x="587" y="140" font-size="10" text-anchor="middle" fill="#2f7a4f">양방향</text>
+
+ <rect x="418" y="150" width="338" height="48" rx="8" fill="#e4f3e9" stroke="#2f7a4f" stroke-dasharray="4 3"/>
+ <text x="430" y="169" font-size="11.5" font-weight="700" fill="#2f7a4f">모양이 같으니 대칭으로 견줄 수 있다</text>
+ <text x="430" y="187" font-size="10.5" fill="#5a7a66">칸이 정해져 있어 「값」끼리, 「단위」끼리 맞대볼 수 있다</text>
+
+ <rect x="418" y="210" width="338" height="34" rx="7" fill="#e2f2f0" stroke="#00796b"/>
+ <text x="430" y="231" font-size="11" fill="#00695c">① 짝이 맞는가? — 개념 그래프가 정한다 (값은 안 본다)</text>
+ <rect x="418" y="252" width="338" height="34" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+ <text x="430" y="273" font-size="11" fill="#0d47a1">② 값이 같은가? — ⚙️ <tspan font-weight="700">코드가 70% 를 직접 판정</tspan></text>
+ <rect x="418" y="294" width="338" height="30" rx="7" fill="#f2efe9" stroke="#c9c2b4"/>
+ <text x="430" y="314" font-size="11" fill="#6b6255">단계마다 JSON 파일이 남는다 → 어디서 틀렸는지 열어볼 수 있다</text>
+</svg>
+</figure>
+<div class="dv-cap">왼쪽은 <b>모양이 다른 둘</b>을 견준다 — 엑셀 '행'과 워드 '문단 조각'. 조각을 어디서 끊느냐에 따라 필요한 내용이 잘려 나가고, 표현이 다르면 검색에서 아예 빠진다. 오른쪽은 양쪽을 <b>먼저 같은 모양(카드)으로 만든 뒤</b> 견준다. 그래서 비교가 대칭이 되고, 값은 코드가 직접 대조할 수 있게 된다.</div></div>
+
+  <p>
+    도서관 사서 비유로 돌아가 볼게요. 사서가 정말 유능해도, 딱 하나 약점이 있습니다.
+    <strong>애초에 사서가 후보로 뽑아오지 못하면, 심사위원은 그 내용을 아예 볼 수조차 없다</strong>는
+    거예요. 심사위원은 "본 것"만 판단할 수 있지, "못 본 것"은 판단할 수 없습니다.
+  </p>
+  <p>다음 상황을 상상해봐요.</p>
+
+  <div class="doc-mock-row">
+    <div class="doc-mock">
+      <div class="title">기준.xlsx (엑셀, 한 행)</div>
+      <table class="grid-mock">
+        <tr><th>항목</th><th>하한치</th><th>상한치</th></tr>
+        <tr><td>충전환경온도</td><td>-5</td><td>55</td></tr>
+      </table>
+    </div>
+    <div class="doc-mock">
+      <div class="title">설명.docx (워드, 두 문단)</div>
+      <div class="para-mock">3번째 문단: "<mark>충전환경온도</mark>는 배터리 보호를 위해
+      엄격히 관리되는 항목이다."</div>
+      <div class="para-mock split">4번째 문단: "관리 범위는 <mark>-5~55℃</mark>이며,
+      이를 벗어나면 충전을 중단한다."</div>
+    </div>
+  </div>
+
+  <p>
+    사람이 읽으면 "아, 3번째 문단과 4번째 문단을 같이 읽으면 엑셀이랑 똑같은 말이구나!"라고
+    바로 압니다. 그런데 RAG 방식은 <strong>문단 하나하나를 따로따로</strong> 도서관에 꽂아둡니다.
+    "충전환경온도"라는 이름만 있는 3번째 문단은 엑셀 행과 뜻이 비슷해 보이지만 정작 숫자가
+    없고, 숫자만 있는 4번째 문단은 "충전환경온도"라는 이름이 없어서 검색에 안 걸릴 수도
+    있어요. 둘 다 후보 10위 안에 못 들면, 심사위원은 이 사실 자체를 <strong>못 보고</strong>
+    "모르겠다" 또는 "못 찾음"이라고 답할 수 있습니다 — 실제로는 맞는 내용인데도요!
+  </p>
+
+  <div class="callout bad">
+    <div class="cal-title">⚠️ RAG 방식이 조용히 실패하는 경우들</div>
+    <ul style="margin-bottom:0">
+      <li>긴 문단을 800자 단위로 뚝 잘라버려서, 앞부분과 뒷부분이 서로 다른 조각이 되어버림</li>
+      <li>같은 사실이 두 문단(또는 표+각주, 도형+발표자 노트)에 나뉘어 적혀 있으면 둘 다 애매하게 걸림</li>
+      <li>표현이 너무 달라서(약어, 영어, 다른 용어) 사서가 아예 못 찾음</li>
+      <li>후보를 10개까지만 보여주기로 정해놔서, 진짜 정답이 11등이면 영원히 못 봄</li>
+    </ul>
+  </div>
+
+  <p>
+    중요한 건, 이 실패가 <strong>조용히</strong> 일어난다는 점이에요. 시스템은 그냥 "모르겠다"고
+    답할 뿐, "제가 사서 단계에서 후보를 놓쳤어요"라고 알려주지 않습니다. 그래서 사람이 결과만
+    보면 "진짜 다른 내용이라서 그런지, 시스템이 못 찾아서 그런지" 구분하기 어렵습니다.
+  </p>
+
+  <h3>새 방식의 아이디어 — "먼저 사실 카드부터 만들어두자"</h3>
+  <p>
+    Fact 방식은 완전히 다르게 접근합니다. "일단 후보를 찾고 그 안에서 비교하자"가 아니라,
+    <strong>"문서를 통째로 미리 읽고, 그 안에 있는 사실들을 전부 깔끔한 카드로 만들어두자"</strong>는
+    아이디어입니다. 나중에 비교할 때는 이 카드끼리 짝지으면 되니까, 애매하게 후보를 놓칠
+    걱정이 줄어듭니다.
+  </p>
+  <p>레고 설명서를 만드는 것과 비슷해요. 완성된 레고 성 사진 한 장을 던져주는 대신,</p>
+  <ol>
+    <li>부품을 종류별로 나누고 (F0: 원본 그대로 꺼내기)</li>
+    <li>이 상자가 대충 "성 만들기 세트"인지 "자동차 세트"인지 파악하고 (F1: 문서 프로파일)</li>
+    <li>부품 하나하나에 이름표를 붙이고 (F2: 엑셀 행 정리)</li>
+    <li>"이 조립품은 무엇이고, 어떤 특징(색깔·크기)을 갖는다"는 카드를 만드는 것 (F3: 사실 카드
+    만들기)</li>
+  </ol>
+  <p>과 같습니다. 앞서 나온 예시라면, 워드 문서의 3번째 문단과 4번째 문단은 하나로 합쳐져서
+  이런 카드가 됩니다.</p>
+
+  <div class="fact-card">
+    <div class="fc-head">📇 충전환경온도</div>
+    <div class="fc-attr"><span>하한치 (lower_limit)</span><span>-5 ℃</span></div>
+    <div class="fc-attr"><span>상한치 (upper_limit)</span><span>55 ℃</span></div>
+    <div class="fc-foot">
+      근거: "관리 범위는 -5~55℃이며, 이를 벗어나면..." · 출처: 설명.docx 3~4번째 문단
+    </div>
+  </div>
+
+  <p>
+    엑셀의 해당 행도 똑같은 모양의 카드로 바뀝니다. 이제 두 카드는 "충전환경온도"라는 같은
+    이름표를 달고, 같은 모양(하한치/상한치)의 값을 갖고 있으니 <strong>훨씬 쉽고 정확하게</strong>
+    짝지어 비교할 수 있습니다 — 이 짝짓기 단계(F5)는 아직 만들어지지 않았지만, "카드가 준비돼
+    있으면 비교가 쉬워진다"는 게 핵심 논리입니다.
+  </p>
+
+  <h3>그런데, AI가 카드를 지어내면 어떡하죠?</h3>
+  <p>
+    아주 좋은 의심이에요. AI(LLM)는 가끔 그럴싸하게 "거짓말"을 합니다(이걸 <strong>할루시네이션</strong>이라고
+    불러요). 카드를 만드는 걸 AI에게 맡기면, AI가 원본에 없는 값을 지어내서 카드에 적어버릴
+    위험이 있습니다. 새 방식은 이 위험을 막기 위해 <strong>두 가지 규칙</strong>을 강하게
+    적용합니다.
+  </p>
+
+  <div class="vs-row">
+    <div class="vs-col fact">
+      <h4>✅ 규칙 1 — 엑셀은 AI를 아예 안 씁니다</h4>
+      <p style="margin-bottom:0">
+        엑셀 행은 F2 단계에서 이미 한 번 깔끔하게 정리됐기 때문에, 그걸 카드로 바꾸는
+        F3 단계는 <strong>AI 호출이 0번</strong>입니다. 그냥 정해진 규칙대로 코드가 옮겨
+        적습니다. AI가 관여하지 않으니 지어낼 수도 없습니다.
+      </p>
+    </div>
+    <div class="vs-col fact">
+      <h4>✅ 규칙 2 — 워드/PPT는 "증거 검사"를 통과해야 함</h4>
+      <p style="margin-bottom:0">
+        워드/PPT는 AI가 카드를 만들긴 하지만, AI가 "이 카드는 [문단3], [문단4]를 근거로
+        했어요"라고 답하면, 코드가 <strong>진짜로 그런 문단이 존재하는지</strong> 대조합니다.
+        존재하지 않는 근거를 댄 카드는 그 자리에서 통째로 버려집니다.
+      </p>
+    </div>
+  </div>
+
+  <p>이게 왜 "맞는 접근"이라고 볼 수 있을까요? 세 가지 이유로 정리할 수 있습니다.</p>
+  <table class="cmp">
+    <tr><th>기준</th><th>도서관 사서 방식 (RAG)</th><th>사실 카드 방식 (Fact)</th></tr>
+    <tr>
+      <td>흩어진 내용</td>
+      <td>문단이 따로따로 검색되어 놓칠 수 있음</td>
+      <td>관련된 조각(본문+각주, 도형+발표자 노트)을 한 그룹으로 묶어서 AI에게 한 번에 보여줌</td>
+    </tr>
+    <tr>
+      <td>표현이 다른 경우</td>
+      <td>"하한치"와 "Lower"를 다른 말로 인식할 수 있음</td>
+      <td>정해진 사전(semantic_role)으로 "하한치=Lower=최소값"을 같은 의미로 미리 통일</td>
+    </tr>
+    <tr>
+      <td>AI가 지어내는 문제</td>
+      <td>후보 10개 안에서 판단하지만, 판단 자체가 근거 검증 없이 신뢰됨</td>
+      <td>근거 문단 id가 실제로 존재하는지 코드가 매번 대조·검증, 실패하면 카드 폐기</td>
+    </tr>
+    <tr>
+      <td>디버깅(문제 원인 찾기)</td>
+      <td>중간 과정이 로그에만 남아 추적이 어려움</td>
+      <td>모든 단계 결과가 파일(JSON)로 저장되어 사람이 직접 열어볼 수 있음</td>
+    </tr>
+  </table>
+
+  <div class="callout good">
+    <div class="cal-title">💡 정리</div>
+    RAG 방식은 <strong>"필요할 때마다 빠르게 찾아서 비교"</strong>하는 방법이라 빠르고 저렴하지만,
+    검색이 실패하면 조용히 틀립니다. Fact 방식은 <strong>"미리 모든 사실을 정리해서 깔끔한
+    카드로 만들어두고, 그 카드가 진짜인지 매번 검증"</strong>하는 방법이라 느리고 손이 더
+    가지만, 흩어진 정보를 놓치지 않고 AI의 거짓말도 걸러낼 수 있습니다. 정확도가 훨씬
+    중요한 "규격 대조" 작업에는 이 방향이 더 안전한 선택입니다.
+  </div>
+</section>
+
+<section id="code">
+  <div class="kicker">Section 3 · Code Walkthrough</div>
+  <h2>코드로 보는 새 방식 (F0 ~ F3)</h2>
+<div class="dv"><div class="dv-title">추적 여행 — 값 <code>3.89</code> 하나가 겪는 일</div>
+<div class="dv-sub">엑셀 7번째 줄의 공칭전압이 카드가 되기까지. 데이터는 전부 실제 <code>artifacts/자표준문서_xlsx/</code> 산출물이다.</div>
+<div class="dv-legend"><span class="dv-who dv-f">📄 파일</span><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-who dv-l">🤖 LLM</span></div>
+<div class="dv-jrn">
+<div class="dv-stop dv-f"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-f">📄 파일</span><span class="dv-nm">출발 · 엑셀 원본 파일</span><span class="dv-fn">samples/자표준문서.xlsx</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">이렇게 생겼다</div><div class="dv-data">7번째 줄:
+  E7 = "공칭전압"
+  G7 = 3.89        ← 중심치 열
+  K7 = (단위 칸이 비어 있음)</div></div>
+</div>
+<div class="dv-note">사람이 만든 표. 값 3.89 는 <b>G열(중심치)</b>에 있고, 이름은 <b>E열(소분류)</b>에 따로 있다. 이 '이름과 값이 다른 칸에 있다'가 나중에 큰 차이를 만든다.</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">1단계 · 있는 그대로 꺼내기</span><span class="dv-fn">raw/excel_raw.py → physical_raw.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">xlsx 파일 (COM 으로 연다)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"address":"E7","row":7,"column":"E",
+ "value":"공칭전압","value_type":"str",
+ "font_bold":false,"font_size":10.0}
+{"address":"G7","row":7,"column":"G",
+ "value":3.89,"value_type":"float"}</div></div>
+</div>
+<div class="dv-note"><b>해석하지 않는다.</b> 셀 주소·서식·병합까지 보이는 그대로 받아 적기만 한다. 여기서 판단을 섞으면 나중에 틀렸을 때 원본으로 되돌아갈 수가 없다.</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">2단계 · 압축하기</span><span class="dv-fn">raw/excel_raw.py → compact_raw.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">physical_raw.json (셀 하나당 객체 하나)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"r":7,"cells":{
+  "B":50.0,"C":"기본사양","D":"기본사양",
+  "E":"공칭전압","G":3.89,
+  "O":"C001D001","P":"N019316"}}</div></div>
+</div>
+<div class="dv-note">글꼴·색 같은 건 비교에 쓸모없으니 걷어낸다. 이제야 LLM 에게 보여줄 만한 크기가 된다.</div>
+</div></div></div>
+<div class="dv-stop dv-l"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-l">🤖 LLM</span><span class="dv-nm">3단계 · 열의 뜻을 알아낸다</span><span class="dv-fn">fact/schema_inducer.py → column_schema.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">compact_raw 의 헤더 근처 (표당 1회만)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"column":"G","field_name":"중심치",
+ "semantic_role":"quantitative_target",
+ "data_type":"number"}
+{"column":"K","field_name":"단위",
+ "semantic_role":"unit"}</div></div>
+</div>
+<div class="dv-note">LLM 이 처음 등장하는 자리. <b>행마다 부르지 않는다</b> — 표 전체에 한 번만 물어보고, 그 답을 20행 모두에 재사용한다. 비용이 여기서 결정된다.</div>
+</div></div></div>
+<div class="dv-stop dv-l"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-l">🤖 LLM</span><span class="dv-nm">4단계 · 행을 레코드로</span><span class="dv-fn">fact/record_normalizer.py → records.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">7행의 셀들 + 3단계의 열 뜻 (30행씩 묶어 1회)</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"record_id":"row-7",
+ "entity":{"display_name":"공칭전압",
+   "path":["기본사양","C001D001","공칭전압"]},
+ "attributes":{"target_value":
+   {"value":3.89,"unit":""}},
+ "evidence_text":"3.89"}</div></div>
+</div>
+<div class="dv-note">"G열의 3.89" 가 <b>"target_value 는 3.89"</b> 라는 이름 붙은 속성이 됐다. 단위 칸이 비어 있어 <code>unit</code> 도 빈 문자열이다 — 이것도 나중에 중요해진다. 좌표(row 7)는 LLM 이 아니라 <b>코드가 채운다</b>(지어낼 수 없게).</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">5단계 · 카드 완성</span><span class="dv-fn">fact/fact_extractor.py → facts.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">records.json</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">{"fact_id":"fact-row-7",
+ "entity_name":"공칭전압",
+ "attributes":{"target_value":
+   {"value":3.89,"unit":""}},
+ "search_text":"공칭전압 기본사양 C001D001 3.89",
+ "evidence_text":"3.89",
+ "source":{"sheet":"데이터","row":7,
+   "cell_range":"B7:O7"}}</div></div>
+</div>
+<div class="dv-note"><b>엑셀은 여기서 LLM 을 쓰지 않는다.</b> 레코드를 카드 모양으로 옮기는 건 규칙이라 코드가 한다. Word/PPT 는 줄글이라 이 자리에서 LLM 이 카드를 뽑는다.<br><b>주목:</b> <code>evidence_text</code> 가 <code>"3.89"</code> — 낱말 하나뿐이다.</div>
+</div></div></div>
+<div class="dv-stop dv-c"><div class="dv-box">
+<div class="dv-hd"><span class="dv-who dv-c">⚙️ 코드</span><span class="dv-nm">6단계 · 카드 검사</span><span class="dv-fn">fact/validator.py → validation_report.json</span></div>
+<div class="dv-bd"><div class="dv-io">
+<div><div class="dv-lb">받는 것</div><div class="dv-data">facts.json 20장</div></div>
+<div><div class="dv-lb">내놓는 것</div><div class="dv-data">error: 0
+warn : 20  (단위 없음 16, 속성 없음 3,
+           역할 중복 1)
+low_confidence: 0</div></div>
+</div>
+<div class="dv-note">문제가 있어도 <b>버리지 않고 표시만</b> 한다. 버리면 사람이 확인할 기회 자체가 사라지기 때문이다. 표시된 카드는 나중에 판정할 때 '조심하라'는 신호로 쓰인다.</div>
+</div></div></div>
+</div>
+<div class="dv-cap">여기까지는 <b>모든 대상 문서에 공통</b>이다. 기준 문서를 카드로 만드는 일이므로 상대가 누구든 한 번만 하면 된다. 갈라지는 것은 다음 단계, 짝을 찾는 순간부터다.</div>
+</div>
+
+
+  <p>
+    이제 실제 코드를 살짝 들여다볼게요. 전체 흐름을 담당하는 건 <code>contentcompare/fact/pipeline.py</code>의
+    <code>FactPipeline</code>입니다. 문서 하나마다 <code>_process_one(path)</code>가 아래 순서로
+    호출됩니다.
+  </p>
+
+  <div class="pipeline">
+    <div class="stage code"><div class="num">F0</div><div class="name">Raw 추출</div><div class="desc">원본 그대로<br>physical/compact raw</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">F1</div><div class="name">프로파일 + 스키마</div><div class="desc">문서 목적 추측,<br>열 의미 추측</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">F2</div><div class="name">레코드 정리</div><div class="desc">엑셀 행만 해당,<br>30행씩 배치 처리</div></div>
+    <div class="arrow">→</div>
+    <div class="stage llm"><div class="num">F3</div><div class="name">Fact 추출</div><div class="desc">엑셀=규칙변환(무AI)<br>워드/PPT=AI 추출</div></div>
+  </div>
+  <div class="legend">
+    <span><span class="dot code"></span>코드가 규칙대로 처리</span>
+    <span><span class="dot llm"></span>AI(LLM) 호출 있음</span>
+  </div>
+  <p class="cap">
+    참고로 워드/PPT 문서는 F1의 "문서 프로파일"까지만 거치고, F2(레코드 정리)는 건너뛰고 바로
+    F3에서 문단·도형을 사실 카드로 바꿉니다. 반면 엑셀은 F1의 "열 의미 추측"과 F2 레코드
+    정리를 거친 뒤, F3에서는 AI 없이 규칙 변환만 합니다.
+  </p>
+
+  <h3>F0 — 있는 그대로 꺼내기</h3>
+  <p>
+    가장 먼저 할 일은 "문서를 있는 그대로, 해석 없이" 꺼내는 것입니다. 셀 주소, 병합 여부,
+    슬라이드 번호, 도형 id 같은 <strong>물리적 사실</strong>만 <code>physical_raw.json</code>에
+    담고, 이를 조금 압축한 <code>compact_raw.json</code>도 만듭니다. 실제로 저장된 예시를
+    보면 이렇게 생겼습니다.
+  </p>
+  <pre><code>// artifacts/기준_xlsx/document_profile.json 근처 데이터의 원천이 되는
+// compact_raw 의 표 구조 예시 (요약)
+{
+  "doc_type": "excel",
+  "sheets": {
+    "실적": {
+      "rows": [
+        ["제품명", "연도", "매출액", "직원수"],
+        ["A제품", 2023, "1,200억원", "500명"]
+      ]
+    }
+  }
+}</code></pre>
+  <p class="cap">아직 AI는 한 번도 등장하지 않았습니다. F0은 100% 코드입니다.</p>
+
+  <h3>F1 — "이 문서 대충 뭐야?" 물어보기</h3>
+  <p>
+    이제 처음으로 AI에게 물어봅니다. <code>profiler.py</code>의 <code>profile_document()</code>가
+    문서 전체를 보여주고 "이 문서의 목적이 뭐고, 어떤 표/문단 구조를 갖고 있어?"라고 묻습니다.
+    실제로 저장된 결과입니다.
+  </p>
+  <pre><code>// artifacts/기준_xlsx/document_profile.json
+{
+  "doc_type": "excel",
+  "main_purpose": "제품별 연도별 매출액 및 직원수 실적 기록",
+  "main_structures": [{
+    "kind": "table",
+    "location": "sheet=실적 / A1:D4",
+    "purpose": "제품별 성과 지표(매출, 인원) 데이터 목록",
+    "row_grain_hint": "특정 제품의 특정 연도 실적 정보"
+  }],
+  "confidence": 1.0
+}</code></pre>
+
+  <p>
+    엑셀이라면 한 걸음 더 나아가서, <code>schema_inducer.py</code>가 <strong>"이 열은 무슨
+    의미야?"</strong>를 물어봅니다. 이때 등장하는 게 <strong>semantic_role</strong>(의미
+    역할)이라는 사전입니다. "하한치", "Lower", "최소값"처럼 표현은 달라도 뜻이 같은 것들을
+    미리 정의된 카테고리로 묶어줍니다.
+  </p>
+  <pre><code>// contentcompare/fact/semantic_roles.py (개념 요약)
+ROLE_SYNONYMS = {
+    "quantitative_lower_bound": ["하한치", "하한값", "최소값", "min", "lower", "lsl"],
+    "quantitative_target":      ["중심치", "기준값", "target", "nominal", "typ"],
+    "quantitative_upper_bound": ["상한치", "최대값", "max", "upper", "usl"],
+    ...
+}</code></pre>
+  <p>그 결과로 나온 열 의미 사전이 아래처럼 저장됩니다.</p>
+  <pre><code>// artifacts/기준_xlsx/column_schema.json
+{
+  "columns": [
+    {"column": "A", "field_name": "제품명", "semantic_role": "entity_name"},
+    {"column": "C", "field_name": "매출액", "semantic_role": "quantitative_target"},
+    {"column": "D", "field_name": "직원수", "semantic_role": "quantitative_target"}
+  ]
+}</code></pre>
+  <div class="callout blue">
+    <div class="cal-title">🛡️ 안전장치 하나</div>
+    AI가 <code>semantic_role</code>로 아무 단어나 마음대로 지어낼 수는 없습니다.
+    <code>normalize_role()</code>이라는 코드가 항상 결과를 검사해서, 정해진 목록(하한치/중심치/상한치/이름/단위/기타 등)에
+    없는 값이 오면 무조건 <code>"unknown"</code>으로 바꿔버립니다. AI의 창의력이 시스템을
+    망가뜨리지 못하게 막는 장치예요.
+  </div>
+
+  <h3>F2 — 엑셀 행을 카드 재료로 다듬기</h3>
+  <p>
+    엑셀 행 하나하나를 <code>record_normalizer.py</code>가 정리합니다. 한 번에 30행씩 묶어서
+    AI에게 보여주고, "제품명·상한치·하한치 같은 속성들을 뽑아서 정리해줘"라고 요청합니다.
+  </p>
+  <pre><code>// F2 가 만드는 Record 하나의 예시
+{
+  "record_id": "row-2",
+  "entity": {"display_name": "충전환경온도"},
+  "attributes": {
+    "lower_limit": {"value": -5, "unit": "℃"},
+    "upper_limit": {"value": 55, "unit": "℃"}
+  },
+  "source": {"sheet": "실적", "row": 2, "cell_range": "D2:E2"},
+  "evidence_text": "충전환경온도 -5 55"
+}</code></pre>
+  <div class="callout blue">
+    <div class="cal-title">🛡️ 안전장치 — 좌표는 AI에게 안 맡깁니다</div>
+    AI에게는 딱 "몇 번째 행이야?"만 물어봅니다. <code>sheet</code>(시트 이름)나
+    <code>cell_range</code>(정확한 셀 범위)는 <strong>코드가 원본을 다시 확인해서 직접 계산</strong>합니다.
+    AI가 "D2:E2"라고 잘못 우겨도 무시되고, 코드가 실제로 그 행에 어떤 셀이 있었는지 보고
+    다시 계산한 값으로 항상 덮어씁니다.
+  </div>
+  <p>
+    또 하나 재밌는 장치는 <strong>이어달리기(carry-over)</strong>예요. 엑셀에서 "대분류" 열은
+    보통 첫 행에만 적히고 아래 행들은 비어있잖아요? 30행씩 나눠서 AI에게 보여주다 보면, 딱
+    그 경계에서 잘리면 대분류를 잃어버릴 수 있습니다. 그래서 각 배치가 끝날 때마다
+    "지금까지 확정된 분류는 이거야"라는 메모를 다음 배치에 같이 넘겨줘서 끊기지 않게 합니다.
+  </p>
+
+  <h3>F3 — 진짜 사실 카드(Fact) 만들기 — 핵심 단계</h3>
+  <p>
+    드디어 카드를 만드는 단계입니다. 여기서 엑셀과 워드/PPT의 길이 완전히 갈립니다.
+  </p>
+
+  <h4>엑셀 → Fact : AI 없이, 규칙만으로</h4>
+  <p>
+    F2에서 이미 정리를 끝냈기 때문에, F3은 그냥 형식만 바꿔주는 "번역 작업"입니다. 코드가
+    직접 처리하고 AI를 부르지 않습니다.
+  </p>
+  <pre><code>// contentcompare/fact/fact_extractor.py (개념 요약)
+def _facts_from_records(records):
+    facts = []
+    for rec in records.items:
+        f = Fact(
+            fact_id=f"fact-{rec.record_id}",          # 코드가 직접 정함
+            entity_name=rec.entity.display_name,
+            attributes=dict(rec.attributes),            # 있는 그대로 복사
+            source={"doc_type": "excel", **rec.source.to_dict()},
+        )
+        facts.append(f)
+    return FactSet(items=facts)</code></pre>
+  <p>
+    AI 호출이 0번이니 비용도 0원, 지어낼 위험도 0%입니다. F2가 이미 "의미를 이해해서 정리"하는
+    어려운 일을 끝냈기 때문에, F3에서는 그저 자리만 옮겨 담으면 됩니다.
+  </p>
+
+  <h4>워드/PPT → Fact : AI가 만들지만, 코드가 검사함</h4>
+  <p>
+    워드 문단이나 PPT 도형은 애초에 표처럼 깔끔하지 않아서 AI의 도움이 필요합니다.
+    <code>fact_extractor.py</code>는 관련 있어 보이는 조각들을 하나의 묶음으로 만든 뒤 AI에게
+    보여줍니다. 특히 PPT는 <strong>같은 슬라이드의 도형들 + 그 슬라이드의 발표자 노트</strong>를
+    하나의 묶음으로 만듭니다 — 앞서 본 "본문과 각주가 나뉘어 있는" 문제를 이렇게 해결합니다.
+  </p>
+  <pre><code>// AI에게 보내는 입력의 느낌 (각 조각에 id가 붙어있음)
+[p001_s001] "충전환경온도"
+[p001_s002] "-5~55℃, 중심치 25℃"
+[s1-notes]  "0.1C, 4.55V 조건 기준"
+
+// AI가 돌려주는 답
+{
+  "entity_name": "충전환경온도",
+  "attributes": {
+    "lower_limit": {"value": -5, "unit": "℃"},
+    "upper_limit": {"value": 55, "unit": "℃"},
+    "target_value": {"value": 25, "unit": "℃"}
+  },
+  "evidence_text": "-5~55℃, 중심치 25℃",
+  "source_ids": ["p001_s001", "p001_s002", "s1-notes"]
+}</code></pre>
+  <p>
+    여기서 가장 중요한 부분이 나옵니다. AI가 <code>source_ids</code>로 어떤 조각을 근거로
+    삼았는지 답하면, 코드는 곧바로 <strong>"그 id가 진짜로 이 묶음 안에 있었나?"</strong>를
+    확인합니다.
+  </p>
+  <pre><code>// contentcompare/fact/fact_extractor.py (개념 요약)
+batch_ids = {u["id"] for u in batch}          # 실제로 AI에게 보여준 조각 id 들
+valid_ids = [i for i in raw.get("source_ids", []) if i in batch_ids]
+
+if not valid_ids:
+    continue   # 근거가 전부 가짜면 이 카드는 통째로 버림!
+
+fact.source = build_source_from(valid_ids)     # 진짜 id로만 출처를 다시 구성</code></pre>
+
+  <div class="callout good">
+    <div class="cal-title">✅ 실제 테스트로 확인된 동작</div>
+    이 프로젝트의 테스트 코드(<code>tests/test_fact_extractor.py</code>)에는 이런 상황이 그대로
+    들어있습니다. AI가 <code>["p1", "p99"]</code>를 근거로 댔는데 <code>p99</code>는 실제로
+    존재하지 않는 조각이었다면 → 결과 카드에는 <code>p1</code>만 남습니다. 만약 AI가 댄 근거가
+    <strong>전부</strong> 가짜라면 → 그 카드 자체가 사라집니다. "그럴듯하지만 근거 없는 카드"가
+    최종 결과에 살아남지 못하게 코드가 매번 검사하는 거예요.
+  </div>
+
+  <p>
+    이렇게 만들어진 <code>Fact</code>는 <code>fact_id</code>, <code>source</code>,
+    <code>search_text</code> 이 세 가지 값을 <strong>AI가 뭐라고 답했든 상관없이 항상 코드가
+    새로 계산</strong>해서 덮어씁니다. AI는 "무슨 사실이 있는지, 값이 얼마인지"만 책임지고,
+    "이 카드의 정체를 증명하는 껍데기 정보"는 전부 코드 몫입니다. 이게 지금까지(F0~F3) 만들어진
+    새 방식의 핵심이며, 다음 단계(F4 검증, F5 카드 짝짓기)를 위한 튼튼한 재료가 됩니다.
+  </p>
+
+  <div class="callout">
+    <div class="cal-title">🔮 앞으로 만들 것 (아직 없음)</div>
+    <ul style="margin-bottom:0">
+      <li><strong>F4</strong> — 카드 안의 숫자가 말이 되는지(하한치가 상한치보다 커버리진 않았는지 등) 코드로 한 번
+      더 검사하고, 이상하면 AI에게 "다시 만들어봐"라고 시키는 반복 교정</li>
+      <li><strong>F5</strong> — 드디어 카드끼리 짝짓기! 엑셀 카드와 워드/PPT 카드 중 같은 이름표를
+      가진 것끼리 묶어서 속성 값을 대조하고 같음/다름/모름을 판정</li>
+      <li><strong>F6</strong> — 사람이 보기 좋은 리포트로 만들고, 옛날 방식(RAG)과 실제로 어느 쪽이
+      더 정확한지 같은 문서로 비교 실험</li>
+    </ul>
+  </div>
+</section>
+
+<section id="quiz">
+  <div class="kicker">Section 4 · Check Yourself</div>
+  <div class="dv"><div class="dv-title">그래서 카드가 만들어지면 무슨 일이 일어나나 — 미리보기</div>
+<div class="dv-sub">이 글은 F0~F3(카드 만들기)까지를 다뤘다. 만들어진 카드가 실제로 어떻게 쓰이는지 결말만 미리 보여준다. 자세한 것은 아래 다른 페이지에서 이어진다.</div>
+<div class="dv-fates">
+<div class="dv-fate dv-a"><div class="dv-fh">📘 자표준_규격서.docx <span style='font-weight:400'>(한국어 워드)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "공칭전압"</span><br>값 3.85 V</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름이 글자까지 똑같다<br><span class="dv-mono">norm_name 완전일치 → score 1.0</span></div>
+<div class="dv-fs"><span class="dv-st">검문소</span><span class="dv-v dv-gray">지나지 않음</span> — 코드가 이은 연결은 검증 대상이 아니다</div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-c">⚙️ 코드</span> 3.89 vs 3.85 · 한쪽만 단위 있음 → 호환으로 봄 → 값이 다름</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-bad">❌ 불일치</span> <span class="dv-mono">decided_by: code</span><br><span class="dv-mono" style="color:var(--dv-mut)">"값이 다릅니다: target_value(기준 3.89 vs 대상 3.85V)"</span><br><b>LLM 을 한 번도 부르지 않았다.</b></div>
+</div>
+<h2>이해도 퀴즈</h2>
+<div class="dv-fate dv-b"><div class="dv-fh">📗 spec_en.docx <span style='font-weight:400'>(영어 워드)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "Nominal voltage"</span><br>값 3.85 V</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름 일치 <b>0건</b> → <span class="dv-who dv-e">🔢 임베딩</span><br><span class="dv-mono">임베딩 0.6589 로 후보에만 오름</span></div>
+<div class="dv-fs"><span class="dv-st">개념 판정</span><span class="dv-who dv-l">🤖 LLM</span> → <span class="dv-mono">same_as</span><br>인용: <span class="dv-mono">"3.89"</span> / <span class="dv-mono">"The nominal voltage is 3.85V."</span></div>
+<div class="dv-fs"><span class="dv-st">검문소</span>🚧 <b>수정 전</b>: 왼쪽 인용이 낱말 1개 &lt; 3 → <span class="dv-v dv-gray">⚪ 탈락</span> → 연결 소멸 → <b>진짜 오류를 놓쳤다</b><br>✅ <b>수정 후</b>: 원문 전체 인용이라 하한 면제 → 통과</div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-l">🤖 LLM</span> 연결을 LLM 이 만들었으므로 <span class="dv-mono">needs_review=True</span> → 값도 LLM 이 재확인</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-bad">❌ 불일치</span> <span class="dv-mono">decided_by: llm</span><br><span class="dv-mono" style="color:var(--dv-mut)">"대상은 동일하나 기준 3.89와 후보 3.85가 다릅니다"</span></div>
+</div>
+<div class="dv-fate dv-c2"><div class="dv-fh">📙 자표준_발표.pptx <span style='font-weight:400'>(PPT 스피커노트)</span></div>
+<div class="dv-fs"><span class="dv-st">상대 카드</span><span class="dv-mono">entity_name: "충전 규격 상세조건"</span><br>속성 2개: 공칭전압 3.89 V, 측정 조건 "0.1C, 4.55V"</div>
+<div class="dv-fs"><span class="dv-st">짝 찾기</span><span class="dv-who dv-c">⚙️ 코드</span> 이름이 아예 다름 → <span class="dv-who dv-e">🔢 임베딩</span><br><span class="dv-mono">임베딩 0.6973</span></div>
+<div class="dv-fs"><span class="dv-st">개념 판정</span><span class="dv-who dv-l">🤖 LLM</span> → <span class="dv-mono">same_as</span></div>
+<div class="dv-fs"><span class="dv-st">값 대조</span><span class="dv-who dv-l">🤖 LLM</span> 기준은 속성 1개·단위 없음, 대상은 속성 2개 → 코드가 손을 뗌</div>
+<div class="dv-fs"><span class="dv-st">결과</span><span class="dv-v dv-ok">✅ 일치</span> <span class="dv-mono">decided_by: llm</span><br><span class="dv-mono" style="color:var(--dv-mut)">"3.89와 3.89 V는 단위 표기 차이만 있을 뿐 동일"</span></div>
+</div>
+</div>
+<div class="dv-cap">같은 기준 값인데 판정 주체가 <b>코드 → LLM → LLM</b> 으로 달라진다. 이름이 똑같으면 코드가 공짜로 끝내고, 이름이 다를수록 LLM 이 개입하고 검문소가 걸린다. <b>영어 문서가 어려운 이유가 여기에 다 들어 있다</b> — 언어가 다르면 첫 칸(이름 일치)이 절대 성립하지 않아 항상 가장 험한 길로만 간다.</div>
+</div>
+
+  <p>버튼을 눌러 답을 골라보세요. 정답/오답 여부와 이유가 바로 나옵니다.</p>
+
+  <div class="quiz-card" data-q="1">
+    <div class="qn">Question 1</div>
+    <h4>기존 RAG(도서관 사서) 방식에서 "충전환경온도" 정보가 3번째 문단(이름)과 4번째
+    문단(숫자)에 나뉘어 있을 때, 왜 시스템이 이 사실을 놓칠 수 있을까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">AI(심사위원)가 한글을 이해하지 못하기 때문에</button>
+      <button class="quiz-opt" data-correct="true">검색(사서)이 문단을 각각 따로 취급해서, 둘 다 후보 상위권에 못 들면 심사위원이 아예 보지 못하기 때문에</button>
+      <button class="quiz-opt">엑셀 파일을 아예 읽지 못하기 때문에</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="2">
+    <div class="qn">Question 2</div>
+    <h4>새 방식(F3)에서 엑셀 행을 사실 카드(Fact)로 바꿀 때는 왜 AI를 아예 호출하지
+    않을까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">엑셀은 AI가 읽을 수 없는 형식이라서</button>
+      <button class="quiz-opt" data-correct="true">한 단계 앞(F2)에서 이미 AI가 의미를 정리해뒀기 때문에, F3은 형식만 바꾸는 규칙 변환이면 충분해서</button>
+      <button class="quiz-opt">엑셀 회사가 AI 사용을 금지해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="3">
+    <div class="qn">Question 3</div>
+    <h4>워드/PPT 사실 카드를 만들 때, 코드가 <code>source_ids</code>를 검사하는 이유는
+    무엇일까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">문서 용량을 줄이기 위해서</button>
+      <button class="quiz-opt" data-correct="true">AI가 실제로 존재하지 않는 근거를 지어내서 댈 경우, 그 카드를 걸러내거나 버리기 위해서</button>
+      <button class="quiz-opt">문서를 더 빨리 읽기 위해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="4">
+    <div class="qn">Question 4</div>
+    <h4>PPT 문서를 처리할 때, 같은 슬라이드의 도형들과 그 슬라이드의 발표자 노트를 하나의
+    묶음으로 AI에게 보여주는 이유는 무엇일까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">발표자 노트는 원래 안 읽어도 되는 내용이라서</button>
+      <button class="quiz-opt">AI 호출 횟수를 늘리기 위해서</button>
+      <button class="quiz-opt" data-correct="true">본문(도형)과 각주 성격의 노트에 나뉘어 적힌 같은 사실을 AI가 한 번에 보고 하나의 카드로 합칠 수 있게 하기 위해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+
+  <div class="quiz-card" data-q="5">
+    <div class="qn">Question 5</div>
+    <h4>"하한치", "Lower", "최소값"처럼 서로 다른 표현을 <code>semantic_role</code>(예:
+    <code>quantitative_lower_bound</code>) 같은 정해진 이름으로 통일하는 이유는 무엇일까요?</h4>
+    <div class="quiz-opts">
+      <button class="quiz-opt">문서를 한국어로만 작성하도록 강제하기 위해서</button>
+      <button class="quiz-opt" data-correct="true">표현이 달라도 같은 뜻인 값들을 같은 카테고리로 묶어서, 서로 다른 문서의 카드끼리도 정확히 짝지어 비교할 수 있게 하기 위해서</button>
+      <button class="quiz-opt">엑셀 열 이름을 자동으로 영어로 번역하기 위해서</button>
+    </div>
+    <div class="quiz-fb"></div>
+  </div>
+</section>
+
+</div>
+
+<footer>ContentCompare · Fact Schema Induction 파이프라인(F0~F3) 설명 · docs/FACT_PIPELINE_PLAN.md 기반</footer>
+
+<script>
+  document.querySelectorAll('.quiz-card').forEach(function(card){
+    var opts = card.querySelectorAll('.quiz-opt');
+    var fb = card.querySelector('.quiz-fb');
+    opts.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if (btn.disabled) return;
+        var correct = btn.dataset.correct === 'true';
+        opts.forEach(function(o){ o.disabled = true; });
+        if (correct) {
+          btn.classList.add('correct');
+          fb.textContent = '✅ 정답이에요! ' + btn.textContent;
+          fb.className = 'quiz-fb show ok';
+        } else {
+          btn.classList.add('incorrect');
+          var correctBtn = card.querySelector('[data-correct="true"]');
+          correctBtn.classList.add('correct');
+          fb.textContent = '❌ 아쉬워요. 정답은: ' + correctBtn.textContent;
+          fb.className = 'quiz-fb show no';
+        }
+      });
+    });
+  });
+</script>

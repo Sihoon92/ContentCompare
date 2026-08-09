@@ -1,0 +1,952 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>판정 단계의 해부 — Langfuse 에 찍힌 verdict·findings 는 어디서 오는가</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1c1c1a; --muted:#6b6b66; --line:#e0e0da;
+  --card:#ffffff; --shadow:0 1px 3px rgba(0,0,0,.06);
+  --ok:#2e7d32; --ok-bg:#e8f5e9;
+  --bad:#c62828; --bad-bg:#ffebee;
+  --gray:#607d8b; --gray-bg:#eceff1;
+  --amber:#ef6c00; --amber-bg:#fff3e0;
+  --xl:#2e7d32; --xl-bg:#e8f5e9;      /* 엑셀 카드 */
+  --wd:#1565c0; --wd-bg:#e3f2fd;      /* 워드 카드 */
+  --code:#1565c0; --llm:#e65100; --human:#6a1b9a; --embed:#00796b;
+  --accent:#0f766e;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"D2Coding","맑은 고딕",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#16181c; --fg:#e8e8e4; --muted:#a0a09a; --line:#33363d;
+    --card:#1e2127; --shadow:0 1px 3px rgba(0,0,0,.4);
+    --ok:#81c784; --ok-bg:#1b3a1f;
+    --bad:#ef9a9a; --bad-bg:#3d1f1f;
+    --gray:#b0bec5; --gray-bg:#2b3136;
+    --amber:#ffb74d; --amber-bg:#3d2c14;
+    --xl:#81c784; --xl-bg:#1b3a1f;
+    --wd:#90caf9; --wd-bg:#16293d;
+    --code:#90caf9; --llm:#ffb074; --human:#ce93d8; --embed:#4db6ac;
+    --accent:#5eead4;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","맑은 고딕",sans-serif;
+  line-height:1.8;font-size:17px;padding-bottom:92px}
+.wrap{max-width:880px;margin:0 auto;padding:0 20px}
+header.hero{padding:56px 0 28px;border-bottom:1px solid var(--line)}
+header.hero h1{font-size:2rem;line-height:1.32;margin:0 0 14px;letter-spacing:-.02em}
+header.hero .sub{color:var(--muted);font-size:1.02rem;margin:0}
+header.hero .meta{color:var(--muted);font-size:.85rem;margin-top:18px}
+h2{font-size:1.5rem;margin:58px 0 6px;letter-spacing:-.01em;scroll-margin-top:20px}
+h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:.5rem}
+h3{font-size:1.14rem;margin:34px 0 6px}
+p{margin:14px 0}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.88em;background:var(--gray-bg);padding:.1em .35em;border-radius:4px}
+pre{font-family:var(--mono);font-size:.82rem;line-height:1.6;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;
+  white-space:pre;margin:16px 0}
+pre.wrap-pre{white-space:pre-wrap}
+.small{font-size:.9rem;color:var(--muted)}
+
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:18px 22px;margin:28px 0 10px;box-shadow:var(--shadow)}
+nav.toc h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px}
+nav.toc ol{margin:0;padding-left:1.3em}
+nav.toc li{margin:5px 0}
+nav.toc a{text-decoration:none}
+nav.toc a:hover{text-decoration:underline}
+
+.callout{border-left:4px solid var(--accent);background:var(--card);border-radius:0 10px 10px 0;
+  padding:14px 18px;margin:22px 0;box-shadow:var(--shadow)}
+.callout .t{font-weight:700;display:block;margin-bottom:4px;font-size:.94rem}
+.callout.warn{border-left-color:var(--bad)}
+.callout.key{border-left-color:var(--amber)}
+.callout.good{border-left-color:var(--ok)}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+
+.nc{display:inline-block;padding:5px 12px;border-radius:8px;font-size:.86rem;
+  font-weight:700;border:1.5px solid;white-space:nowrap;margin:3px}
+.nc.xl{background:var(--xl-bg);color:var(--xl);border-color:var(--xl)}
+.nc.wd{background:var(--wd-bg);color:var(--wd);border-color:var(--wd)}
+
+.step{background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.step .sh{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
+.step .sn{background:var(--accent);color:#fff;font-weight:700;border-radius:99px;
+  padding:2px 12px;font-size:.82rem}
+.step .st{font-weight:700}
+
+.tbl-wrap{overflow-x:auto;margin:20px 0}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:460px}
+th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:var(--gray-bg);font-weight:700;font-size:.83rem}
+td code{font-size:.82em}
+
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.pill.code{background:var(--wd-bg);color:var(--code)}
+.pill.llm{background:var(--amber-bg);color:var(--llm)}
+.pill.human{background:#f3e5f5;color:var(--human)}
+.pill.embed{background:#e0f2f1;color:var(--embed)}
+@media (prefers-color-scheme:dark){
+  .pill.human{background:#2e1b38}
+  .pill.embed{background:#12332f}
+}
+
+figure{margin:28px 0}
+figure svg{max-width:100%;height:auto;display:block;margin:0 auto}
+figcaption{font-size:.83rem;color:var(--muted);text-align:center;margin-top:10px;line-height:1.6}
+
+.qmemo{border:1.5px dashed var(--line);background:var(--gray-bg);border-radius:10px;
+  padding:12px 15px;margin:24px 0}
+.qmemo-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:7px}
+.qmemo-label{font-size:.76rem;font-weight:700;color:var(--accent);letter-spacing:.03em}
+.qmemo-hint{font-size:.75rem;color:var(--muted)}
+.qmemo-question{min-height:2.1em;background:var(--card);border:1px solid var(--line);
+  border-radius:7px;padding:8px 11px;font-size:.9rem;outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:var(--muted);opacity:.65}
+.qmemo-question:focus{border-color:var(--accent)}
+.qmemo-answer{margin-top:10px;padding:10px 13px;background:var(--card);
+  border-left:3px solid var(--accent);border-radius:0 7px 7px 0;font-size:.9rem}
+.qmemo[data-status="answered"]{border-style:solid;border-color:var(--accent);background:var(--card)}
+
+.quiz{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin:22px 0;box-shadow:var(--shadow)}
+.quiz .q{font-weight:700;margin-bottom:12px}
+.quiz .opt{display:block;width:100%;text-align:left;padding:10px 14px;margin:7px 0;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);
+  cursor:pointer;font-size:.92rem;font-family:inherit;line-height:1.55}
+.quiz .opt:hover:not(:disabled){border-color:var(--accent)}
+.quiz .opt:disabled{cursor:default}
+.quiz .opt.correct{background:var(--ok-bg);border-color:var(--ok);color:var(--ok);font-weight:700}
+.quiz .opt.wrong{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.quiz .fb{margin-top:12px;font-size:.88rem;padding:11px 14px;border-radius:8px;
+  background:var(--gray-bg);display:none}
+.quiz .fb.show{display:block}
+
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);
+  border-top:1px solid var(--line);padding:10px 20px;display:flex;gap:14px;align-items:center;
+  justify-content:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.07);z-index:50}
+#qmemo-save-btn{background:var(--accent);color:#fff;border:none;padding:9px 20px;
+  border-radius:8px;font-size:.87rem;font-weight:700;cursor:pointer;font-family:inherit}
+#qmemo-saymsg{font-size:.8rem;color:var(--muted)}
+
+@media (max-width:640px){
+  body{font-size:16px}
+  header.hero h1{font-size:1.5rem}
+  h2{font-size:1.24rem;margin-top:44px}
+  .nc{font-size:.78rem;padding:4px 9px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>판정 단계의 해부</h1>
+  <p class="sub">Langfuse 에 <code>contentcompare.comparison.comparator</code> 라는 이름으로 찍히는 그 호출 —
+  <code>verdict</code>·<code>matched_item_ids</code>·<code>reasoning</code>·<code>findings</code> 네 필드는
+  언제, 무엇을 보고, 어떻게 만들어지는가.</p>
+  <p class="meta">2026-08-07 · ContentCompare · RAG 엔진(<code>--engine rag</code>, 기본값) 4단계</p>
+</header>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">배경 — 이 호출이 서 있는 자리</a></li>
+    <li><a href="#intuition">직관 — 왜 한 행을 통째로 물어보는가</a></li>
+    <li><a href="#impl">구현 — 프롬프트가 조립되고 JSON 이 객체가 되기까지</a></li>
+    <li><a href="#fields">네 필드의 정확한 의미</a></li>
+    <li><a href="#pitfalls">경계와 함정 — trace 를 읽을 때 속지 않으려면</a></li>
+    <li><a href="#quiz">이해 확인 퀴즈</a></li>
+  </ol>
+  <p class="small" style="margin:12px 0 0">
+    읽다가 궁금한 점이 생기면 페이지 곳곳의 <strong>질문 메모</strong> 상자에 적어 두세요.
+    입력하는 즉시 이 브라우저에 자동 저장되고, 맨 아래 <strong>질문 저장</strong> 버튼을 누르면
+    질문이 박혀 있는 사본이 내려받아집니다. 그 파일을 <code>docs/understanding/</code> 의
+    원본 자리에 덮어쓴 뒤 Claude 에게 답을 요청하면 됩니다.
+  </p>
+</nav>
+
+<!-- ===================================================================== -->
+<h2 id="bg"><span class="num">1</span>배경 — 이 호출이 서 있는 자리</h2>
+
+<h3>아주 처음부터 (이미 아신다면 건너뛰세요)</h3>
+
+<p>이 프로그램이 푸는 문제는 한 문장으로 말할 수 있습니다. <strong>엑셀에 적힌 기준 내용이
+Word·PPT 같은 다른 문서에도 똑같이 적혀 있는가?</strong></p>
+
+<p>사람이 하면 이렇게 합니다. 엑셀에서 한 행을 읽고, Word 문서를 훑어 그 행이 말하는 대상이
+어디에 설명돼 있는지 찾고, 그 자리의 숫자와 표현을 엑셀 값과 하나씩 대조합니다.
+찾기와 대조, 두 가지 일이 섞여 있죠.</p>
+
+<p>컴퓨터에게 이 일을 맡길 때 가장 나이브한 방법은 "Word 문서 전체를 LLM 에게 통째로 주고
+물어보기"입니다. 그런데 이게 안 됩니다. 문서가 조금만 길어도 LLM 이 한 번에 읽을 수 있는
+분량(컨텍스트 창)을 넘고, 넘지 않더라도 수백 페이지 속에서 관련 없는 내용이 판단을 흐립니다.
+게다가 기준 항목이 500행이면 500번을 물어야 하니 비용도 500배가 됩니다.</p>
+
+<p>그래서 쓰는 것이 <strong>RAG(검색 증강 생성)</strong> 라는 패턴입니다. 순서를 뒤집어서,
+<em>먼저 기계적으로 후보를 좁힌 뒤</em> 그 좁혀진 것만 LLM 에게 보여 줍니다.</p>
+
+<div class="callout key">
+  <span class="t">RAG 의 분업</span>
+  <p><strong>검색</strong>은 싸고 빠르지만 "비슷해 보이는 것"까지만 압니다.
+  <strong>LLM</strong>은 비싸고 느리지만 "같은 뜻인가, 값이 맞는가"를 압니다.
+  검색으로 수천 개를 10개로 줄이고, 그 10개에 대해서만 LLM 에게 판단을 맡깁니다.
+  이 페이지가 다루는 것은 <strong>뒤쪽 절반</strong>, 즉 판단하는 쪽입니다.</p>
+</div>
+
+<div class="qmemo" data-qid="bg-rag-basics" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">RAG 라는 개념 자체에서 걸리는 부분이 있다면 적어 두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>ContentCompare 의 다섯 단계</h3>
+
+<p>실제 파이프라인(<code>contentcompare/pipeline.py</code>)은 다섯 단계입니다. Langfuse 에서 보고 계신
+그 호출은 <strong>4단계 한 곳에서만</strong> 나옵니다.</p>
+
+<figure>
+<svg viewBox="0 0 860 210" role="img" aria-label="파이프라인 5단계 중 4단계에서만 LLM 호출이 일어난다">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#6b6b66"/>
+    </marker>
+  </defs>
+  <g font-family="-apple-system,Segoe UI,Noto Sans KR,sans-serif" font-size="12">
+    <!-- 1 -->
+    <rect x="8" y="52" width="140" height="62" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="78" y="76" text-anchor="middle" font-weight="700" fill="#1565c0">1. 읽기</text>
+    <text x="78" y="95" text-anchor="middle" fill="#1565c0" font-size="10.5">문서 → DocItem</text>
+    <!-- 2 -->
+    <rect x="170" y="52" width="140" height="62" rx="10" fill="#e0f2f1" stroke="#00796b" stroke-width="1.5"/>
+    <text x="240" y="76" text-anchor="middle" font-weight="700" fill="#00796b">2. 인덱싱</text>
+    <text x="240" y="95" text-anchor="middle" fill="#00796b" font-size="10.5">임베딩 + BM25</text>
+    <!-- 3 -->
+    <rect x="332" y="52" width="140" height="62" rx="10" fill="#e0f2f1" stroke="#00796b" stroke-width="1.5"/>
+    <text x="402" y="76" text-anchor="middle" font-weight="700" fill="#00796b">3. 검색</text>
+    <text x="402" y="95" text-anchor="middle" fill="#00796b" font-size="10.5">수천 개 → 10개</text>
+    <!-- 4 : 강조 -->
+    <rect x="494" y="40" width="152" height="86" rx="12" fill="#fff3e0" stroke="#e65100" stroke-width="3"/>
+    <text x="570" y="66" text-anchor="middle" font-weight="700" fill="#e65100">4. 판정</text>
+    <text x="570" y="85" text-anchor="middle" fill="#e65100" font-size="10.5">LLM 이 JSON 으로</text>
+    <text x="570" y="101" text-anchor="middle" fill="#e65100" font-size="10.5">답한다</text>
+    <text x="570" y="117" text-anchor="middle" fill="#e65100" font-size="9.5" font-weight="700">← trace 는 여기서만</text>
+    <!-- 5 -->
+    <rect x="668" y="52" width="140" height="62" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="738" y="76" text-anchor="middle" font-weight="700" fill="#1565c0">5. 리포트</text>
+    <text x="738" y="95" text-anchor="middle" fill="#1565c0" font-size="10.5">markdown 렌더</text>
+
+    <line x1="150" y1="83" x2="166" y2="83" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="312" y1="83" x2="328" y2="83" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="474" y1="83" x2="490" y2="83" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="648" y1="83" x2="664" y2="83" stroke="#6b6b66" marker-end="url(#ar)"/>
+
+    <text x="8" y="165" font-size="11" fill="#6b6b66">범례:</text>
+    <rect x="52" y="155" width="12" height="12" rx="3" fill="#e3f2fd" stroke="#1565c0"/>
+    <text x="70" y="165" font-size="11" fill="#6b6b66">코드가 한다</text>
+    <rect x="158" y="155" width="12" height="12" rx="3" fill="#e0f2f1" stroke="#00796b"/>
+    <text x="176" y="165" font-size="11" fill="#6b6b66">임베딩·검색</text>
+    <rect x="264" y="155" width="12" height="12" rx="3" fill="#fff3e0" stroke="#e65100"/>
+    <text x="282" y="165" font-size="11" fill="#6b6b66">LLM 이 한다</text>
+
+    <text x="8" y="192" font-size="11" fill="#6b6b66">기준 항목이 500행이면 4단계가 500번 실행된다 = trace 500건.</text>
+  </g>
+</svg>
+<figcaption>다섯 단계 중 LLM 을 부르는 곳은 4단계뿐이다. 색은 이 저장소의 공용 시각 언어를 따른다
+(파랑=코드, 청록=임베딩, 주황=LLM).</figcaption>
+</figure>
+
+<h3>왜 하필 모듈 이름이 찍히는가</h3>
+
+<p>Langfuse 의 단계 이름은 보통 코드가 명시적으로 붙입니다. fact 엔진은
+<code>tracing.stage("F7 개념 판정")</code> 처럼 이름을 지어 주죠. 그런데 RAG 판정만
+<code>contentcompare.comparison.comparator</code> — 즉 <strong>모듈 경로 그대로</strong> 나옵니다.</p>
+
+<p>이유는 설계 원칙에 있습니다. <code>comparison/</code> 과 <code>readers/</code> 는
+<strong>코드 무수정 원칙</strong>이 걸린 영역이라 추적 코드를 심을 수 없습니다. 그래서
+<code>tracing.current_stage()</code> 가 이름이 지정되지 않았을 때
+<strong>호출자의 모듈명으로 폴백</strong>합니다.</p>
+
+<pre>def current_stage(depth: int = 2) -> str:
+    explicit = _STAGE.get()
+    if explicit:
+        return explicit
+    frame = sys._getframe(depth)
+    module = frame.f_globals.get("__name__", "")
+    return module or "(unknown)"</pre>
+
+<p>이름 없이 전부 한 덩어리로 뭉치면 trace 를 열어도 어느 단계인지 알 수 없으니,
+최소한 <em>어디서 불렀는지</em>는 남기자는 절충입니다.</p>
+
+<div class="qmemo" data-qid="bg-stage-name" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">단계 이름·코드 무수정 원칙에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ===================================================================== -->
+<h2 id="intuition"><span class="num">2</span>직관 — 왜 한 행을 통째로 물어보는가</h2>
+
+<p>보고 계신 trace 에 <code>findings</code> 가 들어 있다는 것은 중요한 단서입니다.
+그 필드는 <strong>엑셀 행을 판정할 때만</strong> 생깁니다. 즉 기준 문서가 엑셀이고
+분해 단위가 <code>hybrid</code>(기본값)라는 뜻입니다.</p>
+
+<h3>순진한 방법과 그 실패</h3>
+
+<p>엑셀 한 행이 이렇다고 합시다.</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>모델명</th><th>용량</th><th>정격전압</th><th>출시일</th></tr>
+  <tr><td>BX-200</td><td>3200mAh</td><td>3.7V</td><td>2025-03</td></tr>
+</table>
+</div>
+
+<p>가장 단순한 접근은 <strong>셀 하나씩</strong> 검색해서 판정하는 것입니다.
+그런데 "3.7V" 라는 셀 하나만 들고 Word 문서를 검색하면 어떻게 될까요? 전압을 언급하는
+모든 문단이 걸립니다. 그중 어느 것이 <em>BX-200 의</em> 전압인지 알 방법이 없습니다.
+셀은 자기 행이 무엇에 관한 것인지 모르기 때문입니다.</p>
+
+<p>반대로 <strong>행 전체를 한 덩어리 문자열</strong>로 만들어 검색하고 판정하면 찾기는
+잘 되지만, 결과가 "이 행은 partial 입니다" 한 줄로 뭉개집니다. 네 개 열 중
+어느 것이 틀렸는지 사람이 알 수 없죠.</p>
+
+<div class="callout key">
+  <span class="t">hybrid 분해 — 검색 단위와 판정 단위를 분리한다</span>
+  <p><strong>행은 검색 단위</strong>(<code>RecordItem</code>)이고
+  <strong>셀은 판정 단위</strong>(<code>FieldClaim</code>)입니다.
+  행 전체로 검색해 문맥을 살린 뒤, LLM 에게는 "이 행을 찾아서, 각 열이 맞는지 하나씩 답해라"고
+  시킵니다. 그래서 응답에 행 전체 판정(<code>verdict</code>)과 열별 내역(<code>findings</code>)이
+  <em>둘 다</em> 들어 있는 것입니다.</p>
+</div>
+
+<h3>실제로 무엇이 오가는가</h3>
+
+<p>위 행에 대해 3단계 검색이 후보 셋을 골라 줬다고 합시다. 이것이 LLM 이 보는 전부입니다 —
+Word 문서 원본이 아니라, 이 세 조각뿐입니다.</p>
+
+<figure>
+<svg viewBox="0 0 860 300" role="img" aria-label="기준 행과 후보 세 개가 LLM 에 들어가 JSON 이 나온다">
+  <g font-family="-apple-system,Segoe UI,Noto Sans KR,sans-serif" font-size="11.5">
+    <!-- 왼쪽: 기준 행 -->
+    <rect x="8" y="14" width="250" height="118" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+    <text x="20" y="34" font-weight="700" fill="#2e7d32">기준 레코드 (엑셀 12행)</text>
+    <text x="20" y="54" fill="#2e7d32" font-size="10.5">키 문맥: [모델명=BX-200]</text>
+    <text x="20" y="74" fill="#2e7d32" font-size="10.5">· 용량 = 3200mAh</text>
+    <text x="20" y="92" fill="#2e7d32" font-size="10.5">· 정격전압 = 3.7V</text>
+    <text x="20" y="110" fill="#2e7d32" font-size="10.5">· 출시일 = 2025-03</text>
+    <text x="20" y="126" fill="#2e7d32" font-size="9.5" opacity=".8">item_id 제품사양서.xlsx#Sheet1!12</text>
+
+    <!-- 왼쪽 아래: 후보 -->
+    <rect x="8" y="146" width="250" height="140" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="20" y="166" font-weight="700" fill="#1565c0">후보 목록 (검색이 고른 것)</text>
+    <text x="20" y="186" fill="#1565c0" font-size="10">C1 · 0.812 · 제품소개.docx ¶17</text>
+    <text x="26" y="201" fill="#1565c0" font-size="9.5">"BX-200 은 3200mAh 용량에</text>
+    <text x="26" y="214" fill="#1565c0" font-size="9.5"> 정격 3.7V 를 지원한다."</text>
+    <text x="20" y="234" fill="#1565c0" font-size="10">C2 · 0.643 · 제품소개.docx ¶31</text>
+    <text x="26" y="249" fill="#1565c0" font-size="9.5">"BX-200 은 2025년 4월 출시."</text>
+    <text x="20" y="269" fill="#1565c0" font-size="10">C3 · 0.401 · 카탈로그.pptx s5</text>
+    <text x="26" y="282" fill="#1565c0" font-size="9.5">"차세대 배터리 라인업"</text>
+
+    <!-- 가운데 LLM -->
+    <rect x="300" y="94" width="150" height="112" rx="14" fill="#fff3e0" stroke="#e65100" stroke-width="2.5"/>
+    <text x="375" y="132" text-anchor="middle" font-weight="700" fill="#e65100" font-size="14">LLM</text>
+    <text x="375" y="154" text-anchor="middle" fill="#e65100" font-size="10.5">찾고 → 대조하고</text>
+    <text x="375" y="172" text-anchor="middle" fill="#e65100" font-size="10.5">→ JSON 으로 답한다</text>
+    <path d="M262,110 L296,140" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+    <path d="M262,210 L296,164" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+
+    <!-- 오른쪽 결과 -->
+    <rect x="492" y="14" width="360" height="272" rx="10" fill="#fff" stroke="#e0e0da" stroke-width="1.5"/>
+    <text x="506" y="36" font-weight="700" fill="#1c1c1a">응답 JSON</text>
+    <text x="506" y="60" font-family="monospace" font-size="10.5" fill="#ef6c00">verdict: "partial"</text>
+    <text x="506" y="80" font-family="monospace" font-size="10.5" fill="#1565c0">matched_item_ids: ["C1","C2"]</text>
+    <text x="506" y="100" font-family="monospace" font-size="10.5" fill="#6b6b66">reasoning: "BX-200 은 ¶17 에</text>
+    <text x="506" y="115" font-family="monospace" font-size="10.5" fill="#6b6b66">  서술됨. 용량·전압 일치,</text>
+    <text x="506" y="130" font-family="monospace" font-size="10.5" fill="#6b6b66">  출시일만 불일치…"</text>
+    <text x="506" y="154" font-family="monospace" font-size="10.5" fill="#2e7d32">findings:</text>
+    <text x="516" y="174" font-family="monospace" font-size="10" fill="#2e7d32">· 용량   found ✔ "3200mAh"</text>
+    <text x="516" y="192" font-family="monospace" font-size="10" fill="#2e7d32">· 전압   found ✔ "정격 3.7V"</text>
+    <text x="516" y="210" font-family="monospace" font-size="10" fill="#c62828">· 출시일 found ✔ 기준 2025-03</text>
+    <text x="524" y="226" font-family="monospace" font-size="10" fill="#c62828">  vs 대상 2025년 4월 → 다름</text>
+    <text x="506" y="256" font-size="10.5" fill="#6b6b66">C3 는 근거가 아니므로</text>
+    <text x="506" y="272" font-size="10.5" fill="#6b6b66">matched_item_ids 에 없다.</text>
+    <path d="M454,150 L488,150" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+  </g>
+</svg>
+<figcaption>LLM 은 문서 전체를 보지 않는다. 기준 행 + 필드 목록 + 후보 몇 개만 보고,
+"어디에 있는지(matched_item_ids)"와 "각 열이 맞는지(findings)"를 함께 답한다.</figcaption>
+</figure>
+
+<p>여기서 <code>verdict</code> 가 <code>partial</code> 인 이유가 눈에 보입니다. 세 열 중 둘은 맞고
+하나가 틀렸으니 "전부 같음"도 "핵심이 다름"도 아닙니다. 그리고 <strong>어느 열이 틀렸는지는
+<code>findings</code> 를 봐야</strong> 알 수 있습니다. 두 필드는 해상도가 다른 같은 이야기입니다.</p>
+
+<div class="qmemo" data-qid="intuition-example" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 예시에서 이해가 막히는 지점이 있다면</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ===================================================================== -->
+<h2 id="impl"><span class="num">3</span>구현 — 프롬프트가 조립되고 JSON 이 객체가 되기까지</h2>
+
+<p>이제 코드를 따라가 봅시다. 관련 파일은 셋뿐입니다.</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>파일</th><th>역할</th></tr>
+  <tr><td><code>pipeline.py</code></td><td>기준 항목마다 검색 → 어느 판정 함수를 부를지 분기</td></tr>
+  <tr><td><code>comparison/prompts.py</code></td><td>프롬프트 템플릿과 조립 함수</td></tr>
+  <tr><td><code>comparison/comparator.py</code></td><td>LLM 호출 · JSON 파싱 · 결과 객체 생성</td></tr>
+</table>
+</div>
+
+<h3>3.1 어느 판정 함수가 불리는가</h3>
+
+<p>파이프라인의 루프는 이렇게 생겼습니다.</p>
+
+<pre>for i, ref in enumerate(reference_items, start=1):
+    if ref.is_empty():
+        continue
+    candidates = index.search(ref.text, recall_k=sim.recall_k, top_k=sim.top_k)
+    # 엑셀 hybrid/field: 필드를 가진 RecordItem 이면 필드별 판정.
+    if isinstance(ref, RecordItem) and ref.fields:
+        result = self.comparator.compare_record(ref, candidates)
+    else:
+        result = self.comparator.compare(ref, candidates)</pre>
+
+<p>분기 조건이 명확합니다. <strong><code>fields</code> 가 있으면</strong>
+<code>compare_record()</code>, 없으면 <code>compare()</code>. 그리고 두 함수는 서로 다른
+시스템 프롬프트를 씁니다.</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th></th><th><code>compare()</code></th><th><code>compare_record()</code></th></tr>
+  <tr><td>대상</td><td>단락·셀·도형 같은 단순 항목</td><td>엑셀 행</td></tr>
+  <tr><td>시스템 프롬프트</td><td><code>SYSTEM_PROMPT</code></td><td><code>RECORD_SYSTEM_PROMPT</code></td></tr>
+  <tr><td>응답 필드</td><td>verdict · matched_item_ids · reasoning</td>
+      <td>거기에 <strong>findings 추가</strong></td></tr>
+  <tr><td>결과 객체</td><td><code>ComparisonResult</code></td><td><code>RecordResult</code></td></tr>
+</table>
+</div>
+
+<p><code>findings</code> 가 보인다면 오른쪽 열의 경로입니다.</p>
+
+<h3>3.2 user 프롬프트의 조립</h3>
+
+<p><code>build_record_prompt()</code> 이 네 덩어리를 이어 붙입니다.</p>
+
+<figure>
+<svg viewBox="0 0 860 250" role="img" aria-label="네 덩어리가 하나의 user 프롬프트로 조립된다">
+  <g font-family="-apple-system,Segoe UI,Noto Sans KR,sans-serif" font-size="11">
+    <rect x="8" y="14" width="196" height="46" rx="8" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1.5"/>
+    <text x="20" y="34" font-weight="700" fill="#6a1b9a">① 도메인 지식</text>
+    <text x="20" y="51" fill="#6a1b9a" font-size="10">knowledge/*.md 전부</text>
+
+    <rect x="8" y="70" width="196" height="46" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+    <text x="20" y="90" font-weight="700" fill="#2e7d32">② 기준 레코드</text>
+    <text x="20" y="107" fill="#2e7d32" font-size="10">출처 · 키 문맥 · 행 전체</text>
+
+    <rect x="8" y="126" width="196" height="46" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+    <text x="20" y="146" font-weight="700" fill="#2e7d32">③ 필드 목록</text>
+    <text x="20" y="163" fill="#2e7d32" font-size="10">field_id · 항목명 · 기준값</text>
+
+    <rect x="8" y="182" width="196" height="46" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="20" y="202" font-weight="700" fill="#1565c0">④ 후보 단락 목록</text>
+    <text x="20" y="219" fill="#1565c0" font-size="10">item_id · 유사도 · 출처 · 원문</text>
+
+    <path d="M208,37 L250,110" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+    <path d="M208,93 L250,115" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+    <path d="M208,149 L250,125" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+    <path d="M208,205 L250,133" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+
+    <rect x="258" y="66" width="230" height="112" rx="10" fill="#fff" stroke="#e0e0da" stroke-width="2"/>
+    <text x="373" y="92" text-anchor="middle" font-weight="700">user 프롬프트</text>
+    <text x="373" y="114" text-anchor="middle" font-size="10.5" fill="#6b6b66">문자열 하나</text>
+    <text x="373" y="140" text-anchor="middle" font-size="10" fill="#6b6b66">Langfuse 의 input.user 에</text>
+    <text x="373" y="156" text-anchor="middle" font-size="10" fill="#6b6b66">그대로 보이는 것</text>
+
+    <rect x="530" y="52" width="150" height="60" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
+    <text x="605" y="77" text-anchor="middle" font-weight="700" fill="#e65100" font-size="11">RECORD_SYSTEM</text>
+    <text x="605" y="95" text-anchor="middle" fill="#e65100" font-size="10">_PROMPT (고정)</text>
+
+    <rect x="530" y="132" width="150" height="60" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="2.5"/>
+    <text x="605" y="157" text-anchor="middle" font-weight="700" fill="#e65100">LLM 호출</text>
+    <text x="605" y="176" text-anchor="middle" fill="#e65100" font-size="10">temperature=0</text>
+
+    <path d="M492,122 L526,155" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+    <path d="M605,116 L605,128" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+
+    <rect x="706" y="132" width="146" height="60" rx="10" fill="#eceff1" stroke="#607d8b" stroke-width="1.5"/>
+    <text x="779" y="157" text-anchor="middle" font-weight="700" fill="#607d8b">응답 문자열</text>
+    <text x="779" y="176" text-anchor="middle" fill="#607d8b" font-size="10">(JSON 이길 기대)</text>
+    <path d="M684,162 L702,162" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+  </g>
+</svg>
+<figcaption>네 덩어리 중 ①은 사람이 쓴 것(보라), ②③은 엑셀에서 나온 것(초록),
+④는 검색이 고른 것(파랑)이다. 시스템 프롬프트는 매 호출 동일하다.</figcaption>
+</figure>
+
+<p>후보 한 줄의 실제 형식은 이렇습니다. <strong>유사도 점수가 프롬프트에 그대로 들어간다</strong>는
+점이 눈에 띕니다 — LLM 에게 "이건 0.812 로 가장 가깝다"는 힌트를 주는 셈입니다.</p>
+
+<pre>_CANDIDATE_TEMPLATE = "- item_id: {cid} | 유사도: {score:.3f} | 출처: {source}\n  내용: {text}"
+_FIELD_TEMPLATE     = "- field_id: {fid} | 항목: {header} | 기준값: {value}"</pre>
+
+<div class="qmemo" data-qid="impl-prompt-assembly" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">프롬프트 조립에서 궁금한 점 (예: 지식이 너무 길면? 후보가 너무 길면?)</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>3.3 시스템 프롬프트가 요구하는 것</h3>
+
+<p><code>RECORD_SYSTEM_PROMPT</code> 에는 판정 규칙 다섯 가지가 박혀 있습니다. 그중 셋이
+특히 결과 해석에 중요합니다.</p>
+
+<div class="step">
+  <div class="sh"><span class="sn">원칙 1</span><span class="st">값이 같으면 일치, 다르면 다름 — 분명히</span></div>
+  <p class="small" style="margin:0">단위·표기 차이는 감안합니다. <code>1,200</code> 과 <code>1200</code>,
+  <code>1.2천</code> 과 <code>1200</code> 은 같은 것으로 봅니다.</p>
+</div>
+
+<div class="step">
+  <div class="sh"><span class="sn">원칙 2</span><span class="st">확신이 없으면 억지로 고르지 말고 unknown</span></div>
+  <p class="small" style="margin:0">단위가 불명확하거나(기준 <code>1200</code> vs 후보 <code>1,200억원</code>),
+  도메인 지식이 없어 같은 항목인지조차 모르겠으면 <code>unknown</code> 으로 두고
+  <strong>왜 어려운지를 reasoning 에 적으라</strong>고 지시합니다.
+  이 프로젝트에서 <code>unknown</code> 은 실패가 아니라 <strong>1급 판정 상태</strong>입니다.</p>
+</div>
+
+<div class="step">
+  <div class="sh"><span class="sn">원칙 3</span><span class="st">후보에 없는 내용을 지어내지 말 것</span></div>
+  <p class="small" style="margin:0">그리고 <code>evidence</code> 는 <strong>후보 목록에 실제로 있는 문구만
+  인용</strong>하라고 못박습니다. 사람이 할루시네이션을 검수할 수 있게 하려는 장치입니다.</p>
+</div>
+
+<div class="callout">
+  <span class="t">왜 unknown 을 1급으로 두는가</span>
+  <p>LLM 에게 "무조건 같다/다르다 중 골라"라고 하면 모르는 것도 고릅니다. 그러면 리포트에
+  틀린 확신이 섞이고, 사람은 그것을 걸러낼 방법이 없습니다. "모르겠다"를 허용하면
+  검토해야 할 항목이 스스로 드러납니다.</p>
+</div>
+
+<h3>3.4 호출과 재시도</h3>
+
+<p>실제 호출은 <code>_complete_json()</code> 한 곳을 지납니다.</p>
+
+<pre>def _complete_json(self, system: str, user: str) -> dict:
+    logger.debug("LLM 프롬프트(system):\n%s", system)
+    logger.debug("LLM 프롬프트(user):\n%s", user)
+    raw = self.llm.complete(system, user)
+    logger.debug("LLM 응답(원문):\n%s", raw)
+    parsed = self._parse(raw)
+    if parsed:
+        return parsed
+    logger.warning("LLM 응답 JSON 파싱 실패 → 'JSON만 출력' 지시로 재요청")
+    retry_user = user + "\n\n위 형식의 JSON 객체만 출력하세요. 다른 텍스트나 코드펜스는 금지합니다."
+    raw2 = self.llm.complete(system, retry_user)
+    return self._parse(raw2)</pre>
+
+<p>파싱에 실패하면 <strong>한 번 더</strong> 부릅니다. 그래서 Langfuse 에서 같은 항목에
+trace 가 <em>연달아 두 건</em> 보인다면 그건 우연이 아니라 <strong>첫 응답이 JSON 이 아니었다는
+신호</strong>입니다. 프롬프트나 모델을 의심할 지점이죠.</p>
+
+<p>파싱 자체도 관대합니다. 순수 <code>json.loads</code> 가 실패하면 본문에서 첫 <code>{...}</code>
+블록을 정규식으로 긁어냅니다 — 모델이 코드펜스나 설명을 덧붙이는 흔한 습관에 대한 방어입니다.</p>
+
+<h3>3.5 JSON 이 객체가 되는 과정</h3>
+
+<p>여기가 마지막이자, 코드가 LLM 을 <em>믿지 않는</em> 지점입니다.</p>
+
+<figure>
+<svg viewBox="0 0 860 280" role="img" aria-label="응답 JSON 의 각 필드가 RecordResult 로 옮겨지며 검증된다">
+  <g font-family="-apple-system,Segoe UI,Noto Sans KR,sans-serif" font-size="11">
+    <rect x="8" y="20" width="230" height="238" rx="10" fill="#eceff1" stroke="#607d8b" stroke-width="1.5"/>
+    <text x="20" y="42" font-weight="700" fill="#607d8b">파싱된 dict</text>
+    <text x="20" y="72" font-family="monospace" font-size="10.5">verdict</text>
+    <text x="20" y="112" font-family="monospace" font-size="10.5">matched_item_ids</text>
+    <text x="20" y="152" font-family="monospace" font-size="10.5">reasoning</text>
+    <text x="20" y="192" font-family="monospace" font-size="10.5">findings[]</text>
+
+    <!-- 검증 게이트 -->
+    <rect x="272" y="52" width="200" height="36" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="372" y="75" text-anchor="middle" fill="#1565c0" font-size="10.5">알 수 없는 값 → different</text>
+
+    <rect x="272" y="94" width="200" height="36" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="372" y="117" text-anchor="middle" fill="#1565c0" font-size="10.5">후보에 없는 id 는 버린다</text>
+
+    <rect x="272" y="136" width="200" height="36" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="372" y="159" text-anchor="middle" fill="#1565c0" font-size="10.5">비면 "(사유 없음)"</text>
+
+    <rect x="272" y="178" width="200" height="58" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+    <text x="372" y="199" text-anchor="middle" fill="#1565c0" font-size="10.5">기준 필드 목록을 기준으로</text>
+    <text x="372" y="216" text-anchor="middle" fill="#1565c0" font-size="10.5">빠진 field_id 는</text>
+    <text x="372" y="231" text-anchor="middle" fill="#1565c0" font-size="10.5">"내역 누락(검토 필요)"</text>
+
+    <line x1="242" y1="68" x2="268" y2="70" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="242" y1="108" x2="268" y2="112" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="242" y1="148" x2="268" y2="154" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="242" y1="188" x2="268" y2="200" stroke="#6b6b66" marker-end="url(#ar)"/>
+
+    <rect x="512" y="20" width="200" height="238" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+    <text x="524" y="42" font-weight="700" fill="#2e7d32">RecordResult</text>
+    <text x="524" y="72" font-family="monospace" font-size="10.5" fill="#2e7d32">.verdict</text>
+    <text x="524" y="112" font-family="monospace" font-size="10.5" fill="#2e7d32">.matched_item_ids</text>
+    <text x="524" y="152" font-family="monospace" font-size="10.5" fill="#2e7d32">.reasoning</text>
+    <text x="524" y="192" font-family="monospace" font-size="10.5" fill="#2e7d32">.findings</text>
+    <text x="524" y="228" font-size="10" fill="#2e7d32" opacity=".85">+ .record, .candidates</text>
+    <text x="524" y="244" font-size="10" fill="#2e7d32" opacity=".85">  (코드가 채운다)</text>
+
+    <line x1="476" y1="70" x2="508" y2="68" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="476" y1="112" x2="508" y2="108" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="476" y1="154" x2="508" y2="148" stroke="#6b6b66" marker-end="url(#ar)"/>
+    <line x1="476" y1="207" x2="508" y2="190" stroke="#6b6b66" marker-end="url(#ar)"/>
+
+    <text x="752" y="120" font-size="10.5" fill="#6b6b66">→ 리포트</text>
+    <text x="752" y="138" font-size="10.5" fill="#6b6b66">→ Streamlit</text>
+  </g>
+</svg>
+<figcaption>파란 상자는 전부 코드가 하는 검증이다. LLM 의 응답은 제안일 뿐,
+그대로 결과가 되지 않는다.</figcaption>
+</figure>
+
+<p>특히 두 번째 게이트가 중요합니다.</p>
+
+<pre>valid_cand_ids = {c.item.item_id for c in candidates}
+matched = [
+    str(x) for x in (parsed.get("matched_item_ids") or []) if str(x) in valid_cand_ids
+]</pre>
+
+<p>LLM 이 없는 <code>item_id</code> 를 지어내면 <strong>조용히 버려집니다</strong>.
+그래서 Langfuse 의 출력에 있는 id 가 리포트에는 안 보일 수 있습니다 — 버그가 아니라
+할루시네이션 방어가 작동한 것입니다.</p>
+
+<p><code>findings</code> 도 마찬가지로, LLM 의 응답이 아니라 <strong>기준 행의 필드 목록</strong>을
+기준으로 재구성됩니다. LLM 이 한 열을 빼먹으면 그 자리에
+<code>"LLM 응답에 항목 내역 누락(검토 필요)"</code> 이 채워집니다. 즉 findings 의 개수는
+언제나 엑셀 행의 열 개수와 같습니다.</p>
+
+<div class="qmemo" data-qid="impl-validation" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드의 검증 단계에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ===================================================================== -->
+<h2 id="fields"><span class="num">4</span>네 필드의 정확한 의미</h2>
+
+<p>이제 Langfuse 에서 보신 그 네 필드를 정확히 읽을 수 있습니다.</p>
+
+<h3>verdict — 행 하나에 대한 최종 한 마디</h3>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>값</th><th>뜻</th><th>읽는 법</th></tr>
+  <tr><td><code>same</code></td><td>찾았고 핵심 항목이 모두 일치</td><td>넘어가도 좋다</td></tr>
+  <tr><td><code>partial</code></td><td>찾았으나 일부만 일치</td><td><strong>findings 를 봐야</strong> 어디가 틀렸는지 안다</td></tr>
+  <tr><td><code>different</code></td><td>찾았으나 핵심 값이 다름</td><td>실제 불일치일 가능성이 높다</td></tr>
+  <tr><td><code>unknown</code></td><td>같은지 다른지 확신 불가</td><td>사람이 봐야 한다 — 실패가 아니다</td></tr>
+  <tr><td><code>not_found</code></td><td>이 행에 해당하는 내용을 못 찾음</td><td>검색 실패일 수도 있다(§5 참고)</td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="t">파싱 실패 시의 조용한 기본값</span>
+  <p>LLM 이 스키마에 없는 값을 뱉으면 <code>_to_verdict()</code> 가
+  <strong><code>different</code> 로 떨어뜨립니다</strong>(<code>unknown</code> 이 아닙니다).
+  <code>different</code> 인데 <code>reasoning</code> 이 이상하게 빈약하다면 이 경로를 의심해 보세요.</p>
+</div>
+
+<h3>matched_item_ids — "어디에서 찾았는가"</h3>
+
+<p>LLM 이 근거로 삼은 후보의 <code>item_id</code> 목록입니다. 검증을 통과한 것만 남습니다.
+id 형식이 곧 위치를 말해 줍니다.</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>형식</th><th>의미</th></tr>
+  <tr><td><code>제품소개.docx#p17</code></td><td>Word 의 17번째 단락</td></tr>
+  <tr><td><code>카탈로그.pptx#s5_sh2</code></td><td>PPT 5번 슬라이드의 2번째 도형</td></tr>
+  <tr><td><code>사양.xlsx#Sheet1!12</code></td><td>엑셀 Sheet1 의 12행</td></tr>
+  <tr><td><code>...#chunk0</code> 접미사</td><td>긴 항목이 <code>chunk_chars</code> 로 잘린 조각</td></tr>
+</table>
+</div>
+
+<h3>reasoning — 사람을 위한 서술</h3>
+
+<p>"이 행의 내용이 대상의 어디에 있는지, 왜 그렇게 판단했는지"를 한국어로 쓰게 한 필드입니다.
+<code>unknown</code> 일 때는 <strong>왜 어려운지를 반드시 적으라</strong>고 프롬프트가 요구합니다 —
+그래서 unknown 의 reasoning 이 비어 있으면 그 자체가 이상 신호입니다.</p>
+
+<h3>findings — 열별 확인 내역</h3>
+
+<p>배열의 각 원소는 엑셀 한 <em>셀</em>에 대응합니다.</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>키</th><th>의미</th><th>주의</th></tr>
+  <tr><td><code>field_id</code></td><td>어느 셀인가 (<code>파일#시트!C12</code>)</td><td>코드가 이 값으로 기준 필드와 맞춘다</td></tr>
+  <tr><td><code>found</code></td><td>대상에서 이 항목을 찾았는가</td><td><strong>찾았다는 뜻일 뿐, 일치한다는 뜻이 아니다</strong></td></tr>
+  <tr><td><code>note</code></td><td>일치/다름/불명과 그 근거 한 줄</td><td>실제 일치 여부는 여기에 서술된다</td></tr>
+  <tr><td><code>evidence</code></td><td>후보 원문 <strong>그대로</strong> 인용</td><td>후보에 없는 문구면 할루시네이션이다</td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="t">가장 헷갈리는 지점: found ≠ 일치</span>
+  <p><code>found: true</code> 는 "대상 문서에서 이 항목에 해당하는 서술을 찾았다"는 뜻입니다.
+  값이 맞는지는 <code>note</code> 에 적힙니다. 앞의 예에서 출시일은
+  <code>found: true</code> 이면서 <strong>값은 다릅니다</strong>(2025-03 vs 2025년 4월).
+  found 만 세어서 "몇 개 일치"라고 읽으면 틀립니다.</p>
+</div>
+
+<p>이 구조가 그대로 리포트 표가 됩니다 — <code>report/markdown_report.py</code> 가
+<code>findings</code> 를 돌며 항목·판단·인용 세 열을 찍습니다.</p>
+
+<div class="qmemo" data-qid="fields-meaning" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">네 필드 중 해석이 애매한 것이 있다면</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ===================================================================== -->
+<h2 id="pitfalls"><span class="num">5</span>경계와 함정 — trace 를 읽을 때 속지 않으려면</h2>
+
+<h3>후보가 0개면 trace 자체가 없다</h3>
+
+<p>이것이 trace 를 읽을 때 가장 크게 오해하는 지점입니다.</p>
+
+<figure>
+<svg viewBox="0 0 860 170" role="img" aria-label="후보가 없으면 LLM 을 부르지 않고 즉시 not_found 로 끝난다">
+  <g font-family="-apple-system,Segoe UI,Noto Sans KR,sans-serif" font-size="11.5">
+    <rect x="8" y="58" width="150" height="54" rx="10" fill="#e0f2f1" stroke="#00796b" stroke-width="1.5"/>
+    <text x="83" y="82" text-anchor="middle" font-weight="700" fill="#00796b">3. 검색</text>
+    <text x="83" y="100" text-anchor="middle" fill="#00796b" font-size="10">후보 몇 개?</text>
+
+    <path d="M162,74 L226,40" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+    <path d="M162,96 L226,130" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+    <text x="176" y="48" font-size="10" fill="#6b6b66">1개 이상</text>
+    <text x="176" y="140" font-size="10" fill="#c62828" font-weight="700">0개</text>
+
+    <rect x="232" y="14" width="180" height="52" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+    <text x="322" y="37" text-anchor="middle" font-weight="700" fill="#e65100">LLM 호출</text>
+    <text x="322" y="55" text-anchor="middle" fill="#e65100" font-size="10">→ Langfuse 에 trace 생성</text>
+
+    <rect x="232" y="106" width="180" height="52" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+    <text x="322" y="129" text-anchor="middle" font-weight="700" fill="#c62828">즉시 not_found 반환</text>
+    <text x="322" y="147" text-anchor="middle" fill="#c62828" font-size="10">→ trace 없음</text>
+
+    <rect x="446" y="106" width="404" height="52" rx="10" fill="#fff" stroke="#e0e0da" stroke-width="1.5"/>
+    <text x="460" y="128" font-size="11" fill="#1c1c1a" font-weight="700">따라서:</text>
+    <text x="460" y="147" font-size="10.5" fill="#6b6b66">리포트에 not_found 가 많은데 trace 가 적다 → 판정이 아니라 검색이 원인</text>
+    <path d="M416,132 L442,132" stroke="#6b6b66" fill="none" marker-end="url(#ar)"/>
+  </g>
+</svg>
+<figcaption>후보가 하나도 없으면 LLM 을 부를 이유가 없다. 비용을 아끼는 최적화지만,
+동시에 진단의 단서이기도 하다.</figcaption>
+</figure>
+
+<pre>if not candidates:
+    return RecordResult(
+        record=record,
+        verdict=Verdict.NOT_FOUND,
+        reasoning="관련 후보가 없어 비교 대상을 찾지 못함.",
+        ...
+    )</pre>
+
+<p>그러니 <strong>"대상에 없음"이 많다고 해서 LLM 프롬프트를 고치는 것은 헛수고일 수 있습니다.</strong>
+trace 수가 기준 항목 수보다 훨씬 적다면 손봐야 할 곳은 3단계 검색
+(<code>recall_k</code>, <code>top_k</code>, 임베딩 모델, 교차언어 접두어)입니다.</p>
+
+<h3>같은 항목의 trace 가 둘이면 재시도다</h3>
+
+<p>§3.4 에서 본 대로, 첫 응답이 JSON 으로 파싱되지 않으면 "JSON만 출력하세요"를 덧붙여
+한 번 더 부릅니다. 두 번째 trace 의 user 프롬프트 끝에 그 문장이 붙어 있는지 보면
+바로 확인됩니다.</p>
+
+<h3>임베딩 호출은 기본적으로 trace 에 없다</h3>
+
+<p><code>trace_embeddings</code> 가 기본 <code>false</code> 입니다. 한 번에 20건씩 묶여 오고
+출력이 숫자 벡터라 trace 만 지저분해지기 때문입니다. 그래서 Langfuse 에 보이는 것은
+사실상 판정 호출뿐입니다.</p>
+
+<h3>fact 엔진에는 이 모듈이 관여하지 않는다</h3>
+
+<p><code>--engine fact</code> 로 돌리면 이 경로를 전혀 타지 않습니다. 거기서는
+<code>F7 개념 판정</code> → <code>F5 값 대조</code> 로 이름이 따로 붙고,
+<strong>값 비교는 LLM 이 아니라 코드가</strong> 합니다. 같은 이모지를 써도 라벨의 뜻이
+다르니(RAG ✅=같음 / fact ✅=일치) 두 엔진의 결과를 섞어 읽지 않도록 주의하세요.</p>
+
+<div class="qmemo" data-qid="pitfalls-diagnosis" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">실제 trace 를 보다가 이상했던 사례가 있다면 여기에</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ===================================================================== -->
+<h2 id="quiz"><span class="num">6</span>이해 확인 퀴즈</h2>
+
+<p>답을 클릭하면 채점과 해설이 나옵니다.</p>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q1. Langfuse trace 의 출력에 <code>findings</code> 가 들어 있다. 이로부터 확실히 알 수 있는 것은?</div>
+  <button class="opt">기준 문서가 Word 이고 대상이 엑셀이다</button>
+  <button class="opt">기준 항목이 필드를 가진 엑셀 행이라 <code>compare_record()</code> 가 불렸다</button>
+  <button class="opt">판정이 <code>partial</code> 이었다</button>
+  <button class="opt">후보가 10개 이상 검색됐다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q2. 기준 엑셀이 300행인데 Langfuse 에 trace 가 90건뿐이고, 리포트에는 <code>not_found</code> 가 210건이다. 가장 먼저 의심할 곳은?</div>
+  <button class="opt">시스템 프롬프트의 판정 기준이 너무 엄격하다</button>
+  <button class="opt">LLM 이 <code>not_found</code> 를 남발하고 있다</button>
+  <button class="opt">3단계 검색이 후보를 못 찾아 LLM 이 아예 호출되지 않았다</button>
+  <button class="opt">JSON 파싱이 실패해 재시도가 돌고 있다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q3. 어떤 열의 finding 이 <code>found: true</code> 이고 <code>note</code> 에 "기준 2025-03, 대상 2025년 4월로 상이"라고 적혀 있다. 이 열은?</div>
+  <button class="opt">대상 문서에서 해당 서술은 찾았지만 값이 다르다</button>
+  <button class="opt">대상 문서에 해당 내용이 아예 없다</button>
+  <button class="opt">값이 일치하므로 넘어가도 된다</button>
+  <button class="opt"><code>found</code> 가 true 이므로 일치 판정이다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q4. LLM 이 <code>matched_item_ids</code> 에 <code>보고서.docx#p99</code> 를 넣었는데 그 문서는 후보 목록에 없었다. 무슨 일이 일어나는가?</div>
+  <button class="opt">예외가 발생해 그 항목의 판정이 실패한다</button>
+  <button class="opt">그대로 리포트에 실린다</button>
+  <button class="opt"><code>verdict</code> 가 <code>unknown</code> 으로 강등된다</button>
+  <button class="opt">코드가 그 id 를 걸러내 결과에서 사라진다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q5. 엑셀 행에 열이 4개인데 LLM 이 <code>findings</code> 를 3개만 돌려줬다. 최종 <code>RecordResult.findings</code> 의 길이는?</div>
+  <button class="opt">3 — LLM 이 답한 것만 남는다</button>
+  <button class="opt">4 — 빠진 열은 "내역 누락(검토 필요)"로 채워진다</button>
+  <button class="opt">0 — 스키마 불일치로 전체가 버려진다</button>
+  <button class="opt">4 — 빠진 열은 <code>found: true</code> 로 낙관적으로 채워진다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">퀴즈에서 헷갈린 문항이나 더 알고 싶은 주제</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="small" style="margin-top:44px;border-top:1px solid var(--line);padding-top:18px">
+관련 문서: <code>contentcompare/pipeline.py</code> ·
+<code>contentcompare/comparison/prompts.py</code> ·
+<code>contentcompare/comparison/comparator.py</code> ·
+<code>contentcompare/llm/tracing.py</code> ·
+<code>contentcompare/report/markdown_report.py</code>
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var EXPLAIN = [
+    "findings 는 RECORD_SYSTEM_PROMPT 로 판정할 때만 생기는 필드입니다. pipeline.py 의 분기 조건은 isinstance(ref, RecordItem) and ref.fields — 즉 필드를 가진 엑셀 행일 때만 compare_record() 가 불립니다. verdict 값이나 후보 수와는 무관합니다.",
+    "후보가 0개면 comparator 가 LLM 을 부르지 않고 즉시 not_found 를 반환합니다. 따라서 trace 가 없습니다. 210건이 trace 없이 not_found 가 됐다는 것은 검색이 후보를 못 찾았다는 뜻이므로, 손봐야 할 곳은 프롬프트가 아니라 recall_k·top_k·임베딩 모델 쪽입니다.",
+    "found 는 '대상에서 해당 서술을 찾았는가'만 뜻하고, 값이 맞는지는 note 에 적힙니다. 이 둘을 혼동해 found 개수를 일치 개수로 읽는 것이 가장 흔한 오독입니다.",
+    "compare_record() 는 valid_cand_ids 집합을 만들어 후보에 실제로 있는 id 만 남깁니다. 할루시네이션 방어라 예외도 나지 않고 조용히 사라집니다. 그래서 Langfuse 출력에는 있는 id 가 리포트에는 없을 수 있습니다.",
+    "코드는 LLM 응답이 아니라 기준 행의 필드 목록을 기준으로 findings 를 재구성합니다. 응답에 없는 field_id 자리에는 found=False 와 'LLM 응답에 항목 내역 누락(검토 필요).' 이 채워집니다. 그래서 길이는 언제나 열 개수와 같습니다.",
+  ];
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = quiz.querySelectorAll('.opt');
+    var fb = quiz.querySelector('.fb');
+    opts.forEach(function (btn, i) {
+      btn.addEventListener('click', function () {
+        opts.forEach(function (b) { b.disabled = true; });
+        opts[answer].classList.add('correct');
+        if (i !== answer) btn.classList.add('wrong');
+        fb.textContent = (i === answer ? '✅ 정답입니다. ' : '❌ 아쉽습니다. ') + EXPLAIN[qi];
+        fb.classList.add('show');
+      });
+    });
+  });
+})();
+
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+</script>
+</body>
+</html>

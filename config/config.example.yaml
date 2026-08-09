@@ -20,8 +20,24 @@ llm:
   rate_limit_wait: 60      # 요청 한도(HTTP 429) 시 대기 초. 서버 Retry-After 가 있으면 그 값 우선
   rate_limit_max_retries: 5  # 429 전용 재시도 횟수(분당 한도 회복용, 일반 재시도와 별도)
 
+  # 사전 스로틀 — 애초에 한도에 안 걸리도록 호출 페이스를 조절한다.
+  # 위 두 값이 '걸린 뒤 기다리는' 사후 대응이라면 이쪽은 사전 대응이다.
+  # fact 엔진은 실행 한 번에 수백 회를 부르므로, 사후 대응만 두면 1분씩 멈추는 일이
+  # 반복된다. 사내 한도가 분당 60회면 55 정도를 권한다(다른 프로세스·재시도 여유분).
+  max_calls_per_minute: 0    # 0=끔. chat 과 embedding 이 같은 키를 쓰면 합산해서 센다
+  # 한도 초과 응답이 표준(429)이 아닌 게이트웨이를 위한 확장 지점.
+  # 실제 응답 형태는 한도에 걸렸을 때 화면/로그에 찍히는 진단 줄로 확인할 수 있다.
+  rate_limit_status_codes: [429]
+  rate_limit_markers: ["rate limit", "too many requests", "quota", "요청 한도"]
+
   ollama:
     host: http://localhost:11434
+    num_ctx: 16384         # 컨텍스트 창(토큰). 0=미지정(Ollama 기본 4096).
+                           # fact 엔진은 표 전체를 한 프롬프트에 넣어 4096 을 쉽게 넘고,
+                           # 초과 시 Ollama 는 오류가 아니라 빈 응답을 준다 → 반드시 상향.
+    think: false           # thinking 모델의 사고 과정 사용 여부(미지정하려면 줄 삭제).
+                           # false 면 훨씬 빠르고(실측 219s→26s) 컨텍스트를 답변에만 쓴다.
+                           # thinking 미지원 모델에 지정하면 Ollama 가 거부할 수 있다.
 
   # internal(requests 직접 호출) 과 langchain(langchain-openai) 백엔드는
   # 아래 internal 섹션 설정을 공유한다. backend 값만 바꾸면 된다.
@@ -32,6 +48,55 @@ llm:
     unset_proxy: true      # true 면 시작 시 HTTP(S)_PROXY 를 전역으로 비움(복원 없음)
     verify_ssl: false
     log_proxy: false       # true 면 호출 직전 적용 프록시 env 를 로그로 출력
+
+  # LLM 입출력 추적(Langfuse) — 프롬프트/응답/지연을 단계별로 남긴다.
+  # 로그 파일은 HTTP 페이로드를 1000자에서 자르고 artifacts/ 에는 최종 산출물만 남아
+  # "무엇을 넣어 무엇을 받았는지"를 볼 수 없었다. 이 섹션이 그 공백을 메운다.
+  #
+  # 설치: pip install -e ".[langfuse]"        (사내망이면 내부 PyPI 미러 필요)
+  # 확인: contentcompare --check --config config/config.yaml
+  #
+  # host/public_key/secret_key 가 **셋 다** 채워져야 켜진다. 하나라도 비면 조용히 꺼진다
+  # (반쯤 켜진 상태로 도는 것보다 확실히 꺼지는 편이 원인 추적에 낫다).
+  langfuse:
+    host: ""                 # 예) http://langfuse.intra.corp — 비우면 비활성
+    public_key: ""           # 비워두고 아래 *_env 사용 권장(시크릿을 파일에 두지 않는다)
+    secret_key: ""
+    public_key_env: LANGFUSE_PUBLIC_KEY   # public_key 가 비었을 때 읽을 환경변수
+    secret_key_env: LANGFUSE_SECRET_KEY   # secret_key 가 비었을 때 읽을 환경변수
+    enabled: true            # 키가 다 있어도 잠시 끄고 싶으면 false
+    trace_embeddings: false  # 임베딩까지 추적할지. 기본 false — 20건씩 묶여 오고
+                             # 출력이 숫자 벡터라 trace 만 지저분해진다
+    flush_timeout: 5.0       # 종료 시 전송 대기 상한(초)
+    debug: false             # SDK 자체 디버그 로그
+
+    # 사내 사설 인증서를 쓰는 자체호스팅이면 여기에 CA 를 지정한다.
+    #
+    # 💡 대개 **비워 두는 게 정답**이다. langfuse extra 에 truststore 가 들어 있어
+    #    Windows 인증서 저장소를 그대로 쓴다 — 브라우저로 Langfuse 웹이 열리는 PC 면
+    #    사내 루트 CA 가 이미 거기 있으므로 PEM 파일을 만들 필요가 없다.
+    #    (설치 확인: pip show truststore / 없으면 pip install truststore)
+    #
+    # 아래는 그것으로도 안 될 때(OS 저장소에 루트가 없는 환경)만 쓴다.
+    # 값을 넣으면 truststore 대신 이 파일만 신뢰한다 — 사람의 명시가 우선.
+    ssl_cert: ""             # 예) "C:/Users/SDI_USER/SDI_certificate.pem"
+                             # ⚠️ 반드시 PEM 형식. .cer 은 바이너리(DER)인 경우가 많다.
+                             #    확인:  head -1 파일.cer  → "-----BEGIN" 이 보여야 PEM
+                             #    변환:  openssl x509 -inform DER -in x.cer -out corp-ca.pem
+    verify_ssl: true         # false 면 검증을 끈다 — **최후의 수단**.
+                             # 인증서를 못 구할 때만. ssl_cert 쪽이 안전하다.
+  # ⚠️ 프롬프트에는 문서 본문이 그대로 들어간다. 사내 자체호스팅을 전제로 하며,
+  #    Langfuse 서버의 접근 권한은 문서 열람 권한과 같은 수준이어야 한다.
+  # ⚠️ artifacts 캐시가 적중한 단계는 LLM 을 호출하지 않아 trace 가 없다.
+  #    전체를 다시 보려면 artifacts/<문서> 폴더를 지우고 실행한다(실행 시 안내됨).
+
+  # --- 로컬 LLM 추적 (서버 불필요, Langfuse 와 독립적으로 켤 수 있다) ---
+  # Streamlit '🔬 파이프라인 현미경' 탭이 이 파일들을 읽어 "이 단계에서 LLM 이 무엇을
+  # 보고 무엇을 답했는지"를 화면에 싣는다. 둘 다 켜면 양쪽에 동시에 기록된다.
+  trace_local: false         # ⚠️ 기본 off — 켜면 문서 원문이 디스크에 평문으로 남는다.
+                             #    오판을 추적하는 동안만 켤 것.
+  trace_dir: artifacts/_traces   # <trace_dir>/<실행>/<순번>-<단계>.json + index.json
+  trace_max_chars: 0         # 기록 1건의 최대 길이(0=무제한). 자르면 truncated: true
 
 excel:
   granularity: hybrid       # row | field | hybrid (행=검색, 셀=판정)
@@ -65,3 +130,48 @@ knowledge:                 # 사람이 작성하는 도메인 지식(human-in-th
   enabled: true            # true 면 dir 의 모든 .md 를 비교 프롬프트에 참고자료로 항상 주입
   dir: knowledge           # 지식 Markdown 파일들이 있는 디렉터리
   max_chars: 12000         # 프롬프트에 주입할 지식 최대 길이(초과분은 잘림)
+
+fact:                      # 신규 fact 파이프라인(--engine fact 일 때만 사용)
+  artifacts_dir: "artifacts"       # 중간 산출물 저장 루트(artifacts/<문서>/<단계>.json)
+  save_artifacts: true             # 중간 산출물 항상 저장
+  cache: true                      # 단계별 산출물 캐싱(같은 입력이면 재호출 0)
+  max_llm_calls_per_doc: 50        # 문서당 LLM 호출 예산
+  record_batch_rows: 30            # F2: 한 LLM 호출당 정규화할 데이터 행 수
+  fact_batch_blocks: 20            # F3: 한 LLM 호출당 처리할 Word/PPT 블록/도형 수
+  max_repair_iters: 2              # Repair Loop 최대 반복(F4b, 미구현)
+  # --- 비교 단계(F5) ---
+  match_top_k: 3                   # 기준 fact 하나당 검토할 대상 후보 수
+  match_min_score: 0.65            # 후보 인정 최소 임베딩 코사인(미만이면 '대상에 없음')
+                                   # 실측 근거: 정답 0.697~0.808 vs 오매칭 0.449~0.700
+  match_review_score: 0.75         # 이 미만이면 코드 단독 판정을 믿지 않고 LLM 에 위임
+  compare_use_llm: true            # false 면 코드 판정만(애매한 건 전부 판단보류)
+  max_llm_calls_per_compare: 100   # 비교 단계 LLM 호출 예산(문서 처리 예산과 별도)
+  # --- 개념 그래프(F7) ---
+  use_concept_graph: true          # false 면 예전 유사도 매칭으로 롤백
+  concept_recall_top_k: 5          # 기준 fact 당 개념 판정에 올릴 후보 수
+  concept_recall_min: 0.3          # 후보 생성 최소 유사도(판정 아님 — 계산량 제한)
+  concept_batch_pairs: 20          # 한 LLM 호출당 판정할 쌍 수
+  max_llm_calls_per_concept: 30    # 개념 단계 LLM 호출 예산
+  ontology_path: knowledge/ontology.yaml   # 사람이 승격한 개념 관계
+
+  # --- 진단 계측 (LLM 을 부르지 않아 비용 0) ---
+  # '대상에 없음' 판정의 원인은 여섯 가지인데(recall 실패·LLM 미판정·근거 게이트 강등·
+  # F3 추출 누락·의도된 차단·F5 LLM 판정) 아래 두 산출물이 없으면 앞의 둘을 구분할 수
+  # 없다. 오판 추적이 목적이므로 끄지 말 것.
+  save_candidate_pairs: true       # candidate_pairs.json — 후보 랭킹 + 탈락 사유(cut_by)
+  save_facts_by_block: true        # facts_by_block.json — 블록/행 → fact 매핑, 미인용 블록
+  # ※ use_concept_graph: true 면 match_top_k / match_min_score / match_review_score 는
+  #    비교 경로에서 사용되지 않는다(후보는 개념 그래프가 준다). 롤백용으로만 남겨 둔 값이며
+  #    조정해도 F7 결과는 바뀌지 않는다 — 후보 수는 concept_recall_top_k 로 조절한다.
+  # ※ compare_use_llm: false 는 더 이상 '무 LLM 실행'을 보장하지 않는다. 개념 단계(F7)는
+  #    max_llm_calls_per_concept 라는 별도 예산으로 LLM 을 호출한다. 완전히 끄려면
+  #    use_concept_graph: false 로 둘 것(온톨로지에 이미 승격된 쌍은 원래 LLM 을 안 쓴다).
+
+logging:                   # 로그 파일 잡음 조절 (둘 다 로거 이름의 '접두어')
+  # 서드파티 저수준 로거(urllib3·httpcore·httpx·openai·matplotlib 등)는 기본으로 이미
+  # WARNING 으로 올려 숨긴다 — 목록은 contentcompare/logging_setup.py 의 NOISY_LOGGERS.
+  # 아래 두 값은 그 위에 얹는 조정이며, 같은 이름이 양쪽에 있으면 verbose 가 이긴다.
+  quiet_extra: []          # 추가로 숨길 로거. 예: ["pptx", "docx", "fontTools"]
+  verbose_extra: []        # 반대로 전부 볼 로거. 예: ["urllib3", "httpcore"] (HTTP 의심 시)
+  # ※ 우리 코드(contentcompare.*)의 DEBUG(프롬프트·LLM 원문 응답)는 어느 쪽도 건드리지 않는다.
+  # ※ 한 번만 전부 열려면 설정 대신 환경변수: CONTENTCOMPARE_LOG_NOISY=1

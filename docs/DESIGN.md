@@ -137,6 +137,7 @@ report:
 ## 10. 향후 작업(TODO)
 
 구체적인 단계별 구현 계획은 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) 참고.
+차세대(fact 기반) 비교 방식 재설계 계획은 [`FACT_PIPELINE_PLAN.md`](FACT_PIPELINE_PLAN.md) 참고 — 본 문서(현행 RAG 방식)와 비교·공존을 전제로 한다.
 확정된 방향: 엑셀 **hybrid 분해**(행 검색 + 필드 판정), **하이브리드 검색**(임베딩+BM25 RRF)+캐시,
 **Streamlit 로컬 UI**.
 

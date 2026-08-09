@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>바구니에 담기와 금지표 — 맞는 판정이 거절당한 이유</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1c1c1a; --muted:#6b6b66; --line:#e0e0da;
+  --card:#ffffff; --shadow:0 1px 3px rgba(0,0,0,.06);
+  --ok:#2e7d32; --ok-bg:#e8f5e9;
+  --bad:#c62828; --bad-bg:#ffebee;
+  --gray:#607d8b; --gray-bg:#eceff1;
+  --amber:#ef6c00; --amber-bg:#fff3e0;
+  --xl:#2e7d32; --xl-bg:#e8f5e9;      /* 엑셀 카드 */
+  --wd:#1565c0; --wd-bg:#e3f2fd;      /* 워드 카드 */
+  --code:#1565c0; --llm:#e65100; --human:#6a1b9a;
+  --accent:#0f766e;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"D2Coding","맑은 고딕",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#16181c; --fg:#e8e8e4; --muted:#a0a09a; --line:#33363d;
+    --card:#1e2127; --shadow:0 1px 3px rgba(0,0,0,.4);
+    --ok:#81c784; --ok-bg:#1b3a1f;
+    --bad:#ef9a9a; --bad-bg:#3d1f1f;
+    --gray:#b0bec5; --gray-bg:#2b3136;
+    --amber:#ffb74d; --amber-bg:#3d2c14;
+    --xl:#81c784; --xl-bg:#1b3a1f;
+    --wd:#90caf9; --wd-bg:#16293d;
+    --code:#90caf9; --llm:#ffb074; --human:#ce93d8;
+    --accent:#5eead4;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","맑은 고딕",sans-serif;
+  line-height:1.8;font-size:17px;padding-bottom:92px}
+.wrap{max-width:880px;margin:0 auto;padding:0 20px}
+header.hero{padding:56px 0 28px;border-bottom:1px solid var(--line)}
+header.hero h1{font-size:2rem;line-height:1.32;margin:0 0 14px;letter-spacing:-.02em}
+header.hero .sub{color:var(--muted);font-size:1.02rem;margin:0}
+header.hero .meta{color:var(--muted);font-size:.85rem;margin-top:18px}
+h2{font-size:1.5rem;margin:58px 0 6px;letter-spacing:-.01em;scroll-margin-top:20px}
+h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:.5rem}
+h3{font-size:1.14rem;margin:34px 0 6px}
+p{margin:14px 0}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.88em;background:var(--gray-bg);padding:.1em .35em;border-radius:4px}
+pre{font-family:var(--mono);font-size:.82rem;line-height:1.6;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;
+  white-space:pre;margin:16px 0}
+pre.wrap-pre{white-space:pre-wrap}
+.small{font-size:.9rem;color:var(--muted)}
+
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:18px 22px;margin:28px 0 10px;box-shadow:var(--shadow)}
+nav.toc h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px}
+nav.toc ol{margin:0;padding-left:1.3em}
+nav.toc li{margin:5px 0}
+nav.toc a{text-decoration:none}
+nav.toc a:hover{text-decoration:underline}
+
+.callout{border-left:4px solid var(--accent);background:var(--card);border-radius:0 10px 10px 0;
+  padding:14px 18px;margin:22px 0;box-shadow:var(--shadow)}
+.callout .t{font-weight:700;display:block;margin-bottom:4px;font-size:.94rem}
+.callout.warn{border-left-color:var(--bad)}
+.callout.key{border-left-color:var(--amber)}
+.callout.good{border-left-color:var(--ok)}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+
+/* ---- 카드(이름표) ---- */
+.nc{display:inline-block;padding:5px 12px;border-radius:8px;font-size:.86rem;
+  font-weight:700;border:1.5px solid;white-space:nowrap;margin:3px}
+.nc.xl{background:var(--xl-bg);color:var(--xl);border-color:var(--xl)}
+.nc.wd{background:var(--wd-bg);color:var(--wd);border-color:var(--wd)}
+.nc.dim{opacity:.4}
+
+/* ---- 바구니 ---- */
+.buckets{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}
+.bk{border:2px dashed var(--line);border-radius:14px;padding:10px 12px 12px;
+  background:var(--card);min-width:120px}
+.bk .bkname{font-size:.72rem;color:var(--muted);font-weight:700;letter-spacing:.04em;
+  display:block;margin-bottom:6px}
+.bk.hot{border-style:solid;border-color:var(--amber);background:var(--amber-bg)}
+.bk.bad{border-style:solid;border-color:var(--bad);background:var(--bad-bg)}
+.bk.newly{border-style:solid;border-color:var(--ok)}
+
+/* ---- 단계 패널 ---- */
+.step{background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.step .sh{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
+.step .sn{background:var(--accent);color:#fff;font-weight:700;border-radius:99px;
+  padding:2px 12px;font-size:.82rem}
+.step .st{font-weight:700}
+.step .req{font-family:var(--mono);font-size:.84rem;background:var(--gray-bg);
+  border-radius:7px;padding:7px 11px;margin:8px 0;display:inline-block}
+.step .verdict{margin-top:10px;font-size:.9rem;font-weight:700}
+.step .verdict.ok{color:var(--ok)}
+.step .verdict.bad{color:var(--bad)}
+
+/* ---- 요청 목록 ---- */
+.reqs{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:20px 0;background:var(--card)}
+.reqs .r{display:flex;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line);
+  font-size:.9rem;flex-wrap:wrap}
+.reqs .r:last-child{border-bottom:none}
+.reqs .idx{font-family:var(--mono);font-size:.76rem;color:var(--muted);flex:0 0 40px}
+.reqs .op{font-weight:700;font-size:1.05rem;flex:0 0 20px;text-align:center}
+.reqs .r.same .op{color:var(--ok)}
+.reqs .r.diff .op{color:var(--bad)}
+.reqs .r.killed{background:var(--bad-bg)}
+.reqs .note{font-size:.78rem;color:var(--muted);margin-left:auto}
+
+.tbl-wrap{overflow-x:auto;margin:20px 0}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:420px}
+th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:var(--gray-bg);font-weight:700;font-size:.83rem}
+
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.pill.code{background:var(--wd-bg);color:var(--code)}
+.pill.llm{background:var(--amber-bg);color:var(--llm)}
+.pill.human{background:#f3e5f5;color:var(--human)}
+@media (prefers-color-scheme:dark){.pill.human{background:#2e1b38}}
+
+figure{margin:28px 0}
+figure svg{max-width:100%;height:auto;display:block;margin:0 auto}
+figcaption{font-size:.83rem;color:var(--muted);text-align:center;margin-top:10px;line-height:1.6}
+
+.qmemo{border:1.5px dashed var(--line);background:var(--gray-bg);border-radius:10px;
+  padding:12px 15px;margin:24px 0}
+.qmemo-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:7px}
+.qmemo-label{font-size:.76rem;font-weight:700;color:var(--accent);letter-spacing:.03em}
+.qmemo-hint{font-size:.75rem;color:var(--muted)}
+.qmemo-question{min-height:2.1em;background:var(--card);border:1px solid var(--line);
+  border-radius:7px;padding:8px 11px;font-size:.9rem;outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:var(--muted);opacity:.65}
+.qmemo-question:focus{border-color:var(--accent)}
+.qmemo-answer{margin-top:10px;padding:10px 13px;background:var(--card);
+  border-left:3px solid var(--accent);border-radius:0 7px 7px 0;font-size:.9rem}
+.qmemo[data-status="answered"]{border-style:solid;border-color:var(--accent);background:var(--card)}
+
+.quiz{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin:22px 0;box-shadow:var(--shadow)}
+.quiz .q{font-weight:700;margin-bottom:12px}
+.quiz .opt{display:block;width:100%;text-align:left;padding:10px 14px;margin:7px 0;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);
+  cursor:pointer;font-size:.92rem;font-family:inherit;line-height:1.55}
+.quiz .opt:hover:not(:disabled){border-color:var(--accent)}
+.quiz .opt:disabled{cursor:default}
+.quiz .opt.correct{background:var(--ok-bg);border-color:var(--ok);color:var(--ok);font-weight:700}
+.quiz .opt.wrong{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.quiz .fb{margin-top:12px;font-size:.88rem;padding:11px 14px;border-radius:8px;
+  background:var(--gray-bg);display:none}
+.quiz .fb.show{display:block}
+
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);
+  border-top:1px solid var(--line);padding:10px 20px;display:flex;gap:14px;align-items:center;
+  justify-content:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.07);z-index:50}
+#qmemo-save-btn{background:var(--accent);color:#fff;border:none;padding:9px 20px;
+  border-radius:8px;font-size:.87rem;font-weight:700;cursor:pointer;font-family:inherit}
+#qmemo-saymsg{font-size:.8rem;color:var(--muted)}
+
+@media (max-width:640px){
+  body{font-size:16px}
+  header.hero h1{font-size:1.5rem}
+  h2{font-size:1.24rem;margin-top:44px}
+  .nc{font-size:.78rem;padding:4px 9px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>바구니에 담기와 금지표</h1>
+  <p class="sub">맞는 말을 했는데 왜 거절당했을까 — <code>rejected_by: "differs_by"</code> 의 정체</p>
+  <p class="meta">2026-08-06 · ContentCompare fact 엔진 · 실제 <code>concept_graph.json</code> 데이터로 재현</p>
+</header>
+
+<p>
+지난 설명이 너무 어려웠습니다. 죄송합니다. <strong>이번에는 아무것도 모른다고 가정하고</strong> 처음부터 갑니다.
+</p>
+<p>
+우리가 풀 문제는 이 한 덩어리입니다.
+</p>
+
+<pre class="wrap-pre">{
+  "relation": "unknown",
+  "left_text": "1495.0",
+  "right_text": "The maximum charging current shall not exceed 1.495A.",
+  "reason": "[거부됨: differs_by 제약 위반] 거부된 주장: 단위 환산(1495mA = 1.495A)을
+             고려할 때 동일한 항목인 최대충전전류를 의미합니다.",
+  "decided_by": "llm",
+  "rejected_by": "differs_by"
+}</pre>
+
+<p>
+읽어보면 이상합니다. <strong>1495mA 와 1.495A 는 같은 값이 맞습니다.</strong> 말도 맞게 했습니다.
+그런데 "거부됨"이라고 적혀 있어요. 누가, 왜 거부했을까요?
+</p>
+
+<div class="callout">
+  <span class="t">📝 읽다 막히면 그 자리에 적으세요</span>
+  <p>
+  섹션마다 <strong>「질문 메모」</strong> 상자가 있습니다. 적으면 브라우저에 자동 저장되고,
+  맨 아래 <strong>질문 저장</strong> 을 누르면 질문이 박힌 사본이 다운로드됩니다.
+  그 파일을 <code>docs/understanding/</code> 에 덮어쓴 뒤 답해달라고 하시면 됩니다.
+  </p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#s1">아주 처음부터 — 이 프로그램은 무슨 일을 하나</a></li>
+    <li><a href="#s2">짝을 찾은 다음에 벌어지는 일 — 바구니에 담기</a></li>
+    <li><a href="#s3">두 종류의 쪽지 — "같은 것" 과 "금지"</a></li>
+    <li><a href="#s4">사건 재현 — 3단계로 벌어진 일</a></li>
+    <li><a href="#s5">진짜 원인 — 네 마디가 동시에 참일 수 없다</a></li>
+    <li><a href="#s6">그래서 누가 막았나</a></li>
+    <li><a href="#s7">왜 하필 이 쪽지가 희생됐나 — 순서</a></li>
+    <li><a href="#s8">코드로 보기</a></li>
+    <li><a href="#s9">퀴즈</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================= -->
+<h2 id="s1"><span class="num">1</span>아주 처음부터 — 이 프로그램은 무슨 일을 하나</h2>
+
+<p>
+회사에 배터리 규격이 적힌 <strong>엑셀 표</strong>가 있습니다. 같은 내용이 <strong>워드 문서</strong>에도 들어갑니다.
+둘이 어긋나 있으면(엑셀엔 3.85V, 워드엔 3.89V) 잡아내는 것이 이 프로그램의 일입니다.
+</p>
+
+<p>
+그러려면 문서를 잘게 잘라 <strong>카드</strong>로 만듭니다. 카드 한 장이 "사실 하나"입니다.
+이 글에는 카드가 딱 <strong>네 장</strong>만 나옵니다. 이것만 기억하시면 됩니다.
+</p>
+
+<div class="buckets">
+  <div class="bk"><span class="bkname">📗 엑셀에서 나온 카드</span>
+    <span class="nc xl">표준충전전류</span>
+    <span class="nc xl">최대충전전류</span>
+  </div>
+  <div class="bk"><span class="bkname">📘 영어 워드에서 나온 카드</span>
+    <span class="nc wd">Standard charging current</span>
+    <span class="nc wd">Maximum charging current</span>
+  </div>
+</div>
+
+<p>
+<strong>표준(Standard)</strong> 은 "평소에 이렇게 충전하세요"이고, <strong>최대(Maximum)</strong> 는 "이보다 세게는 안 됩니다"입니다.
+서로 다른 규격이에요. 한국어 두 장과 영어 두 장이 이렇게 짝지어져야 정상입니다.
+</p>
+
+<div class="buckets">
+  <div class="bk newly"><span class="bkname">✅ 이래야 맞다</span>
+    <span class="nc xl">표준충전전류</span> <span class="nc wd">Standard charging current</span>
+  </div>
+  <div class="bk newly"><span class="bkname">✅ 이래야 맞다</span>
+    <span class="nc xl">최대충전전류</span> <span class="nc wd">Maximum charging current</span>
+  </div>
+</div>
+
+<div class="qmemo" data-qid="s1-cards" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">카드가 뭔지 아직 헷갈리면 여기에 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s2"><span class="num">2</span>짝을 찾은 다음에 벌어지는 일 — 바구니에 담기</h2>
+
+<p>
+AI가 "이 카드와 저 카드는 같은 항목입니다"라고 알려주면, 프로그램은 그 카드들을 <strong>같은 바구니</strong>에 담습니다.
+한 바구니에 담긴 카드들은 "같은 것을 말하는 카드 모임"이라는 뜻이에요.
+</p>
+
+<p>
+처음에는 카드마다 자기 바구니 하나씩입니다. 아무도 짝이 없는 상태죠.
+</p>
+
+<div class="buckets">
+  <div class="bk"><span class="bkname">바구니 1</span><span class="nc xl">표준충전전류</span></div>
+  <div class="bk"><span class="bkname">바구니 2</span><span class="nc wd">Standard charging current</span></div>
+  <div class="bk"><span class="bkname">바구니 3</span><span class="nc wd">Maximum charging current</span></div>
+  <div class="bk"><span class="bkname">바구니 4</span><span class="nc xl">최대충전전류</span></div>
+</div>
+
+<p>
+여기에 "표준충전전류 = Standard charging current" 라는 쪽지가 오면, 두 바구니를 <strong>합쳐서 하나</strong>로 만듭니다.
+</p>
+
+<div class="buckets">
+  <div class="bk newly"><span class="bkname">합쳐진 바구니</span>
+    <span class="nc xl">표준충전전류</span><span class="nc wd">Standard charging current</span></div>
+  <div class="bk"><span class="bkname">바구니 3</span><span class="nc wd">Maximum charging current</span></div>
+  <div class="bk"><span class="bkname">바구니 4</span><span class="nc xl">최대충전전류</span></div>
+</div>
+
+<div class="callout key">
+  <span class="t">🔑 여기서 딱 하나만 기억하세요</span>
+  <p>
+  바구니는 <strong>합치기만 하고 절대 나누지 않습니다.</strong> 한 번 같은 바구니에 들어간 카드는
+  끝까지 함께 갑니다.
+  </p>
+  <p>
+  그래서 <strong>실수로 잘못 합치면 되돌릴 방법이 없습니다.</strong> 이 사실이 오늘 사건의 열쇠입니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s2-buckets" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"바구니를 합친다"가 잘 안 그려지면 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s3"><span class="num">3</span>두 종류의 쪽지 — "같은 것" 과 "금지"</h2>
+
+<p>
+AI는 카드 짝마다 쪽지를 한 장씩 씁니다. 쪽지는 두 종류입니다.
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th style="width:26%">쪽지</th><th>뜻</th><th>프로그램이 하는 일</th></tr>
+  <tr>
+    <td><strong style="color:var(--ok)">= 같은 것</strong><br><span class="small"><code>same_as</code></span></td>
+    <td>이 두 카드는 같은 항목이다</td>
+    <td>두 바구니를 <strong>합친다</strong></td>
+  </tr>
+  <tr>
+    <td><strong style="color:var(--bad)">≠ 금지</strong><br><span class="small"><code>differs_by</code></span></td>
+    <td>이 두 카드는 다른 항목이다</td>
+    <td>둘이 <strong>같은 바구니에 못 들어가게</strong> 지켜본다</td>
+  </tr>
+</table>
+</div>
+
+<p>
+"금지" 쪽지는 무언가를 즉시 하지 않습니다. <strong>감시원처럼 옆에 서 있다가</strong>,
+누군가 바구니를 합치려 할 때만 나섭니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 720 260" role="img" aria-label="합치기 요청과 금지 감시원">
+  <defs><marker id="ar" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <path d="M0,0 L9,3.5 L0,7 z" fill="#78909c"/></marker></defs>
+
+  <rect x="14" y="30" width="180" height="60" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="104" y="55" font-size="12.5" font-weight="700" text-anchor="middle" fill="#1b5e20">= 같은 것 쪽지</text>
+  <text x="104" y="76" font-size="11" text-anchor="middle" fill="#2e7d32">"이 둘 합쳐 주세요"</text>
+
+  <path d="M198,60 L252,60" stroke="#78909c" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="260" y="18" width="180" height="84" rx="10" fill="#fff" stroke="#78909c" stroke-width="1.5"/>
+  <text x="350" y="43" font-size="12.5" font-weight="700" text-anchor="middle" fill="#37474f">⚙️ 프로그램</text>
+  <text x="350" y="64" font-size="11" text-anchor="middle" fill="#546e7a">합치기 전에 한 번 묻는다</text>
+  <text x="350" y="85" font-size="11" text-anchor="middle" fill="#546e7a">"금지에 걸리나?"</text>
+
+  <rect x="260" y="150" width="180" height="76" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="1.5"/>
+  <text x="350" y="175" font-size="12.5" font-weight="700" text-anchor="middle" fill="#c62828">≠ 금지 쪽지들</text>
+  <text x="350" y="196" font-size="11" text-anchor="middle" fill="#c62828">가만히 서서 지켜본다</text>
+  <text x="350" y="215" font-size="10.5" text-anchor="middle" fill="#8a5a5a">(스스로는 아무것도 안 함)</text>
+  <path d="M350,146 L350,110" stroke="#c62828" stroke-width="2" marker-end="url(#ar)"/>
+
+  <path d="M446,44 L500,44" stroke="#2e7d32" stroke-width="2" marker-end="url(#ar)"/>
+  <rect x="508" y="20" width="198" height="48" rx="10" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="607" y="42" font-size="12" font-weight="700" text-anchor="middle" fill="#1b5e20">안 걸림 → 합친다</text>
+  <text x="607" y="59" font-size="10.5" text-anchor="middle" fill="#2e7d32">바구니가 하나로</text>
+
+  <path d="M446,76 L500,76" stroke="#c62828" stroke-width="2" marker-end="url(#ar)"/>
+  <rect x="508" y="80" width="198" height="56" rx="10" fill="#ffebee" stroke="#c62828"/>
+  <text x="607" y="102" font-size="12" font-weight="700" text-anchor="middle" fill="#c62828">걸림 → 거절한다</text>
+  <text x="607" y="120" font-size="10.5" text-anchor="middle" fill="#8a5a5a">그 쪽지에 「거부됨」 도장</text>
+</svg>
+<figcaption>
+"금지" 쪽지는 <strong>거부권</strong>입니다. 평소엔 아무 일도 안 하다가, 합치기 요청이 올 때만
+"그거 합치면 우리 둘이 한 바구니가 되는데?"라고 나섭니다.
+</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="s3-two-notes" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">두 종류 쪽지의 차이가 헷갈리면 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s4"><span class="num">4</span>사건 재현 — 3단계로 벌어진 일</h2>
+
+<p>
+이제 실제로 무슨 일이 있었는지 봅니다. AI가 쓴 쪽지는 이 순서로 도착했습니다.
+<strong>순서가 중요하니 번호를 봐 주세요.</strong> (번호는 실제 <code>concept_graph.json</code> 의 저장 순서입니다.)
+</p>
+
+<div class="reqs">
+  <div class="r same"><span class="idx">[45]</span><span class="op">=</span>
+    <span><span class="nc xl">표준충전전류</span> <span class="nc wd">Standard charging current</span></span></div>
+  <div class="r same"><span class="idx">[47]</span><span class="op">=</span>
+    <span><span class="nc xl">표준충전전류</span> <span class="nc wd">Maximum charging current</span></span>
+    <span class="note">⚠️ 이게 틀린 쪽지</span></div>
+  <div class="r same killed"><span class="idx">[50]</span><span class="op">=</span>
+    <span><span class="nc xl">최대충전전류</span> <span class="nc wd">Maximum charging current</span></span>
+    <span class="note">← 우리가 궁금해하는 그 쪽지</span></div>
+  <div class="r diff"><span class="idx">[53]</span><span class="op">≠</span>
+    <span><span class="nc xl">최대충전전류</span> <span class="nc wd">Standard charging current</span></span>
+    <span class="note">금지 쪽지</span></div>
+</div>
+
+<div class="step">
+  <div class="sh"><span class="sn">1단계</span><span class="st">[45] 처리 — 합친다</span></div>
+  <div class="req">표준충전전류 = Standard charging current</div>
+  <p style="margin:6px 0 4px" class="small">금지 쪽지에 걸리나? 아니오. → 합칩니다.</p>
+  <div class="buckets">
+    <div class="bk newly"><span class="bkname">바구니 A</span>
+      <span class="nc xl">표준충전전류</span><span class="nc wd">Standard charging current</span></div>
+    <div class="bk"><span class="bkname">B</span><span class="nc wd">Maximum charging current</span></div>
+    <div class="bk"><span class="bkname">C</span><span class="nc xl">최대충전전류</span></div>
+  </div>
+  <div class="verdict ok">✅ 통과 — 이건 맞는 판정입니다</div>
+</div>
+
+<div class="step">
+  <div class="sh"><span class="sn">2단계</span><span class="st">[47] 처리 — 합친다 (그런데 이게 틀렸다)</span></div>
+  <div class="req">표준충전전류 = Maximum charging current</div>
+  <p style="margin:6px 0 4px" class="small">
+  <strong>이 쪽지는 틀렸습니다.</strong> 표준(Standard)과 최대(Maximum)는 다른 규격이니까요.
+  하지만 프로그램은 그걸 알 방법이 없습니다. 금지 쪽지에 걸리지도 않으니 그냥 합칩니다.
+  </p>
+  <div class="buckets">
+    <div class="bk hot"><span class="bkname">바구니 A — 오염됨</span>
+      <span class="nc xl">표준충전전류</span><span class="nc wd">Standard charging current</span><span class="nc wd">Maximum charging current</span></div>
+    <div class="bk"><span class="bkname">C</span><span class="nc xl">최대충전전류</span></div>
+  </div>
+  <div class="verdict bad">⚠️ 통과했지만 — 여기서 사고가 났습니다. <code>Maximum</code> 이 엉뚱한 바구니에 들어갔어요</div>
+</div>
+
+<div class="step">
+  <div class="sh"><span class="sn">3단계</span><span class="st">[50] 처리 — 거절된다</span></div>
+  <div class="req">최대충전전류 = Maximum charging current</div>
+  <p style="margin:6px 0 4px" class="small">
+  이 쪽지는 <strong>맞는 말</strong>입니다. 그런데 <code>Maximum</code> 은 이미 바구니 A 안에 있습니다.
+  합치면 이렇게 됩니다:
+  </p>
+  <div class="buckets">
+    <div class="bk bad"><span class="bkname">합치면 이렇게 된다</span>
+      <span class="nc xl">표준충전전류</span><span class="nc wd">Standard charging current</span>
+      <span class="nc wd">Maximum charging current</span><span class="nc xl">최대충전전류</span></div>
+  </div>
+  <p style="margin:10px 0 4px" class="small">
+  그런데 금지 쪽지 <strong>[53] 최대충전전류 ≠ Standard charging current</strong> 가 있죠.
+  위 바구니를 보세요 — <span class="nc xl">최대충전전류</span> 와 <span class="nc wd">Standard charging current</span> 가
+  <strong>한 바구니에 들어가 버립니다.</strong> 금지 위반입니다.
+  </p>
+  <div class="verdict bad">❌ 거절 — 이 쪽지에 <code>rejected_by: "differs_by"</code> 도장이 찍힙니다</div>
+</div>
+
+<h3>그래서 최종 결과</h3>
+<div class="buckets">
+  <div class="bk hot"><span class="bkname">c-0008 (실제 결과)</span>
+    <span class="nc xl">표준충전전류</span><span class="nc wd">Standard charging current</span><span class="nc wd">Maximum charging current</span></div>
+  <div class="bk bad"><span class="bkname">c-0009 (혼자 남음)</span>
+    <span class="nc xl">최대충전전류</span></div>
+</div>
+<p>
+<code>최대충전전류</code> 는 짝을 못 찾아 혼자 남았고, 리포트에는
+<strong>"대상 문서에 없음"</strong> 으로 보고됩니다. 실제로는 워드에 멀쩡히 있는데도요.
+</p>
+
+<div class="qmemo" data-qid="s4-trace" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">3단계 중 이해가 안 되는 단계가 있으면 번호와 함께 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s5"><span class="num">5</span>진짜 원인 — 네 마디가 동시에 참일 수 없다</h2>
+
+<p>
+왜 이런 일이 생겼을까요? AI가 쓴 쪽지 네 장을 한자리에 놓고 보면 답이 나옵니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 720 300" role="img" aria-label="네 주장의 모순">
+  <rect x="40" y="24" width="250" height="46" rx="9" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="52" y="43" font-size="11.5" font-weight="700" fill="#1b5e20">① 표준충전전류 = Standard</text>
+  <text x="52" y="61" font-size="10.5" fill="#2e7d32">맞음 ✓</text>
+
+  <rect x="40" y="84" width="250" height="46" rx="9" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+  <text x="52" y="103" font-size="11.5" font-weight="700" fill="#c62828">② 표준충전전류 = Maximum</text>
+  <text x="52" y="121" font-size="10.5" font-weight="700" fill="#c62828">틀림 ✗ ← 진짜 범인</text>
+
+  <rect x="40" y="144" width="250" height="46" rx="9" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="52" y="163" font-size="11.5" font-weight="700" fill="#1b5e20">③ 최대충전전류 = Maximum</text>
+  <text x="52" y="181" font-size="10.5" fill="#2e7d32">맞음 ✓ ← 거절당한 쪽지</text>
+
+  <rect x="40" y="204" width="250" height="46" rx="9" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="52" y="223" font-size="11.5" font-weight="700" fill="#1b5e20">④ 최대충전전류 ≠ Standard</text>
+  <text x="52" y="241" font-size="10.5" fill="#2e7d32">맞음 ✓ (금지 쪽지)</text>
+
+  <path d="M296,110 C330,110 330,140 360,140" fill="none" stroke="#78909c" stroke-width="2"/>
+  <path d="M296,48 C330,48 330,140 360,140" fill="none" stroke="#78909c" stroke-width="2"/>
+  <path d="M296,168 C330,168 330,142 360,140" fill="none" stroke="#78909c" stroke-width="2"/>
+
+  <rect x="366" y="60" width="330" height="86" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
+  <text x="380" y="82" font-size="12" font-weight="700" fill="#bf360c">①+②+③ 을 이으면</text>
+  <text x="380" y="105" font-size="11.5" font-family="monospace" fill="#e65100">최대충전전류 = Maximum</text>
+  <text x="380" y="122" font-size="11.5" font-family="monospace" fill="#e65100">          = 표준충전전류 = Standard</text>
+  <text x="380" y="139" font-size="11" font-weight="700" fill="#bf360c">즉 최대충전전류 = Standard 가 된다</text>
+
+  <path d="M531,150 L531,178" stroke="#c62828" stroke-width="2"/>
+  <path d="M296,228 C400,228 460,200 525,184" fill="none" stroke="#c62828" stroke-width="2"/>
+
+  <rect x="366" y="184" width="330" height="70" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+  <text x="531" y="208" font-size="13" font-weight="700" text-anchor="middle" fill="#c62828">💥 정면 충돌</text>
+  <text x="531" y="230" font-size="11" text-anchor="middle" fill="#8a5a5a">위는 "같다", ④는 "다르다"</text>
+  <text x="531" y="247" font-size="11" text-anchor="middle" fill="#8a5a5a">네 마디가 동시에 참일 수 없다</text>
+</svg>
+<figcaption>
+AI가 스스로 앞뒤가 안 맞는 말을 했습니다. 넷 중 하나는 반드시 틀렸는데,
+<strong>틀린 건 ②번</strong>입니다.
+</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="t">⚠️ 그런데 프로그램은 ②번이 틀렸다는 걸 모릅니다</span>
+  <p>
+  프로그램에게 이 넷은 그냥 똑같이 생긴 쪽지 네 장입니다. 무엇이 맞고 무엇이 틀렸는지
+  판단할 능력이 없어요. <strong>할 수 있는 건 "앞뒤가 맞게 유지하는 것"뿐입니다.</strong>
+  </p>
+  <p>
+  그래서 충돌이 나면 <strong>먼저 온 쪽지를 살리고 나중 것을 거절</strong>합니다.
+  그게 유일하게 할 수 있는 처리예요.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s5-contradiction" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"네 마디가 동시에 참일 수 없다"가 안 와닿으면 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s6"><span class="num">6</span>그래서 누가 막았나</h2>
+
+<p>
+질문하신 "주체가 누군지 모르겠다"에 대한 답입니다. <strong>둘로 나뉩니다.</strong>
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th style="width:22%">역할</th><th style="width:18%">누가</th><th>무엇을</th></tr>
+  <tr>
+    <td>금지 규칙을 <strong>만든</strong> 쪽</td>
+    <td><span class="pill llm">🤖 AI</span></td>
+    <td>"최대충전전류 ≠ Standard charging current" 라고 판정했다 (④번 쪽지)</td>
+  </tr>
+  <tr>
+    <td>규칙을 <strong>집행한</strong> 쪽</td>
+    <td><span class="pill code">⚙️ 코드</span></td>
+    <td>그 규칙을 어기는 합치기를 거절했다</td>
+  </tr>
+</table>
+</div>
+
+<p>
+그래서 JSON의 두 필드가 <strong>서로 다른 사건</strong>을 가리킵니다. 이게 헷갈리셨던 지점 같습니다.
+</p>
+
+<pre class="wrap-pre">"decided_by": "llm"          ← 원래 "같은 것" 판정을 <b>AI가 냈다</b>는 뜻
+"rejected_by": "differs_by"  ← 그걸 <b>코드가</b> 금지 규칙 때문에 막았다는 뜻</pre>
+
+<div class="callout key">
+  <span class="t">🔑 한 문장으로</span>
+  <p>
+  <strong>AI가 스스로 만든 금지 규칙에, AI가 스스로 낸 다른 판정이 걸린 것</strong>입니다.
+  코드는 심판일 뿐 어느 편도 들지 않았습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s6-who" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"누가 막았나"가 정리되셨나요? 남은 의문을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s7"><span class="num">7</span>왜 하필 이 쪽지가 희생됐나 — 순서</h2>
+
+<p>
+"reason 은 논리적으로 맞는데 왜 거부됐나"에 대한 답입니다.
+</p>
+
+<div class="callout warn">
+  <span class="t">⚠️ 거절 사유는 "네가 틀려서"가 아닙니다</span>
+  <p>
+  <strong>"먼저 자리를 잡은 쪽지와 양립할 수 없어서"</strong> 입니다.
+  </p>
+</div>
+
+<p>
+증거는 간단합니다. <strong>순서가 반대였다면 결과도 반대였을 것</strong>이기 때문입니다.
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th style="width:32%">처리 순서</th><th>결과</th></tr>
+  <tr>
+    <td><strong>실제</strong><br>② 먼저 → ③ 나중</td>
+    <td>②(틀린 것)가 자리를 잡고, ③(맞는 것)이 거절됨 <span class="pill" style="background:var(--bad-bg);color:var(--bad)">❌ 지금 상황</span></td>
+  </tr>
+  <tr>
+    <td><strong>만약</strong><br>③ 먼저 → ② 나중</td>
+    <td>③(맞는 것)이 자리를 잡고, ②(틀린 것)가 거절됨 <span class="pill" style="background:var(--ok-bg);color:var(--ok)">✅ 옳은 결과</span></td>
+  </tr>
+</table>
+</div>
+
+<p>
+같은 쪽지 네 장인데 <strong>도착 순서만으로 결과가 뒤집힙니다.</strong>
+이번엔 운이 나빴을 뿐이에요. 이 쪽지가 특별히 문제가 있어서 거절된 게 아닙니다.
+</p>
+
+<h3>딱 하나, 순서를 이기는 방법</h3>
+<p>
+<strong>사람이 확정한 규칙</strong>은 언제나 먼저 처리됩니다. 코드가 정렬할 때 사람 것을 앞으로 보내거든요.
+</p>
+<pre>for edge in sorted(same_edges, key=lambda e: not e.promoted):
+                                              ↑ 사람이 승격한 것(promoted)이 맨 앞</pre>
+
+<p>
+그래서 <code>knowledge/ontology.yaml</code> 에 이렇게 적어두면 이 사고가 재발하지 않습니다.
+</p>
+
+<pre class="wrap-pre">aliases:
+  - ["최대충전전류", "Maximum charging current"]     # 이 둘은 같다 (사람이 확정)
+  - ["표준충전전류", "Standard charging current"]
+
+differs_by:
+  - names: ["표준충전전류", "최대충전전류"]           # ②번 오연결을 원천 차단
+    axis: "측정조건"
+    reason: "표준(정상 사용) 조건과 최대 허용치는 다른 규격"</pre>
+
+<p>
+사람이 적은 것은 <strong>AI에게 묻지도 않고</strong> 바로 적용되고, 순서 경쟁에서도 이깁니다.
+</p>
+
+<div class="qmemo" data-qid="s7-order" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">순서 문제나 온톨로지 설정에 대해 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s8"><span class="num">8</span>코드로 보기</h2>
+
+<p>
+지금까지 이야기한 것이 코드로는 아주 짧습니다. <code>fact/concept_assembler.py</code> 의 이 부분이 전부입니다.
+</p>
+
+<h3>금지 쪽지 모으기</h3>
+<pre>blockers = [e for e in valid if e.relation == DIFFERS_BY]</pre>
+<p class="small">"금지" 쪽지를 전부 모아 감시원 명단을 만듭니다.</p>
+
+<h3>합치기 전에 묻는 함수</h3>
+<pre class="wrap-pre">def blocked(a, b) -> bool:
+    """a·b 를 합치면 differs_by 로 연결된 두 fact 가 한 개념이 되는가."""
+    for d in blockers:
+        if {find(d.left.key), find(d.right.key)} == {a, b}:
+            return True
+    return False</pre>
+<p class="small">
+<code>find(x)</code> 는 "이 카드가 지금 어느 바구니에 있나"를 알려줍니다.
+금지 쪽지의 양쪽 카드가 <strong>지금 각각 a 바구니와 b 바구니에 있다면</strong>,
+a·b 를 합치는 순간 둘이 한 바구니가 되므로 막습니다.
+</p>
+
+<h3>합치기 반복문 — 여기가 심장</h3>
+<pre class="wrap-pre">for edge in sorted(same_edges, key=lambda e: not e.promoted):   # ① 사람 것 먼저
+    a, b = find(edge.left.key), find(edge.right.key)
+    if a == b:                        # ② 이미 같은 바구니면 할 일 없음
+        stats["same_as"] += 1
+        continue
+    if blocked(a, b):                 # ③ 금지에 걸리면
+        _demote(edge, "differs_by")   #    → unknown 으로 강등 + 도장
+        stats["rejected_differs_by"] += 1
+        continue
+    parent[a] = b                     # ④ 아니면 합친다
+    stats["same_as"] += 1</pre>
+
+<p>
+③번 줄의 <code>_demote(edge, "differs_by")</code> 가 우리가 본 그 도장입니다.
+이 함수가 하는 일은 두 가지입니다.
+</p>
+
+<pre class="wrap-pre">edge.relation = UNKNOWN              # "같은 것" → "모르겠음" 으로 강등
+edge.rejected_by = "differs_by"      # 왜 강등됐는지 기록
+edge.reason = "[거부됨: differs_by 제약 위반] 거부된 주장: " + 원래사유</pre>
+
+<div class="callout">
+  <span class="t">💡 원래 사유를 지우지 않고 앞에 딱지를 붙이는 이유</span>
+  <p>
+  AI가 쓴 "1495mA = 1.495A 이므로 같다"는 문장은 그대로 남깁니다. 사람이 나중에 보고
+  <strong>"어? 이거 맞는 말인데?"</strong> 하고 알아챌 수 있어야 하니까요.
+  </p>
+  <p>
+  다만 앞에 <code>[거부됨: ...]</code> 을 붙여서, 그 문장만 읽고 "AI가 같다고 했으니 맞겠지"라고
+  믿어버리는 것을 막습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="s8-code" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드에서 모르겠는 줄이 있으면 그대로 붙여넣고 물어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="s9"><span class="num">9</span>퀴즈</h2>
+
+<p>다섯 문제입니다. 고르면 바로 채점되고 설명이 나옵니다.</p>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q1. <code>rejected_by: "differs_by"</code> 는 누가 막았다는 뜻인가?</div>
+  <button class="opt">AI가 자기 판정을 스스로 취소했다</button>
+  <button class="opt">사람이 검토하고 거부했다</button>
+  <button class="opt">코드가, AI가 만든 "금지" 규칙을 근거로 막았다</button>
+  <button class="opt">임베딩 점수가 낮아서 자동으로 걸러졌다</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">AI는 판정을 낸 뒤 다시 개입하지 않습니다. 취소한 것은 코드입니다.</span>
+    <span data-i="1">사람은 이 과정에 없습니다(<code>ontology.yaml</code> 에 미리 적어둔 경우만 개입).</span>
+    <span data-i="2">맞습니다. 규칙을 <strong>만든</strong> 것은 AI(④번 금지 쪽지), <strong>집행</strong>한 것은 코드입니다. 그래서 <code>decided_by: "llm"</code>(원래 판정자)과 <code>rejected_by: "differs_by"</code>(거부 사유)가 서로 다른 사건을 가리킵니다.</span>
+    <span data-i="3">임베딩은 후보를 좁히는 단계로 이 과정과 무관합니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q2. 거절된 쪽지의 사유("1495mA = 1.495A 이므로 같다")는 맞는 말인가?</div>
+  <button class="opt">틀렸다 — 그래서 거절됐다</button>
+  <button class="opt">맞다 — 틀려서가 아니라 먼저 온 쪽지와 충돌해서 거절됐다</button>
+  <button class="opt">맞는지 틀린지 코드가 계산해서 판단했다</button>
+  <button class="opt">단위가 달라서 비교 자체가 불가능했다</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">1495mA 와 1.495A 는 실제로 같은 값입니다. 이 판정은 옳았습니다.</span>
+    <span data-i="1">맞습니다. 거절 사유는 "네가 틀려서"가 아니라 <strong>"이미 자리 잡은 쪽지와 양립할 수 없어서"</strong>입니다. 순서가 반대였다면 이 쪽지가 살고 틀린 쪽지가 거절됐을 겁니다.</span>
+    <span data-i="2">코드는 값을 계산하지 않습니다. 이 단계에서는 "앞뒤가 맞는가"만 봅니다.</span>
+    <span data-i="3">단위 환산은 오히려 AI가 정확히 해냈습니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. 이 사고의 <strong>진짜 원인</strong>은 무엇인가?</div>
+  <button class="opt">금지 쪽지 ④번이 잘못 만들어졌다</button>
+  <button class="opt">거절된 쪽지 ③번의 사유가 부실했다</button>
+  <button class="opt">바구니를 나눌 수 없게 만든 설계</button>
+  <button class="opt">②번 "표준충전전류 = Maximum charging current" 라는 잘못된 연결</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">④번은 맞는 규칙입니다 — 최대충전전류와 Standard charging current 는 실제로 다릅니다.</span>
+    <span data-i="1">③번은 사유도 정확하고 근거 인용도 갖췄습니다.</span>
+    <span data-i="2">되돌릴 수 없는 것이 피해를 키우긴 했지만, 애초에 잘못 합치지 않았다면 문제가 없었습니다.</span>
+    <span data-i="3">맞습니다. 표준(Standard)과 최대(Maximum)를 같다고 한 ②번이 <code>Maximum</code> 을 엉뚱한 바구니에 넣었고, 그 뒤의 모든 문제가 여기서 파생됐습니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q4. "금지" 쪽지(<code>differs_by</code>)는 언제 일을 하는가?</div>
+  <button class="opt">평소엔 아무것도 안 하다가, 합치기 요청이 올 때만 검사한다</button>
+  <button class="opt">받는 즉시 두 카드를 서로 다른 바구니로 떼어놓는다</button>
+  <button class="opt">리포트를 만들 때 한 번에 모아서 처리한다</button>
+  <button class="opt">AI에게 다시 물어보게 만든다</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">맞습니다. <code>blockers</code> 명단에 모여 있다가 <code>blocked(a, b)</code> 가 호출될 때만 검사에 참여합니다 — 일종의 <strong>거부권</strong>입니다.</span>
+    <span data-i="1">떼어놓을 필요가 없습니다. 처음엔 모든 카드가 각자 다른 바구니에 있으니까요.</span>
+    <span data-i="2">병합은 리포트보다 훨씬 앞 단계에서 끝납니다.</span>
+    <span data-i="3">AI는 이 단계에 개입하지 않습니다. 순수 코드입니다.</span>
+  </div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q5. <code>ontology.yaml</code> 에 사람이 적어두면 왜 이 사고를 막을 수 있나?</div>
+  <button class="opt">사람이 적은 것은 금지 검사를 통째로 건너뛰기 때문</button>
+  <button class="opt">AI가 그 내용을 학습해서 다음부터 잘하기 때문</button>
+  <button class="opt">사람이 적은 것이 <strong>가장 먼저</strong> 처리되어 순서 경쟁에서 이기기 때문</button>
+  <button class="opt">임베딩 점수를 강제로 올려주기 때문</button>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>
+    <span data-i="0">금지 검사는 그대로 받습니다. 다만 순서에서 앞설 뿐입니다.</span>
+    <span data-i="1">이 프로젝트는 AI를 학습시키지 않습니다. 매번 같은 모델에 물어볼 뿐입니다.</span>
+    <span data-i="2">맞습니다. <code>sorted(same_edges, key=lambda e: not e.promoted)</code> 가 사람이 승격한 것을 맨 앞으로 보냅니다. 틀린 AI 쪽지가 자리를 잡기 <strong>전에</strong> 올바른 연결이 먼저 만들어집니다. 게다가 사람이 적은 것은 AI에게 묻지도 않습니다.</span>
+    <span data-i="3">온톨로지는 유사도 점수와 무관하게 동작합니다.</span>
+  </div>
+</div>
+
+<div class="qmemo" data-qid="s9-quiz" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">헷갈린 문제나 납득이 안 되는 답을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>세 줄 요약</h3>
+<div class="callout key">
+  <p>
+  <strong>①</strong> 프로그램은 "같은 것" 쪽지를 받아 카드들을 <strong>바구니에 합칩니다.</strong>
+  한 번 합치면 되돌릴 수 없습니다.
+  </p>
+  <p>
+  <strong>②</strong> "금지" 쪽지는 <strong>거부권</strong>입니다. 합치면 금지된 두 카드가 한 바구니가 될 때
+  코드가 그 합치기를 거절합니다 — 이것이 <code>rejected_by: "differs_by"</code> 입니다.
+  </p>
+  <p>
+  <strong>③</strong> 거절된 쪽지는 <strong>틀려서가 아니라 순서에서 밀려서</strong> 죽었습니다.
+  진짜 범인은 그 앞에 먼저 자리를 잡은 <strong>잘못된 연결</strong>이고,
+  사람이 <code>ontology.yaml</code> 에 적어두면 순서 경쟁을 이겨 재발을 막습니다.
+  </p>
+</div>
+
+<p class="small" style="margin-top:36px;padding-top:18px;border-top:1px solid var(--line)">
+관련 문서 —
+<a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 개념 그래프</a> ·
+<a href="2026-08-06-explanation-evidence-gate-redesign.html">근거 검문소를 어떻게 고칠 것인가</a> ·
+<a href="2026-08-06-explanation-what-the-llm-sees.html">LLM 은 무엇을 보고 판단할까</a><br>
+코드 — <code>contentcompare/fact/concept_assembler.py</code> · 설계 — <code>docs/FACT_F7_DESIGN.md</code> §2.3
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = Array.prototype.slice.call(quiz.querySelectorAll('.opt'));
+    var fb = quiz.querySelector('.fb');
+    var texts = quiz.querySelector('.fbtext');
+    opts.forEach(function (opt, i) {
+      opt.addEventListener('click', function () {
+        if (quiz.dataset.done === '1') return;
+        quiz.dataset.done = '1';
+        opts.forEach(function (o) { o.disabled = true; });
+        opts[answer].classList.add('correct');
+        if (i !== answer) opt.classList.add('wrong');
+        var span = texts.querySelector('[data-i="' + i + '"]');
+        var head = (i === answer) ? '✅ 정답입니다. ' : '❌ 아쉽네요. ';
+        fb.innerHTML = '<strong>' + head + '</strong>' + (span ? span.innerHTML : '');
+        fb.classList.add('show');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
