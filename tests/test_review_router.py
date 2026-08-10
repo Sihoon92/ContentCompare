@@ -13,6 +13,7 @@ from contentcompare.fact.fact_comparator import (
     MATCH,
     MISMATCH,
     MISSING,
+    UNKNOWN,
     ComparisonProbe,
     FactComparison,
 )
@@ -176,7 +177,28 @@ def test_gate_stats_reports_rates():
 
 def test_gate_stats_counts_overridden_code_verdicts():
     rows = [_comparison(MATCH, MISMATCH, [PARTIAL_ATTRIBUTE_COVERAGE], 0.5)]
-    assert gate_stats(rows)["result_changed_count"] == 1
+    s = gate_stats(rows)
+    assert s["result_changed_count"] == 1
+    assert s["code_overridden_count"] == 1     # 코드가 match 라 했는데 뒤집혔다
+
+
+def test_code_punting_is_not_counted_as_an_override():
+    """코드가 판단을 포기한 것(unknown)은 '뒤엎힘'이 아니다.
+
+    initial_result 는 probe.code_result or UNKNOWN 이라, 코드가 포기하면 unknown 이
+    들어간다. 그걸 override 로 세면 shadow 모드인데도 숫자가 커져
+    "LLM 이 코드를 자주 뒤엎는다"로 오독된다(2026-08-10 실측 19건이 그랬다).
+    """
+    rows = [_comparison(UNKNOWN, MATCH, [CODE_UNKNOWN])]
+    s = gate_stats(rows)
+    assert s["result_changed_count"] == 1      # 값은 바뀌었지만
+    assert s["code_overridden_count"] == 0     # 코드에 의견이 없었다
+
+
+def test_missing_never_counts_as_an_override():
+    """후보가 없으면 LLM 을 아예 안 부르므로 뒤집힐 수 없다."""
+    rows = [_comparison(MISSING, MISSING, [CODE_MISSING], 0.0)]
+    assert gate_stats(rows)["code_overridden_count"] == 0
 
 
 def test_gate_stats_without_code_match_has_zero_unsafe_rate():

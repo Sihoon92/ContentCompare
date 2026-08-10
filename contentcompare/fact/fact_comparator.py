@@ -228,9 +228,7 @@ class FactComparator:
             reference_fact=ref,
             target_doc=target.doc_name,
             candidates=candidates,
-            attribute_coverage=attribute_coverage(
-                ref, best.fact, confirmed_link=not best.needs_review
-            ),
+            attribute_coverage=attribute_coverage(ref, best.fact),
             uncertain=(
                 best.needs_review
                 or ref_low_confidence
@@ -380,9 +378,7 @@ class FactComparator:
 _OPPOSITE = frozenset({frozenset({"lower_limit", "upper_limit"})})
 
 
-def attribute_coverage(
-    ref: Fact, target: Optional[Fact], *, confirmed_link: bool
-) -> float:
+def attribute_coverage(ref: Fact, target: Optional[Fact]) -> float:
     """기준 fact 의 속성 중 대상에서 대응된 비율.
 
     :meth:`FactComparator._decide_by_code` 는 **공통 속성만** 보기 때문에 기준에
@@ -391,15 +387,28 @@ def attribute_coverage(
 
     분모는 기준 fact 의 **전체** 속성이다. 값이 빈 속성을 빼는 느슨한 정의는
     placeholder 판별 규칙이 하나 더 필요해져 채택하지 않았다.
+
+    **단일 속성 예외에 연결 출처 가드를 두지 않는다.** 초안은 "LLM 이 만든 개념
+    연결 위에서는 예외를 적용하지 않는다"로 두었으나 라이브 실측에서 지표가
+    무너졌다(2026-08-10, 한↔영 문서쌍 평균 0.53 vs 가드 제거 시 0.94). 한국어
+    기준 ↔ 영어 대상은 이름 완전일치가 원리적으로 불가능해 개념 연결이 거의 전부
+    LLM 산이고(실측 same_as 12건 중 확정 연결 3건), 그래서 가드가 **항상** 걸렸다.
+
+    더 나쁜 것은 :func:`_compare_single_attributes` 와 규칙이 어긋난 점이다 —
+    그쪽은 가드 없이 키가 달라도 1:1 이면 ``match`` 를 낸다. 같은 쌍을 한쪽은
+    일치로, 다른 쪽은 커버리지 0 으로 채점하니 그런 match 가 전부 unsafe 로
+    거부됐다(실측 ``unsafe_match_rate`` 1.0). 연결이 불안하다는 신호는
+    ``low_confidence`` 사유가 **이미 따로** 싣는다. 커버리지에 이중으로 반영하면
+    "속성이 실제로 안 적혀 있다"와 "연결을 LLM 이 만들었다"가 한 숫자에 섞여,
+    그 숫자로 내리려던 판단(임계를 풀지 말지)이 불가능해진다.
     """
     if target is None:
         return 0.0
     if not ref.attributes:
         return 1.0  # 비교할 속성이 없으면 커버리지 논의가 무의미하다
-    if confirmed_link and len(ref.attributes) == 1 and len(target.attributes) == 1:
+    if len(ref.attributes) == 1 and len(target.attributes) == 1:
         # 근거는 _compare_single_attributes 와 같다 — 속성이 하나뿐인 fact 의 키
         # 이름은 원본 표의 **열 위치**에서 온 것이라 의미 구분이 아닌 경우가 많다.
-        # 단 LLM 이 만든 연결 위에서는 적용하지 않는다(그 경우 low_confidence 가 붙는다).
         return 1.0
     covered = sum(1 for k in ref.attributes if k in target.attributes)
     return covered / len(ref.attributes)

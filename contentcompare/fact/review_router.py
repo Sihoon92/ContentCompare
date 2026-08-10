@@ -117,4 +117,20 @@ def gate_stats(comparisons: list[FactComparison]) -> dict:
             if measured else 0.0
         ),
         "result_changed_count": sum(1 for c in comparisons if c.result_changed),
+        "code_overridden_count": sum(1 for c in comparisons if _code_overridden(c)),
     }
+
+
+def _code_overridden(c: FactComparison) -> bool:
+    """코드가 **의견을 냈는데** 최종 판정이 그것과 다른가.
+
+    ``result_changed`` 와 갈라야 하는 이유가 있다. ``initial_result`` 는
+    ``probe.code_result or UNKNOWN`` 이므로, 코드가 판단을 **포기**했을 때도
+    ``unknown`` 이 들어간다. 그러면 LLM 이 무슨 답을 하든 ``result_changed`` 가 켜져
+    "LLM 이 코드를 뒤엎었다"로 읽히지만 실제로는 **코드에 의견이 없었던 것**이다
+    (2026-08-10 실측: shadow 모드인데 19건이 changed 로 잡혔다 — 대부분 이 경우).
+
+    ``missing`` 은 후보가 없어 LLM 을 아예 부르지 않으므로 뒤집힐 수 없다.
+    따라서 코드의 '의견'은 ``match``/``mismatch`` 둘뿐이다.
+    """
+    return c.initial_result in (MATCH, MISMATCH) and c.result != c.initial_result

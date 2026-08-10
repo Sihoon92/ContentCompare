@@ -299,43 +299,53 @@ def test_coverage_is_partial_when_target_has_fewer_attributes():
     """기준 3속성 · 대상 1속성 → 그 하나가 같으면 match 지만 커버리지는 1/3."""
     ref = _fact("r", "전지", nominal=("3.85", "V"), upper=("4.55", "V"), lower=("3.0", "V"))
     tgt = _fact("t", "전지", nominal=("3.85", "V"))
-    assert attribute_coverage(ref, tgt, confirmed_link=True) == pytest.approx(1 / 3)
+    assert attribute_coverage(ref, tgt) == pytest.approx(1 / 3)
 
 
 def test_coverage_is_full_when_all_reference_attributes_are_covered():
     ref = _fact("r", "전지", nominal=("3.85", "V"))
     tgt = _fact("t", "전지", nominal=("3.85", "V"), extra=("1", ""))
-    assert attribute_coverage(ref, tgt, confirmed_link=True) == 1.0
+    assert attribute_coverage(ref, tgt) == 1.0
 
 
 def test_coverage_without_reference_attributes_is_full():
     """비교할 속성이 없으면 커버리지 논의 자체가 무의미하다 — 게이트가 헛돌면 안 된다."""
     ref = _fact("r", "전지")
     tgt = _fact("t", "전지", nominal=("3.85", "V"))
-    assert attribute_coverage(ref, tgt, confirmed_link=True) == 1.0
+    assert attribute_coverage(ref, tgt) == 1.0
 
 
 def test_coverage_without_target_is_zero():
     ref = _fact("r", "전지", nominal=("3.85", "V"))
-    assert attribute_coverage(ref, None, confirmed_link=True) == 0.0
+    assert attribute_coverage(ref, None) == 0.0
 
 
-def test_single_attribute_pair_counts_as_full_when_link_is_confirmed():
+def test_single_attribute_pair_counts_as_full_regardless_of_key_name():
     """양쪽 속성이 하나씩이면 키 이름이 달라도 같은 항목의 단일 값이다.
 
     실측 근거는 _compare_single_attributes 와 같다 — 기준이 공칭용량을 '하한치'
-    열에 적어 lower_limit 이 됐고 대상은 target_value 였다.
+    열에 적어 lower_limit 이 됐고 대상은 target_value 였다. **두 함수의 조건이
+    같아야 한다** — 어긋나면 같은 쌍을 한쪽은 match, 다른 쪽은 커버리지 0 으로
+    채점해 그 match 가 전부 unsafe 로 거부된다(2026-08-10 실측).
     """
     ref = _fact("r", "용량", lower_limit=("1150", "mAh"))
     tgt = _fact("t", "용량", target_value=("1150", "mAh"))
-    assert attribute_coverage(ref, tgt, confirmed_link=True) == 1.0
+    assert attribute_coverage(ref, tgt) == 1.0
 
 
-def test_single_attribute_exception_needs_a_confirmed_link():
-    """LLM 이 만든 연결 위에서는 예외를 적용하지 않는다."""
+def test_single_attribute_exception_does_not_depend_on_link_provenance():
+    """LLM 이 만든 연결이어도 커버리지는 깎지 않는다.
+
+    연결이 불안하다는 신호는 low_confidence 사유가 **이미 따로** 싣는다. 커버리지에
+    이중 반영하면 "속성이 안 적혀 있다"와 "연결을 LLM 이 만들었다"가 한 숫자에
+    섞여, 그 숫자로 내리려던 판단이 불가능해진다.
+    """
     ref = _fact("r", "용량", lower_limit=("1150", "mAh"))
     tgt = _fact("t", "용량", target_value=("1150", "mAh"))
-    assert attribute_coverage(ref, tgt, confirmed_link=False) == 0.0
+    cmp_, _ = _comparator()
+    probe = cmp_.compare_code(ref, _cand(tgt, review=True), _target(tgt))
+    assert probe.attribute_coverage == 1.0      # 커버리지는 온전
+    assert probe.uncertain is True              # 불안함은 여기로 표현된다
 
 
 # --------------------------------------------------------------------------- #
