@@ -33,7 +33,8 @@ from ..llm.tracing import stage
 from ..raw import compact_raw, extract_raw
 from ..readers import close_all_office
 from .artifacts import ArtifactStore
-from .fact_comparator import FactComparator, FactComparison
+from .fact_comparator import MATCH, UNKNOWN, FactComparator, FactComparison
+from .review_router import AcceptanceGate, gate_stats
 from .fact_extractor import build_facts_by_block, extract_facts
 from .fact_matcher import FactMatcher
 from .fact_models import FactSet
@@ -179,6 +180,7 @@ class FactPipeline:
         ref_doc = store.reference
         assert ref_doc is not None  # store.ready 가 보장
 
+        gate = AcceptanceGate(self.fact.fast_path)
         for target in store.targets:
             matcher = self._matcher_for(graph, ref_doc, target)
             # 후보가 없을 때의 사유는 매칭 전략이 안다(개념 경로 = '연결 없음').
@@ -186,7 +188,7 @@ class FactPipeline:
             with stage(f"F5 값 대조 · {target.doc_name}"):
                 for ref_fact in ref_doc.facts.facts:
                     candidates = matcher.search(ref_fact)
-                    result.comparisons.append(comparator.compare(
+                    probe = comparator.compare_code(
                         ref_fact,
                         candidates,
                         target,
@@ -194,7 +196,18 @@ class FactPipeline:
                         missing_reason=(
                             "" if candidates or explain is None else explain(ref_fact)
                         ),
-                    ))
+                    )
+                    reasons = gate.evaluate(probe)
+                    # 게이트가 거부한 코드 match 만 강등한다. mismatch/unknown 은
+                    # finalize 가 이미 LLM 으로 보내므로 여기서 또 밀 필요가 없다.
+                    unsafe_match = bool(reasons) and probe.code_result == MATCH
+                    comparison = comparator.finalize(
+                        probe, force_llm=gate.enforce and unsafe_match
+                    )
+                    comparison.initial_result = probe.code_result or UNKNOWN
+                    comparison.review_triggers = reasons
+                    comparison.attribute_coverage = probe.attribute_coverage
+                    result.comparisons.append(comparison)
 
         result.compare_stats = {
             "comparisons": len(result.comparisons),
@@ -202,6 +215,9 @@ class FactPipeline:
             "llm_calls": comparator.llm_calls,
             "llm_failures": comparator.llm_failures,
             "concept": dict(graph.stats) if graph is not None else {},
+            # 게이트가 꺼져 있으면 키를 아예 넣지 않는다 — 0 으로 채우면
+            # "게이트가 아무것도 안 잡았다"로 오독된다.
+            **(gate_stats(result.comparisons) if self.fact.fast_path.enabled else {}),
         }
         self._save_comparison(ref_doc, result)
         # 지연 import — report 패키지가 fact 결과 모델을 참조하므로 모듈 최상단에서
