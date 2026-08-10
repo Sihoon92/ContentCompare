@@ -274,7 +274,11 @@ def _pack_batches(groups: list[list[dict]], batch_blocks: int) -> list[list[dict
 # 블록 ↔ fact 매핑 (진단 계측)
 # --------------------------------------------------------------------------- #
 def build_facts_by_block(
-    compact: dict, facts: FactSet, stats: Optional[dict] = None
+    compact: dict,
+    facts: FactSet,
+    stats: Optional[dict] = None,
+    *,
+    lines_by_block: Optional[dict] = None,
 ) -> dict:
     """블록/행 → 그것을 근거로 삼은 fact id 목록. **오판 추적이 목적이다.**
 
@@ -288,9 +292,15 @@ def build_facts_by_block(
 
     Excel 도 같은 스키마로 낸다(행 하나 = 블록 하나). 뷰어가 doc_type 분기를 하나
     덜 하게 하려는 것이다.
+
+    ``lines_by_block`` 에 ``physical_raw`` 를 주면 **줄 단위 커버리지**를 함께 낸다.
+    블록 단위만으로는 한 문단에 조건이 넷인데 fact 가 첫 줄만 인용해도 ``cited=True``
+    로 보여, 나머지 셋이 버려진 것을 알 수 없다(설계 §12.3). 안 주면 예전 스키마
+    그대로다 — Excel/PPT 처럼 블록이 이미 최소 단위인 문서는 줄 개념이 없다.
     """
     doc_type = str(compact.get("doc_type") or "")
     blocks = _blocks_of(compact, doc_type)
+    lines_map = _lines_of(lines_by_block)
 
     by_block: dict[str, list[str]] = {b["id"]: [] for b in blocks}
     orphan: list[str] = []  # 블록 목록에 없는 id 를 가리키는 fact(스키마 불일치 신호)
@@ -304,27 +314,99 @@ def build_facts_by_block(
             else:
                 orphan.append(fact.fact_id)
 
-    rows = [
-        {
+    evidence_by_id = {f.fact_id: _norm(f.evidence_text) for f in facts.facts}
+    rows = []
+    for b in blocks:
+        row: dict[str, Any] = {
             "id": b["id"],
             "kind": b["kind"],
             "preview": b["preview"],
             "fact_ids": by_block[b["id"]],
             "cited": bool(by_block[b["id"]]),
         }
-        for b in blocks
-    ]
+        row.update(_line_coverage(lines_map.get(b["id"]), row["fact_ids"], evidence_by_id))
+        rows.append(row)
+
     summary: dict[str, Any] = {
         "blocks_in": len(rows),
         "blocks_cited": sum(1 for r in rows if r["cited"]),
         "facts_out": len(facts.facts),
         "facts_without_block": sorted(set(orphan)),
     }
+    measured = [r for r in rows if "units_in" in r]
+    if measured:
+        # 줄이 있는 블록만 분모에 넣는다 — 표·Excel 행은 이미 블록 자체가 최소
+        # 단위라 섞으면 "줄 커버리지"라는 비율의 뜻이 흐려진다.
+        summary["units_in"] = sum(r["units_in"] for r in measured)
+        summary["units_linked"] = sum(r["units_linked"] for r in measured)
+        summary["units_uncited"] = sum(r["units_uncited"] for r in measured)
     # extract_facts 가 채운 계측(cached / 드롭 사유별 카운트)을 그대로 얹는다.
     if stats:
         summary.update(stats)
     return {"doc_type": doc_type, "location": facts.location, "blocks": rows,
             "summary": summary}
+
+
+def _norm(text: Any) -> str:
+    """대조용 정규화 — 공백만 병합한다(대소문자·기호는 건드리지 않는다)."""
+    return " ".join(str(text or "").split())
+
+
+def _lines_of(raw: Optional[dict]) -> dict[str, list[dict]]:
+    """``physical_raw`` → ``{block_id: [line, ...]}``. 줄이 없는 블록은 담지 않는다."""
+    out: dict[str, list[dict]] = {}
+    for b in (raw or {}).get("blocks") or []:
+        lines = b.get("lines")
+        if lines:
+            out[str(b.get("block_id") or "")] = lines
+    return out
+
+
+_MIN_FRAGMENT = 3
+"""이보다 짧은 조각은 대조하지 않는다 — 아무 줄에나 걸려 인용을 부풀린다."""
+
+
+def _line_coverage(
+    lines: Optional[list[dict]], fact_ids: list[str], evidence_by_id: dict[str, str]
+) -> dict[str, Any]:
+    """이 블록의 각 줄이 어느 fact 의 근거로 쓰였는지. 줄이 없으면 빈 dict.
+
+    후보는 **이 블록을 근거로 든 fact 로 한정**한다. 그러지 않으면 다른 블록의
+    비슷한 문장이 남의 줄을 켜서, 정작 찾으려는 누락이 가려진다.
+
+    ⚠️ 대조는 양방향 부분일치다(줄 ⊆ 근거 · 근거 ⊆ 줄). 후자는 "LLM 이 줄 일부만
+    따온 경우"를 잡으려는 것인데, 짧은 조각이 여러 줄에 걸리면 인용을 **부풀린다** —
+    누락 탐지에서는 위험한 방향이라 :data:`_MIN_FRAGMENT` 로 막는다.
+    """
+    if not lines:
+        return {}
+    quoted = [(fid, evidence_by_id.get(fid, "")) for fid in fact_ids]
+    out = []
+    linked = 0
+    for line in lines:
+        text = _norm(line.get("raw_text"))
+        hits = [fid for fid, ev in quoted if _overlaps(text, ev)]
+        linked += bool(hits)
+        out.append({
+            "line_id": line.get("line_id", ""),
+            "preview": text[:_PREVIEW_CHARS],
+            "fact_ids": hits,
+            "cited": bool(hits),
+        })
+    return {
+        "lines": out,
+        "units_in": len(out),
+        "units_linked": linked,
+        "units_uncited": len(out) - linked,
+    }
+
+
+def _overlaps(line: str, evidence: str) -> bool:
+    if not line or not evidence:
+        return False  # 근거 원문이 없으면 어느 줄에서 왔는지 추측하지 않는다
+    if min(len(line), len(evidence)) < _MIN_FRAGMENT:
+        return False
+    return line in evidence or evidence in line
 
 
 _PREVIEW_CHARS = 80

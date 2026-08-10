@@ -398,10 +398,13 @@ class FactPipeline:
             stages.append("facts")
 
             # 블록 ↔ fact 매핑(진단). 추출 결과에서 역산하므로 캐시 히트에도 남는다.
+            # physical_raw 를 함께 넘겨 **줄 단위** 커버리지까지 낸다 — 블록 단위만
+            # 보면 한 문단에 조건이 넷인데 첫 줄만 인용해도 cited 로 보인다(§12.3).
             if self.fact.save_facts_by_block:
                 try:
-                    store.save("facts_by_block",
-                               build_facts_by_block(compact, facts, fact_stats))
+                    store.save("facts_by_block", build_facts_by_block(
+                        compact, facts, fact_stats, lines_by_block=raw_obj.to_dict(),
+                    ))
                 except OSError:
                     logger.warning("[Fact] facts_by_block 저장 실패: %s", path)
 
