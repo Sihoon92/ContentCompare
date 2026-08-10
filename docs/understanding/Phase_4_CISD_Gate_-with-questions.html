@@ -1,0 +1,1472 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 4 CISD 육안 Gate — 마커는 왜 이렇게 많고, 나는 무엇을 봐야 하나</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #5c6470;
+    --line: #e2e5ea;
+    --panel: #fbfbfa;
+    --code-bg: #f5f6f8;
+
+    /* 실제 차트에서 쓰는 색 그대로 — 나중에 진짜 화면에서 알아보라고 */
+    --up: #3D9970;        /* 양봉 */
+    --down: #FF4136;      /* 음봉 */
+    --bsl: #EF5350;       /* excursion BSL */
+    --ssl: #26A69A;       /* excursion SSL */
+    --rcl-ok: #2E7D32;    /* reclaim CONFIRMED */
+    --rcl-no: #9E9E9E;    /* reclaim FAILED */
+    --cisd-ok: #00838F;   /* CISD CONFIRMED (청록) */
+    --cisd-no: #B0BEC5;   /* CISD FAILED (남회색) */
+    --cisd-deg: #F9A825;  /* CISD 퇴화 (호박색) */
+    --anchor: #455A64;    /* CISD 앵커 */
+    --disp: #6A1B9A;      /* displacement */
+    --fvg: #EF6C00;
+
+    --warn-bg: #fff8e6;
+    --warn-bd: #e8c766;
+    --key-bg: #eef5ff;
+    --key-bd: #8fb6e8;
+    --stop-bg: #ffefef;
+    --stop-bd: #e79a9a;
+    --memo-bg: #f7f7f4;
+    --memo-bd: #c9ccd1;
+  }
+  /* 항상 밝은 배경 고정 — 시스템/브라우저가 다크 모드여도 이 문서는 밝게 표시한다. */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 16px 160px;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic",
+      "Apple SD Gothic Neo", Roboto, sans-serif;
+    line-height: 1.8; font-size: 16.5px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 1.95rem; line-height: 1.3; margin: 44px 0 8px; letter-spacing: -0.02em; }
+  h2 {
+    font-size: 1.45rem; margin: 68px 0 4px; padding-top: 22px;
+    border-top: 2px solid var(--line); letter-spacing: -0.01em;
+  }
+  h3 { font-size: 1.14rem; margin: 38px 0 4px; }
+  h4 { font-size: 1rem; margin: 26px 0 2px; color: var(--muted); }
+  p { margin: 13px 0; }
+  .sub { color: var(--muted); font-size: 0.95rem; margin-top: 0; }
+  a { color: #2f6fd0; }
+  code {
+    background: var(--code-bg); padding: 1.5px 5px; border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; white-space: pre;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.84rem; line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 0.9rem; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  figure { margin: 26px 0; }
+  figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 8px; text-align: center; }
+  svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+
+  .callout, .warn, .stop {
+    border-left: 4px solid var(--key-bd); background: var(--key-bg);
+    padding: 12px 16px; margin: 22px 0; border-radius: 0 8px 8px 0;
+  }
+  .warn { border-left-color: var(--warn-bd); background: var(--warn-bg); }
+  .stop { border-left-color: var(--stop-bd); background: var(--stop-bg); }
+  .callout b:first-child, .warn b:first-child, .stop b:first-child { display: block; margin-bottom: 4px; }
+
+  .toc {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px 22px; margin: 26px 0;
+  }
+  .toc ol { margin: 8px 0 0; padding-left: 22px; }
+  .toc li { margin: 5px 0; }
+
+  .chip {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 0.8rem; border: 1px solid var(--line); background: var(--panel);
+  }
+
+  /* 질문 메모 */
+  .qmemo {
+    border: 1.5px dashed var(--memo-bd); background: var(--memo-bg);
+    border-radius: 10px; padding: 12px 16px; margin: 26px 0;
+  }
+  .qmemo[data-status="answered"] { border: 2px solid var(--cisd-ok); background: var(--panel); }
+  .qmemo-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .qmemo-label { font-weight: 700; font-size: 0.85rem; color: var(--cisd-ok); }
+  .qmemo-hint { color: var(--muted); font-size: 0.8rem; }
+  .qmemo-question {
+    margin-top: 8px; min-height: 2.2em; padding: 8px 10px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    font-size: 0.95rem;
+  }
+  .qmemo-question:empty::before { content: attr(data-placeholder); color: var(--muted); }
+  .qmemo-answer {
+    margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--cisd-ok);
+    background: var(--code-bg); border-radius: 0 6px 6px 0; font-size: 0.95rem;
+  }
+
+  #qmemo-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 16px; display: flex; gap: 12px; align-items: center;
+    font-size: 0.86rem;
+  }
+  #qmemo-save-btn {
+    background: var(--cisd-ok); color: #fff; border: none; border-radius: 7px;
+    padding: 8px 16px; font-size: 0.88rem; cursor: pointer; font-weight: 600;
+  }
+  #qmemo-saymsg { color: var(--muted); }
+
+  /* 퀴즈 */
+  .quiz { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 22px 0; background: var(--panel); }
+  .quiz .q { font-weight: 600; margin-bottom: 10px; }
+  .quiz button.opt {
+    display: block; width: 100%; text-align: left; margin: 6px 0; padding: 10px 13px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+    color: var(--fg); cursor: pointer; font-size: 0.94rem; font-family: inherit;
+  }
+  .quiz button.opt:hover { border-color: var(--cisd-ok); }
+  .quiz button.opt.correct { border-color: var(--up); background: rgba(61,153,112,0.14); }
+  .quiz button.opt.wrong { border-color: var(--down); background: rgba(255,65,54,0.12); }
+  .quiz .fb { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 0.92rem; display: none; }
+  .quiz .fb.show { display: block; }
+  .quiz .fb.good { background: rgba(61,153,112,0.14); border-left: 3px solid var(--up); }
+  .quiz .fb.bad { background: rgba(255,65,54,0.10); border-left: 3px solid var(--down); }
+
+  .legend-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin: 16px 0; }
+  .legend-item { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); font-size: 0.87rem; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .big { font-size: 1.6rem; font-weight: 700; }
+  .muted { color: var(--muted); }
+  @media (max-width: 640px) {
+    body { font-size: 15.5px; }
+    h2 { font-size: 1.28rem; }
+  }
+</style>
+
+</head><body><div class="wrap">
+
+<h1>Phase 4 CISD 육안 Gate</h1>
+<p class="sub">차트의 마커는 왜 이렇게 많고, 나는 정확히 무엇을 확인해야 하나 — 처음부터 천천히</p>
+
+<div class="callout">
+  <b>이 문서를 읽는 방법</b>
+  읽다가 궁금한 게 생기면 곳곳에 있는 <b>질문 메모</b> 상자에 바로 적으세요.
+  적는 즉시 이 브라우저에 자동 저장되고, 맨 아래 <b>[질문 저장]</b> 버튼을 누르면
+  질문이 박힌 HTML이 다운로드됩니다. 그 파일을
+  <code>docs/understanding/</code>의 원본 자리에 덮어쓴 뒤 Claude에게
+  "질문에 답해줘"라고 하면 이 문서 안에 답이 채워집니다.
+</div>
+
+<div class="toc">
+  <b>목차</b>
+  <ol>
+    <li><a href="#bg-basics">배경 ① — 봉, 꼬리, 그리고 "유동성 사냥" (기초를 안다면 건너뛰기)</a></li>
+    <li><a href="#bg-pipeline">배경 ② — 이 화면은 왜 존재하나 (Phase 0~5와 "게이트")</a></li>
+    <li><a href="#intuition">핵심 직관 — CISD는 무엇을 묻는가</a></li>
+    <li><a href="#markers">차트에 마커가 이렇게 많은 이유 (그리고 3초 만에 정리하는 법)</a></li>
+    <li><a href="#worksheet">판정표(worksheet) 읽는 법</a></li>
+    <li><a href="#walkthrough">실제 행 3개를 끝까지 따라가기</a></li>
+    <li><a href="#checklist">내가 실제로 할 일 — 5단계 체크리스트</a></li>
+    <li><a href="#code">코드는 어떻게 생겼나</a></li>
+    <li><a href="#quiz">퀴즈 5문항</a></li>
+    <li><a href="#appendix">부록 — 용어 사전과 명령어</a></li>
+  </ol>
+</div>
+
+<div class="warn">
+  <b>먼저 결론부터 (급하면 여기만)</b>
+  차트가 어지러운 건 당신 탓이 아닙니다. 차트는 창(5일치) 안의 <b>모든</b> 사건을 그립니다 —
+  창 하나에 CISD 판정만 123~178건, 9개 창 합쳐 <b>1,353건</b>입니다.
+  그런데 판정표는 그중 <b>40행</b>만 뽑아 놨습니다. 화면에 보이는 것의 대부분은
+  오늘 당신이 볼 대상이 <b>아닙니다</b>.<br><br>
+  해결책은 두 줄입니다.
+  <b>① 차트 오른쪽 범례에서 CISD가 아닌 층을 전부 클릭해서 끄세요.</b>
+  <b>② 판정표 한 행의 <code>앵커 봉 open (UTC)</code> 시각으로 그 시각만 확대해서 보세요.</b>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="bg-basics">1. 배경 ① — 봉, 꼬리, 그리고 "유동성 사냥"</h2>
+<p class="sub">이미 캔들차트와 ICT 개념을 안다면 <a href="#bg-pipeline">2번</a>으로 건너뛰세요.</p>
+
+<h3>1-1. 봉(캔들) 하나는 "그 시간 동안의 요약"입니다</h3>
+
+<p>
+가격은 1초에도 수십 번 움직입니다. 그걸 전부 그리면 아무것도 안 보이니까,
+<b>일정 시간을 한 덩어리로 묶어</b> 막대 하나로 그립니다. 그게 봉입니다.
+</p>
+
+<p>15분봉 하나에는 딱 4개의 숫자가 들어 있습니다.</p>
+
+<figure>
+<svg viewBox="0 0 640 300" role="img" aria-label="캔들 하나의 구조">
+  <rect x="0" y="0" width="640" height="300" fill="none"></rect>
+  <!-- 양봉 -->
+  <line x1="170" y1="40" x2="170" y2="255" stroke="var(--up)" stroke-width="2.5"></line>
+  <rect x="150" y="95" width="40" height="120" fill="var(--up)" fill-opacity="0.5" stroke="var(--up)" stroke-width="2.5"></rect>
+  <text x="170" y="28" text-anchor="middle" font-size="14" fill="var(--muted)">고가 (high)</text>
+  <text x="170" y="278" text-anchor="middle" font-size="14" fill="var(--muted)">저가 (low)</text>
+  <text x="242" y="100" font-size="14" fill="var(--fg)">종가 (close) — 끝난 값</text>
+  <text x="242" y="222" font-size="14" fill="var(--fg)">시가 (open) — 시작한 값</text>
+  <line x1="196" y1="95" x2="238" y2="95" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"></line>
+  <line x1="196" y1="215" x2="238" y2="215" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"></line>
+  <text x="170" y="60" text-anchor="middle" font-size="12" fill="var(--muted)">꼬리(wick)</text>
+  <text x="76" y="160" font-size="15" font-weight="700" fill="var(--up)">양봉</text>
+  <text x="60" y="182" font-size="12" fill="var(--muted)">종가 &gt; 시가</text>
+
+  <!-- 음봉 -->
+  <line x1="470" y1="40" x2="470" y2="255" stroke="var(--down)" stroke-width="2.5"></line>
+  <rect x="450" y="95" width="40" height="120" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2.5"></rect>
+  <text x="542" y="100" font-size="14" fill="var(--fg)">시가</text>
+  <text x="542" y="222" font-size="14" fill="var(--fg)">종가</text>
+  <line x1="496" y1="95" x2="538" y2="95" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"></line>
+  <line x1="496" y1="215" x2="538" y2="215" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"></line>
+  <text x="376" y="160" font-size="15" font-weight="700" fill="var(--down)">음봉</text>
+  <text x="360" y="182" font-size="12" fill="var(--muted)">종가 &lt; 시가</text>
+</svg>
+<figcaption>봉 하나 = 시가·고가·저가·종가 4개 숫자. 몸통(body)은 시가↔종가, 꼬리(wick)는 그 밖으로 삐져나온 부분.</figcaption>
+</figure>
+
+<div class="callout">
+  <b>왜 "종가"만 유독 중요한가</b>
+  꼬리는 <em>"한 번 찔러봤다"</em>는 뜻이고, 종가는 <em>"15분이 끝났을 때 시장이 최종적으로 동의한 값"</em>입니다.
+  꼬리는 큰손 한 명이 잠깐 밀어도 생기지만, 종가는 15분 내내 버텨야 나옵니다.
+  <b>이 프로젝트의 모든 판정은 종가로만 합니다.</b> 꼬리로 넘은 건 넘은 게 아닙니다.
+  이 규칙 하나가 오늘 당신이 눈으로 확인할 것의 절반입니다.
+</div>
+
+<h3>1-2. "유동성"은 사람들의 손절 주문이 쌓인 자리입니다</h3>
+
+<p>
+가격이 눈에 띄게 낮았던 자리(전 저점)를 생각해 보세요. 많은 사람이
+"여기 밑으로 내려가면 손절한다"고 주문을 걸어 둡니다. 그 자리 <b>바로 아래에</b>
+매도 주문 뭉치가 쌓입니다. 이걸 <b>SSL</b>(sell-side liquidity, 매도 쪽 유동성)이라고 부릅니다.
+반대로 전 고점 <b>위에는</b> 매수 주문 뭉치가 쌓이고, 그건 <b>BSL</b>입니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 700 260" role="img" aria-label="SSL과 BSL 위치">
+  <line x1="60" y1="70" x2="640" y2="70" stroke="var(--bsl)" stroke-width="2" stroke-dasharray="7 5"></line>
+  <text x="60" y="60" font-size="13" fill="var(--bsl)" font-weight="700">전 고점 — 이 위에 BSL (매수 주문 뭉치)</text>
+  <line x1="60" y1="200" x2="640" y2="200" stroke="var(--ssl)" stroke-width="2" stroke-dasharray="7 5"></line>
+  <text x="60" y="222" font-size="13" fill="var(--ssl)" font-weight="700">전 저점 — 이 아래에 SSL (매도 주문 뭉치)</text>
+  <path d="M80,150 L160,110 L240,160 L320,95 L400,175 L480,120 L560,190 L620,130" fill="none" stroke="var(--muted)" stroke-width="2"></path>
+  <text x="330" y="140" font-size="13" fill="var(--muted)">가격은 이 사이를 오간다</text>
+</svg>
+<figcaption>SSL/BSL은 "주문이 쌓여 있을 법한 자리". 코드에서는 <code>ICTMultiTimeframeLiquidityEngine</code>이 이 자리를 자동으로 찾습니다.</figcaption>
+</figure>
+
+<h3>1-3. "스윕(sweep)"과 "excursion"</h3>
+
+<p>
+큰 자금은 자기 물량을 채우려면 상대방 주문이 필요합니다. 그래서 <b>일부러</b>
+전 저점 아래를 잠깐 찔러 손절 주문을 터뜨리고, 그 물량을 받아서 다시 올라갑니다.
+이 "잠깐 찌르기"가 <b>스윕</b>입니다.
+</p>
+
+<p>
+스윕이 일어나면 이 시스템은 <b>excursion</b>이라는 사건을 하나 엽니다.
+"어느 선을 언제 얼마나 뚫고 내려갔는가"를 기록하는 서류철이라고 생각하면 됩니다.
+excursion에는 이름표(ID)가 붙는데, 이게 판정표와 차트를 잇는 열쇠입니다.
+</p>
+
+<pre><code>ETHUSDT : EXC : SSL : 1783501200000 : 1732.77
+  │        │     │        │              └ 뚫고 내려간 가격
+  │        │     │        └ 스윕이 관측된 시각 (epoch 밀리초 = 2026-07-08 09:00 UTC)
+  │        │     └ 어느 쪽 유동성인가 (SSL = 아래쪽 / BSL = 위쪽)
+  │        └ 이건 excursion 사건이다
+  └ 종목</code></pre>
+
+<div class="qmemo" data-qid="bg-basics" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="bg-pipeline">2. 배경 ② — 이 화면은 왜 존재하나</h2>
+
+<h3>2-1. 전략은 여섯 단계로 나뉘어 있습니다</h3>
+
+<p>
+"유동성을 사냥한 뒤 반대로 간다"는 아이디어를 한 번에 코드로 옮기면,
+틀렸을 때 <b>어디가</b> 틀렸는지 알 수 없습니다. 그래서 이 프로젝트는
+단계(Phase)를 쪼개고, 단계마다 따로 검증합니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 860 330" role="img" aria-label="Phase 0~5 파이프라인">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--muted)"></path>
+    </marker>
+  </defs>
+
+  <rect x="14" y="18" width="150" height="60" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"></rect>
+  <text x="89" y="42" text-anchor="middle" font-size="13" font-weight="700">1분봉 데이터</text>
+  <text x="89" y="62" text-anchor="middle" font-size="11" fill="var(--muted)">parquet에서 스트리밍</text>
+
+  <line x1="164" y1="48" x2="204" y2="48" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"></line>
+
+  <rect x="208" y="18" width="176" height="60" rx="8" fill="var(--panel)" stroke="var(--ssl)" stroke-width="1.5"></rect>
+  <text x="296" y="40" text-anchor="middle" font-size="13" font-weight="700">Phase 0·1 — 유동성 지도</text>
+  <text x="296" y="60" text-anchor="middle" font-size="11" fill="var(--muted)">SSL/BSL 선과 풀을 찾는다</text>
+
+  <line x1="384" y1="48" x2="424" y2="48" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"></line>
+
+  <rect x="428" y="18" width="176" height="60" rx="8" fill="var(--panel)" stroke="var(--ssl)" stroke-width="1.5"></rect>
+  <text x="516" y="40" text-anchor="middle" font-size="13" font-weight="700">Phase 2 — Excursion</text>
+  <text x="516" y="60" text-anchor="middle" font-size="11" fill="var(--muted)">"언제 얼마나 찔렸나"</text>
+
+  <line x1="516" y1="78" x2="516" y2="112" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"></line>
+  <text x="530" y="102" font-size="11" fill="var(--muted)">excursion 하나마다 ↓ 세 가지를 각각 판정</text>
+
+  <rect x="120" y="122" width="230" height="66" rx="8" fill="var(--panel)" stroke="var(--rcl-ok)" stroke-width="2"></rect>
+  <text x="235" y="145" text-anchor="middle" font-size="13" font-weight="700" fill="var(--rcl-ok)">Phase 3 — Reclaim</text>
+  <text x="235" y="165" text-anchor="middle" font-size="11" fill="var(--muted)">뺏긴 자리를 되찾았나?</text>
+  <text x="235" y="181" text-anchor="middle" font-size="11" fill="var(--muted)">(이미 검증 완료)</text>
+
+  <rect x="366" y="122" width="230" height="66" rx="8" fill="var(--panel)" stroke="var(--cisd-ok)" stroke-width="3"></rect>
+  <text x="481" y="145" text-anchor="middle" font-size="13" font-weight="700" fill="var(--cisd-ok)">Phase 4 — CISD ★ 오늘</text>
+  <text x="481" y="165" text-anchor="middle" font-size="11" fill="var(--muted)">밀던 힘의 방향이 바뀌었나?</text>
+  <text x="481" y="181" text-anchor="middle" font-size="11" fill="var(--muted)">← 지금 눈으로 채점 중</text>
+
+  <rect x="612" y="122" width="230" height="66" rx="8" fill="var(--panel)" stroke="var(--disp)" stroke-width="2"></rect>
+  <text x="727" y="145" text-anchor="middle" font-size="13" font-weight="700" fill="var(--disp)">Phase 5 — Displacement</text>
+  <text x="727" y="165" text-anchor="middle" font-size="11" fill="var(--muted)">되돌림이 충분히 셌나?</text>
+  <text x="727" y="181" text-anchor="middle" font-size="11" fill="var(--muted)">(구현 완료)</text>
+
+  <line x1="481" y1="188" x2="481" y2="222" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"></line>
+
+  <rect x="270" y="232" width="420" height="72" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"></rect>
+  <text x="480" y="256" text-anchor="middle" font-size="13" font-weight="700">이벤트 (ICTSetupEvent)</text>
+  <text x="480" y="276" text-anchor="middle" font-size="11" fill="var(--muted)">CISD_CONFIRMED / CISD_FAILED / CISD_NOT_APPLICABLE</text>
+  <text x="480" y="294" text-anchor="middle" font-size="11" fill="var(--muted)">→ 차트 마커도, 판정표 한 행도 전부 이걸 읽어서 만든다</text>
+</svg>
+<figcaption>세 detector(Reclaim/CISD/Displacement)는 <b>서로를 절대 참조하지 않습니다</b>. 같은 사건을 세 개의 독립된 잣대로 재고, 나중에 어느 조합이 돈이 되는지 비교하기 위해서입니다.</figcaption>
+</figure>
+
+<h3>2-2. "육안 Gate"가 뭔가요</h3>
+
+<p>
+컴퓨터가 계산한 결과를 사람이 <b>눈으로 채점</b>하는 절차입니다.
+왜 필요할까요? 테스트 코드는 "내가 시킨 대로 계산했나"만 확인합니다.
+"내가 시킨 게 애초에 말이 되나"는 확인하지 못합니다.
+</p>
+
+<div class="stop">
+  <b>실제로 있었던 일 (이 저장소 기록)</b>
+  382개의 테스트가 전부 초록이었는데, 차트의 시간축이 <b>9시간</b> 어긋나 있었습니다.
+  숫자끼리는 완벽히 일치했지만, 사람이 화면에서 보고 있던 건 다른 시각의 봉이었습니다.
+  기계는 서로 어긋난 두 세계가 각자 자기 안에서 완결되어 있으면 절대 눈치채지 못합니다.
+  그래서 사람 눈이 한 번 들어가야 합니다.
+</div>
+
+<p>Gate는 세 개의 명령으로 굴러갑니다.</p>
+
+<pre><code># ① 차트를 만든다 (창 9개 × 표시 타임프레임)
+python -m research.analysis.ict_phase4_gate render
+
+# ② 판정표를 만든다 (cisds.csv + worksheet.html)
+python -m research.analysis.ict_phase4_gate worksheet
+
+# ③ 판정 서버를 띄운다 (localhost:8770) ← 지금 여기
+python -m research.analysis.ict_phase4_gate serve</code></pre>
+
+<div class="callout">
+  <b>중요한 안전장치</b>
+  <code>worksheet</code>는 <code>verdicts.csv</code>(당신이 찍은 판정)를 <b>절대 덮어쓰지 않습니다</b>.
+  판정은 재생성이 불가능한 자산이니까요. 저장은 <code>serve</code>만 하고, 그것도 기존 판정과 <b>병합</b>합니다.
+</div>
+
+<div class="qmemo" data-qid="bg-pipeline" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">Phase 구분이나 Gate의 목적에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="intuition">3. 핵심 직관 — CISD는 무엇을 묻는가</h2>
+
+<h3>3-1. 한 문장으로</h3>
+
+<div class="callout">
+  <b>CISD = Change In State of Delivery (공급 상태의 전환)</b>
+  <b>"가격을 밀어 내리던 힘이, 그 힘이 시작된 첫 발자국까지 되밟혔는가?"</b>
+</div>
+
+<p>
+비유로 갑시다. 눈밭에서 누군가 언덕 아래로 내려갔습니다.
+발자국이 100m 지점에서 시작해 96m까지 이어져 있어요.
+"그 사람이 진짜 돌아섰다"고 말하려면 어디까지 올라와야 할까요?
+</p>
+
+<p>
+95m? 그건 그냥 미끄러진 걸 수도 있습니다.
+<b>발자국이 시작된 100m 지점을 다시 넘어서야</b> "아, 내려가던 게 끝났구나"라고 말할 수 있습니다.
+</p>
+
+<p>
+CISD의 기준선(<code>cisd_level</code>)이 정확히 그 <b>"첫 발자국"</b>입니다.
+코드로는 이렇게 정합니다:
+</p>
+
+<ol>
+  <li>스윕이 일어난 15분봉(<b>bar0</b>)에서 출발한다.</li>
+  <li>거기서 <b>과거로</b> 훑으며 첫 번째 <b>반대 봉</b>을 찾는다.
+      (SSL = 아래로 찔렀으니 반대 봉은 <span style="color:var(--down);font-weight:700">음봉</span>)</li>
+  <li>그 음봉에서 계속 과거로 이어지는 <b>연속 음봉 덩어리(run)</b>의 <b>맨 첫 봉</b>을 찾는다.</li>
+  <li>그 첫 봉의 <b>시가(open)</b> = 기준선. 여기서 <b>얼려버린다(freeze)</b>.</li>
+</ol>
+
+<h3>3-2. 그림으로 (같은 그림을 계속 재사용합니다)</h3>
+
+<figure>
+<svg viewBox="0 0 760 340" role="img" aria-label="CISD 기준선 잡기와 CONFIRMED 판정">
+  <!-- 격자/축 -->
+  <line x1="46" y1="300" x2="740" y2="300" stroke="var(--line)" stroke-width="1.5"></line>
+  <text x="46" y="322" font-size="11" fill="var(--muted)">09:00</text>
+  <text x="126" y="322" font-size="11" fill="var(--muted)">09:15</text>
+  <text x="206" y="322" font-size="11" fill="var(--muted)">09:30</text>
+  <text x="286" y="322" font-size="11" fill="var(--muted)">09:45</text>
+  <text x="366" y="322" font-size="11" fill="var(--muted)">10:00</text>
+  <text x="446" y="322" font-size="11" fill="var(--muted)">10:15</text>
+
+  <!-- run 배경 강조 -->
+  <rect x="102" y="30" width="240" height="268" fill="var(--cisd-ok)" fill-opacity="0.07"></rect>
+  <text x="222" y="46" text-anchor="middle" font-size="12" font-weight="700" fill="var(--cisd-ok)">run = 연속 음봉 3개 (run_len 3)</text>
+
+  <!-- 기준선 -->
+  <line x1="102" y1="152" x2="560" y2="152" stroke="var(--cisd-ok)" stroke-width="2.4" stroke-dasharray="9 3 2 3"></line>
+  <text x="566" y="149" font-size="12.5" font-weight="700" fill="var(--cisd-ok)">cisd_level = 100</text>
+  <text x="566" y="166" font-size="11" fill="var(--muted)">(run 첫 봉의 시가)</text>
+
+  <!-- bar i0: 양봉 98.5 -> 100 -->
+  <line x1="66" y1="147" x2="66" y2="181" stroke="var(--up)" stroke-width="2"></line>
+  <rect x="51" y="152" width="30" height="24" fill="var(--up)" fill-opacity="0.5" stroke="var(--up)" stroke-width="2"></rect>
+  <text x="66" y="200" text-anchor="middle" font-size="10.5" fill="var(--muted)">양봉</text>
+  <text x="66" y="214" text-anchor="middle" font-size="10.5" fill="var(--muted)">= 경계 ✓</text>
+
+  <!-- bar i1: 음봉 100 -> 98 (run 첫 봉) -->
+  <line x1="146" y1="149" x2="146" y2="187" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="131" y="152" width="30" height="32" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <text x="146" y="203" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--cisd-ok)">run 첫 봉</text>
+  <text x="146" y="217" text-anchor="middle" font-size="10.5" fill="var(--muted)">시가 100</text>
+
+  <!-- bar i2: 음봉 98 -> 96 -->
+  <line x1="226" y1="181" x2="226" y2="219" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="211" y="184" width="30" height="32" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+
+  <!-- bar i3: bar0 = 앵커, 음봉 96 -> 95, 아래 긴 꼬리 93 -->
+  <line x1="306" y1="214" x2="306" y2="264" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="291" y="216" width="30" height="16" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <!-- 전 저점 선 -->
+  <line x1="250" y1="248" x2="700" y2="248" stroke="var(--ssl)" stroke-width="1.8" stroke-dasharray="6 4"></line>
+  <text x="612" y="243" font-size="11" fill="var(--ssl)">전 저점 (SSL)</text>
+  <!-- 앵커 마커 ◇ -->
+  <polygon points="306,222 314,232 306,242 298,232" fill="var(--anchor)"></polygon>
+  <text x="306" y="285" text-anchor="middle" font-size="11" font-weight="700" fill="var(--anchor)">◇ bar0 = 앵커</text>
+  <text x="306" y="299" text-anchor="middle" font-size="10.5" fill="var(--muted)">여기서 기준선 freeze</text>
+
+  <!-- bar i4: bar1 양봉 95 -> 97, 고가 99.5 -->
+  <line x1="386" y1="160" x2="386" y2="236" stroke="var(--up)" stroke-width="2"></line>
+  <rect x="371" y="200" width="30" height="32" fill="var(--up)" fill-opacity="0.5" stroke="var(--up)" stroke-width="2"></rect>
+  <text x="386" y="253" text-anchor="middle" font-size="10.5" fill="var(--muted)">bar1</text>
+  <text x="386" y="267" text-anchor="middle" font-size="10.5" fill="var(--muted)">종가 97 ✗</text>
+
+  <!-- bar i5: bar2 양봉 97 -> 101 -->
+  <line x1="466" y1="128" x2="466" y2="205" stroke="var(--up)" stroke-width="2"></line>
+  <rect x="451" y="136" width="30" height="64" fill="var(--up)" fill-opacity="0.5" stroke="var(--up)" stroke-width="2"></rect>
+  <!-- CONFIRMED 마커 -->
+  <circle cx="481" cy="136" r="8" fill="var(--cisd-ok)"></circle>
+  <text x="500" y="122" font-size="12" font-weight="700" fill="var(--cisd-ok)">● CISD CONFIRMED</text>
+  <text x="500" y="138" font-size="11" fill="var(--muted)">종가 101 &gt; 100 ✓ (bars_used 2)</text>
+
+  <!-- 기한 표시 -->
+  <line x1="291" y1="315" x2="481" y2="315" stroke="var(--anchor)" stroke-width="2"></line>
+  <line x1="291" y1="309" x2="291" y2="321" stroke="var(--anchor)" stroke-width="2"></line>
+  <line x1="481" y1="309" x2="481" y2="321" stroke="var(--anchor)" stroke-width="2"></line>
+  <text x="386" y="311" text-anchor="middle" font-size="10.5" fill="var(--anchor)">기한 = bar0 포함 3봉</text>
+</svg>
+<figcaption>SSL(아래쪽 유동성)을 찌른 경우. 이 그림 하나가 이 문서에서 계속 변형되며 재등장합니다.</figcaption>
+</figure>
+
+<div class="callout">
+  <b>세 가지 시각을 절대 헷갈리지 마세요</b>
+  <ul style="margin:8px 0 0">
+    <li><b>bar0</b> — 스윕이 일어난 15분봉. 기한을 세는 출발점.</li>
+    <li><b>앵커 봉</b> — 기준선을 얼린 봉. 보통 bar0와 같아서 <b>◇</b>로 표시됩니다.
+        15분 데이터에 구멍이 나서 bar0가 통째로 없으면 다음 봉이 앵커가 되고, 그때만 <b>⧗</b>(모래시계)로 표시됩니다.</li>
+    <li><b>판정 봉</b> — 결론이 난 봉. 마커(● 또는 ✕)는 이 봉의 <b>종가 시각</b>에 찍힙니다.</li>
+  </ul>
+</div>
+
+<h3>3-3. 실패하는 경우 — 꼬리는 인정하지 않는다</h3>
+
+<figure>
+<svg viewBox="0 0 760 340" role="img" aria-label="CISD FAILED — 꼬리만 넘은 경우">
+  <line x1="46" y1="300" x2="740" y2="300" stroke="var(--line)" stroke-width="1.5"></line>
+  <rect x="102" y="30" width="240" height="268" fill="var(--cisd-no)" fill-opacity="0.10"></rect>
+
+  <line x1="102" y1="152" x2="560" y2="152" stroke="var(--cisd-no)" stroke-width="2.4" stroke-dasharray="9 3 2 3"></line>
+  <text x="566" y="149" font-size="12.5" font-weight="700" fill="var(--muted)">cisd_level = 100</text>
+
+  <line x1="66" y1="147" x2="66" y2="181" stroke="var(--up)" stroke-width="2"></line>
+  <rect x="51" y="152" width="30" height="24" fill="var(--up)" fill-opacity="0.5" stroke="var(--up)" stroke-width="2"></rect>
+  <line x1="146" y1="149" x2="146" y2="187" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="131" y="152" width="30" height="32" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <line x1="226" y1="181" x2="226" y2="219" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="211" y="184" width="30" height="32" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <line x1="306" y1="214" x2="306" y2="264" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="291" y="216" width="30" height="16" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <polygon points="306,222 314,232 306,242 298,232" fill="var(--anchor)"></polygon>
+  <text x="306" y="285" text-anchor="middle" font-size="11" font-weight="700" fill="var(--anchor)">◇ 앵커</text>
+
+  <line x1="386" y1="160" x2="386" y2="236" stroke="var(--up)" stroke-width="2"></line>
+  <rect x="371" y="200" width="30" height="32" fill="var(--up)" fill-opacity="0.5" stroke="var(--up)" stroke-width="2"></rect>
+
+  <!-- bar2: 꼬리만 100.8까지, 종가 99.5 -->
+  <line x1="466" y1="139" x2="466" y2="205" stroke="var(--up)" stroke-width="2"></line>
+  <rect x="451" y="160" width="30" height="40" fill="var(--up)" fill-opacity="0.5" stroke="var(--up)" stroke-width="2"></rect>
+  <circle cx="466" cy="145" r="16" fill="none" stroke="var(--down)" stroke-width="2" stroke-dasharray="4 3"></circle>
+  <text x="500" y="130" font-size="11.5" fill="var(--down)" font-weight="700">꼬리는 100.8까지 올라감 →</text>
+  <text x="500" y="147" font-size="11.5" fill="var(--down)">하지만 넘은 걸로 안 친다</text>
+
+  <!-- FAILED 마커 X -->
+  <g stroke="var(--cisd-no)" stroke-width="3.4">
+    <line x1="474" y1="153" x2="488" y2="167"></line>
+    <line x1="488" y1="153" x2="474" y2="167"></line>
+  </g>
+  <text x="500" y="176" font-size="12" font-weight="700" fill="var(--muted)">✕ CISD FAILED</text>
+  <text x="500" y="192" font-size="11" fill="var(--muted)">종가 99.5 &lt; 100 ✗</text>
+  <text x="500" y="209" font-size="11" fill="var(--muted)"><tspan font-family="monospace">wick_cross_bars = 1</tspan></text>
+</svg>
+<figcaption>바로 이 경우를 사람이 눈으로 확인해야 합니다. 판정표의 <code>wick만 돌파</code> 열이 0보다 큰데 판정이 FAILED면 <b>정상</b>입니다 — 규칙이 제대로 작동한 증거니까요.</figcaption>
+</figure>
+
+<h3>3-4. 아예 재지 않는 경우 — "미적용(NOT_APPLICABLE)"</h3>
+
+<p>
+가끔은 판정 자체가 의미 없습니다. 세 가지 이유가 있습니다.
+</p>
+
+<div class="scroll">
+<table>
+<tbody><tr><th>사유</th><th>무슨 뜻</th><th>차트에 그려지나</th><th>현재 표본</th></tr>
+<tr>
+  <td><code>degenerate_level</code><br><span class="muted">(퇴화)</span></td>
+  <td><b>앵커 시점에 이미 조건이 참</b>. 발자국 시작점보다 이미 위에 있는데 "돌아섰네"라고 하면 아무것도 관측하지 않은 것. 자기충족 지표라 뺀다.</td>
+  <td>▽ 호박색 삼각형 — 레벨이 있으니 위치가 있다</td>
+  <td>8건</td>
+</tr>
+<tr>
+  <td><code>no_opposing_run</code></td>
+  <td>과거 3봉 안에 반대 봉이 아예 없다. 잴 발자국이 없다.</td>
+  <td><b>그려지지 않음</b> — 좌표가 없어서. 범례에 건수만 남긴다.</td>
+  <td>4건</td>
+</tr>
+<tr>
+  <td><code>insufficient_history</code></td>
+  <td>run이 데이터 버퍼 맨 끝까지 닿았다. 더 과거가 잘렸는지 알 수 없다.</td>
+  <td><b>그려지지 않음</b></td>
+  <td>0건</td>
+</tr>
+</tbody></table>
+</div>
+
+<div class="warn">
+  <b>"퇴화"를 왜 빼나요?</b>
+  이 저장소에 기록된 교훈입니다 — <b>과거 구조에서 유도한 기준선은 확정 시점에 이미 충족돼 있을 수 있습니다.</b>
+  그러면 그 지표는 "미래를 예측"한 게 아니라 "이미 일어난 일을 다시 말한" 것이 됩니다.
+  성공률 계산의 분모에서 빼야 정직한 숫자가 나옵니다. 다만 <code>level_close_gap</code>은 남겨서
+  나중에 재계산할 수 있게 해 뒀습니다.
+</div>
+
+<h3>3-5. Reclaim과 CISD는 다른 질문입니다 — 그래서 2×2</h3>
+
+<p>
+Phase 3의 Reclaim은 "<b>뺏긴 그 자리를 되찾았나</b>"를 묻고,
+Phase 4의 CISD는 "<b>밀던 힘 자체가 꺾였나</b>"를 묻습니다.
+비슷해 보이지만 네 조합이 전부 실제로 존재합니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 660 330" role="img" aria-label="Reclaim × CISD 2x2 표본 수">
+  <text x="330" y="22" text-anchor="middle" font-size="13" font-weight="700">현재 판정표의 2×2 표본 분포 (총 40행)</text>
+
+  <text x="330" y="52" text-anchor="middle" font-size="12" fill="var(--cisd-ok)" font-weight="700">CISD →</text>
+  <text x="238" y="76" text-anchor="middle" font-size="12" font-weight="700">CONFIRMED</text>
+  <text x="452" y="76" text-anchor="middle" font-size="12" font-weight="700">FAILED</text>
+  <text x="42" y="140" font-size="12" font-weight="700" fill="var(--rcl-ok)" transform="rotate(-90 42 140)">Reclaim ↓</text>
+  <text x="112" y="140" text-anchor="middle" font-size="12" font-weight="700">CONFIRMED</text>
+  <text x="112" y="230" text-anchor="middle" font-size="12" font-weight="700">FAILED</text>
+
+  <rect x="150" y="92" width="176" height="86" rx="8" fill="var(--up)" fill-opacity="0.14" stroke="var(--up)" stroke-width="2"></rect>
+  <text x="238" y="130" text-anchor="middle" font-size="22" font-weight="700">8</text>
+  <text x="238" y="152" text-anchor="middle" font-size="11" fill="var(--muted)">Con/Con — 둘 다 성립</text>
+  <text x="238" y="168" text-anchor="middle" font-size="10.5" fill="var(--muted)">가장 강한 신호 후보</text>
+
+  <rect x="336" y="92" width="176" height="86" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="2"></rect>
+  <text x="424" y="130" text-anchor="middle" font-size="22" font-weight="700">8</text>
+  <text x="424" y="152" text-anchor="middle" font-size="11" fill="var(--muted)">Con/Fai — 되찾았지만</text>
+  <text x="424" y="168" text-anchor="middle" font-size="10.5" fill="var(--muted)">힘은 안 꺾임</text>
+
+  <rect x="150" y="186" width="176" height="86" rx="8" fill="var(--cisd-deg)" fill-opacity="0.18" stroke="var(--cisd-deg)" stroke-width="2.6"></rect>
+  <text x="238" y="224" text-anchor="middle" font-size="22" font-weight="700">4</text>
+  <text x="238" y="246" text-anchor="middle" font-size="11" fill="var(--muted)">Fai/Con — </text></svg><b>희소 칸</b>
+  <text x="238" y="262" text-anchor="middle" font-size="10.5" fill="var(--muted)">7주 전체에서 5건뿐 → 전수 수집</text>
+
+  <rect x="336" y="186" width="176" height="86" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="2">
+  <text x="424" y="224" text-anchor="middle" font-size="22" font-weight="700">8</text>
+  <text x="424" y="246" text-anchor="middle" font-size="11" fill="var(--muted)">Fai/Fai — 둘 다 실패</text>
+
+  <rect x="150" y="284" width="362" height="34" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4">
+  <text x="331" y="306" text-anchor="middle" font-size="11.5" fill="var(--muted)">NA (미적용) 12건 — 분모 밖. 성공률 계산에서 빠지므로 따로 전수 확인</text>
+
+<figcaption>Fai/Con 칸이 4건뿐이라 <b>이 칸 때문에 창 3개를 새로 렌더했습니다</b>(ETH 07-06~10, ETH 07-11~15, BTC 07-26~30). "표본이 없어서 못 봤다"와 "데이터에 없다"는 전혀 다른 얘기니까요.</figcaption>
+</rect></rect></figure>
+
+<div class="qmemo" data-qid="intuition-cisd-core" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">기준선·앵커·기한·퇴화 중 헷갈리는 게 있다면 여기에</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."><div><span style="font-size: 0.95rem;">displacement 가 무엇인지, fail, confirmed가 무엇인지, 어떻게 시각화 표시되는지, displacement 확인 로직 등</span></div></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="markers">4. 차트에 마커가 이렇게 많은 이유</h2>
+
+<h3>4-1. 원인 ① — 다섯 개의 층이 한 장에 겹쳐 그려집니다</h3>
+
+<p>
+차트는 한 장처럼 보이지만, 사실 투명 필름 다섯 장을 겹친 것입니다.
+<code>frontend/specs/ict_long_viz.py</code>의 <code>_combined()</code> 함수가 순서대로 다섯 렌더러를 부릅니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 760 380" role="img" aria-label="다섯 개의 렌더 레이어가 겹친 구조">
+  <g transform="translate(40,20)">
+    <rect x="0" y="0" width="420" height="58" rx="6" fill="var(--ssl)" fill-opacity="0.10" stroke="var(--ssl)" stroke-width="1.6"></rect>
+    <text x="14" y="24" font-size="12.5" font-weight="700">① 유동성 레벨 · 풀 (Phase 0·1)</text>
+    <text x="14" y="44" font-size="11" fill="var(--muted)">타임프레임별 수평선 다발 + ○ pivot · ● available · ✕ sweep · 풀 박스</text>
+    <text x="440" y="34" font-size="12" fill="var(--down)" font-weight="700">← 선이 가장 많은 범인</text>
+  </g>
+  <g transform="translate(40,84)">
+    <rect x="0" y="0" width="420" height="58" rx="6" fill="var(--bsl)" fill-opacity="0.10" stroke="var(--bsl)" stroke-width="1.6"></rect>
+    <text x="14" y="24" font-size="12.5" font-weight="700">② Excursion (Phase 2)</text>
+    <text x="14" y="44" font-size="11" fill="var(--muted)">사건마다 파선 baseline + 실선 extreme, ▼▲ start · ◆ extend · ✕ close</text>
+    <text x="440" y="34" font-size="12" fill="var(--down)" font-weight="700">← 사건당 선 2개 × 1,353건</text>
+  </g>
+  <g transform="translate(40,148)">
+    <rect x="0" y="0" width="420" height="58" rx="6" fill="var(--rcl-ok)" fill-opacity="0.10" stroke="var(--rcl-ok)" stroke-width="1.6"></rect>
+    <text x="14" y="24" font-size="12.5" font-weight="700">③ Reclaim (Phase 3)</text>
+    <text x="14" y="44" font-size="11" fill="var(--muted)">초록/회색 dashdot baseline, ⌶ 기한, ○ 1m 회복, ● / ✕ 판정</text>
+    <text x="440" y="34" font-size="12" fill="var(--muted)">이미 검증 끝난 층</text>
+  </g>
+  <g transform="translate(40,212)">
+    <rect x="0" y="0" width="420" height="58" rx="6" fill="var(--cisd-ok)" fill-opacity="0.18" stroke="var(--cisd-ok)" stroke-width="3"></rect>
+    <text x="14" y="24" font-size="12.5" font-weight="700" fill="var(--cisd-ok)">④ CISD (Phase 4) ★ 오늘 볼 것</text>
+    <text x="14" y="44" font-size="11" fill="var(--muted)">청록/회색/호박 dashdot 기준선, ◇⧗ 앵커, ● / ✕ / ▽ 판정</text>
+    <text x="440" y="34" font-size="12" fill="var(--cisd-ok)" font-weight="700">← 이것만 남기면 된다</text>
+  </g>
+  <g transform="translate(40,276)">
+    <rect x="0" y="0" width="420" height="58" rx="6" fill="var(--disp)" fill-opacity="0.10" stroke="var(--disp)" stroke-width="1.6"></rect>
+    <text x="14" y="24" font-size="12.5" font-weight="700">⑤ Displacement (Phase 5)</text>
+    <text x="14" y="44" font-size="11" fill="var(--muted)">보라/회색 body 세로 막대, ● / ✕ 판정, 주황 FVG 구간</text>
+    <text x="440" y="34" font-size="12" fill="var(--muted)">아직 Gate 안 함</text>
+  </g>
+  <text x="250" y="360" text-anchor="middle" font-size="12.5" font-weight="700">= 이 다섯 장이 한 장의 캔들차트 위에 전부 겹쳐 있다</text>
+</svg>
+<figcaption>다섯 층은 서로 다른 색 축을 씁니다 — 겹쳐도 구분되도록 일부러 나눈 것입니다(side=적/청, reclaim=녹/회, CISD=청록/남회/호박, displacement=보라/주황).</figcaption>
+</figure>
+
+<h3>4-2. 원인 ② — 차트는 전부 그리는데, 판정표는 40행만 뽑습니다</h3>
+
+<figure>
+<svg viewBox="0 0 720 250" role="img" aria-label="차트 전체와 판정표 표본의 크기 차이">
+  <rect x="40" y="40" width="300" height="160" rx="10" fill="var(--panel)" stroke="var(--line)" stroke-width="1.6"></rect>
+  <text x="190" y="66" text-anchor="middle" font-size="13" font-weight="700">차트 (창 9개)</text>
+  <text x="190" y="118" text-anchor="middle" font-size="42" font-weight="700" fill="var(--down)">1,353</text>
+  <text x="190" y="142" text-anchor="middle" font-size="12" fill="var(--muted)">개의 CISD 판정이 전부 그려짐</text>
+  <text x="190" y="166" text-anchor="middle" font-size="11" fill="var(--muted)">(창별 178·163·163·146·141·123·143·138·158)</text>
+  <text x="190" y="186" text-anchor="middle" font-size="11" fill="var(--muted)">+ excursion · reclaim · displacement 마커</text>
+
+  <text x="366" y="122" font-size="26" fill="var(--muted)">→</text>
+
+  <rect x="396" y="40" width="284" height="160" rx="10" fill="var(--panel)" stroke="var(--cisd-ok)" stroke-width="2.6"></rect>
+  <text x="538" y="66" text-anchor="middle" font-size="13" font-weight="700" fill="var(--cisd-ok)">판정표 (worksheet.html)</text>
+  <text x="538" y="118" text-anchor="middle" font-size="42" font-weight="700" fill="var(--cisd-ok)">40</text>
+  <text x="538" y="142" text-anchor="middle" font-size="12" fill="var(--muted)">행만 층화 표본으로 추출</text>
+  <text x="538" y="166" text-anchor="middle" font-size="11" fill="var(--muted)">Con/Con 8 · Con/Fai 8 · Fai/Con 4 · Fai/Fai 8 · NA 12</text>
+  <text x="538" y="186" text-anchor="middle" font-size="11" font-weight="700" fill="var(--cisd-ok)">= 당신이 볼 것은 이 40개뿐</text>
+
+  <text x="360" y="230" text-anchor="middle" font-size="12" fill="var(--muted)">화면의 97%는 오늘의 판정 대상이 아니다 — 그래서 어지럽게 느껴지는 게 정상이다.</text>
+</svg>
+<figcaption>차트를 사건별로 따로 만들지 않는 이유: 창 하나를 통으로 보면 "다른 사건과 헷갈릴 만한 상황이었나"까지 눈에 들어오기 때문입니다. 대신 정리는 범례로 합니다.</figcaption>
+</figure>
+
+<h3>4-3. 해결 — 범례를 클릭해서 층을 끄세요</h3>
+
+<p>
+Plotly 차트의 범례 항목은 <b>클릭하면 그 층 전체가 사라집니다</b>.
+코드에서 각 층을 <code>legendgroup</code>으로 묶어 뒀기 때문에
+항목 하나를 끄면 같은 그룹의 마커·선이 함께 사라집니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 720 400" role="img" aria-label="범례에서 층을 끄는 순서">
+  <rect x="20" y="20" width="360" height="360" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"></rect>
+  <text x="200" y="44" text-anchor="middle" font-size="12.5" font-weight="700">차트 오른쪽 범례 (실제와 비슷한 이름)</text>
+
+  <g font-size="11.5">
+    <g opacity="0.35">
+      <line x1="42" y1="70" x2="72" y2="70" stroke="var(--ssl)" stroke-width="2"></line>
+      <text x="80" y="74">15m SSL Available</text>
+      <line x1="40" y1="70" x2="230" y2="70" stroke="var(--muted)" stroke-width="1.2"></line>
+    </g>
+    <g opacity="0.35">
+      <line x1="42" y1="96" x2="72" y2="96" stroke="var(--bsl)" stroke-width="2"></line>
+      <text x="80" y="100">Pool BSL 1h (active)</text>
+      <line x1="40" y1="96" x2="230" y2="96" stroke="var(--muted)" stroke-width="1.2"></line>
+    </g>
+    <g opacity="0.35">
+      <line x1="42" y1="122" x2="72" y2="122" stroke="var(--ssl)" stroke-width="2" stroke-dasharray="5 3"></line>
+      <text x="80" y="126">EXC SSL baseline (OPEN)</text>
+      <line x1="40" y1="122" x2="245" y2="122" stroke="var(--muted)" stroke-width="1.2"></line>
+    </g>
+    <g opacity="0.35">
+      <path d="M50,150 l8,-12 l8,12 z" fill="var(--bsl)"></path>
+      <text x="80" y="152">EXC BSL start</text>
+      <line x1="40" y1="148" x2="200" y2="148" stroke="var(--muted)" stroke-width="1.2"></line>
+    </g>
+    <g opacity="0.35">
+      <line x1="42" y1="174" x2="72" y2="174" stroke="var(--rcl-ok)" stroke-width="2" stroke-dasharray="7 2 2 2"></line>
+      <text x="80" y="178">RCL baseline (CONFIRMED)</text>
+      <line x1="40" y1="174" x2="248" y2="174" stroke="var(--muted)" stroke-width="1.2"></line>
+    </g>
+    <g opacity="0.35">
+      <line x1="42" y1="200" x2="72" y2="200" stroke="var(--disp)" stroke-width="2"></line>
+      <text x="80" y="204">DISP CONFIRMED</text>
+      <line x1="40" y1="200" x2="212" y2="200" stroke="var(--muted)" stroke-width="1.2"></line>
+    </g>
+
+    <rect x="34" y="216" width="330" height="112" rx="6" fill="var(--cisd-ok)" fill-opacity="0.10" stroke="var(--cisd-ok)" stroke-width="2"></rect>
+    <line x1="46" y1="238" x2="76" y2="238" stroke="var(--cisd-ok)" stroke-width="2.4" stroke-dasharray="7 2 2 2"></line>
+    <text x="84" y="242" font-weight="700">CISD level (CONFIRMED)</text>
+    <line x1="46" y1="264" x2="76" y2="264" stroke="var(--cisd-no)" stroke-width="2.4" stroke-dasharray="7 2 2 2"></line>
+    <text x="84" y="268" font-weight="700">CISD level (FAILED)</text>
+    <line x1="46" y1="290" x2="76" y2="290" stroke="var(--cisd-deg)" stroke-width="2.4" stroke-dasharray="7 2 2 2"></line>
+    <text x="84" y="294" font-weight="700">CISD level (DEGENERATE)</text>
+    <polygon points="61,310 68,317 61,324 54,317" fill="var(--anchor)"></polygon>
+    <text x="84" y="320" font-weight="700">CISD anchor (◇ bar0 / ⧗ 갭)</text>
+
+    <text x="46" y="352" fill="var(--muted)">CISD n/a (레벨 없음) × 4 — 미표시</text>
+    <text x="46" y="370" font-size="10.5" fill="var(--muted)">↑ 좌표가 없어 안 그려진 건수도 범례에 남긴다</text>
+  </g>
+
+  <g transform="translate(400,60)">
+    <text x="0" y="0" font-size="13" font-weight="700">할 일</text>
+    <text x="0" y="30" font-size="12" fill="var(--muted)">1. 회색으로 표시된 위 여섯 줄을</text>
+    <text x="0" y="50" font-size="12" fill="var(--muted)">   <tspan font-weight="700" fill="var(--fg)">한 번씩 클릭</tspan>해서 끈다</text>
+    <text x="0" y="80" font-size="12" fill="var(--muted)">2. CISD 상자 안의 네 줄만 남긴다</text>
+    <text x="0" y="110" font-size="12" fill="var(--muted)">3. 판정표 행의</text>
+    <text x="0" y="130" font-size="12" fill="var(--muted)">   <tspan font-family="monospace" font-weight="700" fill="var(--fg)">앵커 봉 open (UTC)</tspan></text>
+    <text x="0" y="150" font-size="12" fill="var(--muted)">   시각으로 드래그 확대</text>
+    <text x="0" y="180" font-size="12" fill="var(--muted)">4. 마커에 마우스를 올려</text>
+    <text x="0" y="200" font-size="12" fill="var(--muted)">   <tspan font-family="monospace" font-weight="700" fill="var(--fg)">excursion_id</tspan>가 판정표 행과</text>
+    <text x="0" y="220" font-size="12" fill="var(--muted)">   같은지 확인</text>
+    <text x="0" y="256" font-size="12" fill="var(--cisd-ok)" font-weight="700">팁: 범례 항목을 더블클릭하면</text>
+    <text x="0" y="276" font-size="12" fill="var(--cisd-ok)" font-weight="700">그것만 남기고 전부 꺼진다.</text>
+  </g>
+</svg>
+<figcaption>범례 <b>더블클릭 = 그것만 남기기</b>는 Plotly 기본 동작입니다. CISD level (CONFIRMED)를 더블클릭한 뒤, 필요한 층만 하나씩 다시 클릭해 켜는 게 가장 빠릅니다.</figcaption>
+</figure>
+
+<div class="stop">
+  <b>차트 x축은 UTC입니다</b>
+  판정표에는 <code>bar0 (KST)</code> 열도 있지만 흐리게(muted) 처리돼 있습니다.
+  <b>그 열로 차트를 찾으면 9시간 뒤를 보게 됩니다.</b> 반드시 <code>… (UTC)</code>가 붙은 열을 쓰세요.
+</div>
+
+<h3>4-4. CISD 마커 도감 (오늘 볼 것만)</h3>
+
+<div class="legend-grid">
+  <div class="legend-item">
+    <svg width="46" height="20"><line x1="2" y1="10" x2="44" y2="10" stroke="#00838F" stroke-width="2.6" stroke-dasharray="9 3 2 3"></line></svg>
+    <div><b>청록 dashdot</b><br><span class="muted">CONFIRMED 사건의 기준선</span></div>
+  </div>
+  <div class="legend-item">
+    <svg width="46" height="20"><line x1="2" y1="10" x2="44" y2="10" stroke="#B0BEC5" stroke-width="2.6" stroke-dasharray="9 3 2 3"></line></svg>
+    <div><b>남회색 dashdot</b><br><span class="muted">FAILED 사건의 기준선</span></div>
+  </div>
+  <div class="legend-item">
+    <svg width="46" height="20"><line x1="2" y1="10" x2="44" y2="10" stroke="#F9A825" stroke-width="2.6" stroke-dasharray="9 3 2 3"></line></svg>
+    <div><b>호박색 dashdot</b><br><span class="muted">퇴화(미적용) 기준선</span></div>
+  </div>
+  <div class="legend-item">
+    <svg width="46" height="20"><circle cx="23" cy="10" r="7" fill="#00838F"></circle></svg>
+    <div><b>● 청록 원</b><br><span class="muted">CISD CONFIRMED 판정</span></div>
+  </div>
+  <div class="legend-item">
+    <svg width="46" height="20"><g stroke="#B0BEC5" stroke-width="3"><line x1="17" y1="4" x2="29" y2="16"></line><line x1="29" y1="4" x2="17" y2="16"></line></g></svg>
+    <div><b>✕ 회색 가위표</b><br><span class="muted">CISD FAILED 판정</span></div>
+  </div>
+  <div class="legend-item">
+    <svg width="46" height="20"><polygon points="23,17 16,5 30,5" fill="#F9A825"></polygon></svg>
+    <div><b>▽ 호박 삼각형</b><br><span class="muted">퇴화 미적용</span></div>
+  </div>
+  <div class="legend-item">
+    <svg width="46" height="20"><polygon points="23,3 30,10 23,17 16,10" fill="#455A64"></polygon></svg>
+    <div><b>◇ 남색 마름모</b><br><span class="muted">앵커 = bar0 (정상)</span></div>
+  </div>
+  <div class="legend-item">
+    <svg width="46" height="20"><path d="M16,3 h14 l-14,14 h14" fill="none" stroke="#455A64" stroke-width="2.2"></path></svg>
+    <div><b>⧗ 모래시계</b><br><span class="muted">15m 갭 → 앵커≠bar0</span></div>
+  </div>
+</div>
+
+<div class="callout">
+  <b>선의 시작점이 곧 증거입니다</b>
+  CISD 기준선은 <b>bar0가 아니라 run 첫 봉의 open에서</b> 시작해 기한 봉 close까지 그어집니다.
+  bar0에서 시작하게 만들면 "이 값이 과거 어느 봉에서 왔는지"가 화면에서 사라져,
+  사람이 정의를 대조할 방법이 없어집니다. <b>선이 왼쪽으로 얼마나 뻗어 있는지가 run의 길이입니다.</b>
+</div>
+
+<div class="qmemo" data-qid="markers-legend" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">마커 모양·색·범례 조작에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="worksheet">5. 판정표(worksheet) 읽는 법</h2>
+
+<h3>5-1. 화면 구조</h3>
+
+<figure>
+<svg viewBox="0 0 760 360" role="img" aria-label="worksheet.html 화면 구조 목업">
+  <rect x="20" y="16" width="720" height="40" rx="6" fill="var(--panel)" stroke="var(--line)"></rect>
+  <text x="36" y="41" font-size="13" font-weight="700">ICT Phase 4 — CISD 육안 Gate</text>
+
+  <rect x="20" y="64" width="720" height="32" rx="6" fill="var(--cisd-ok)" fill-opacity="0.10" stroke="var(--cisd-ok)"></rect>
+  <text x="36" y="85" font-size="11.5">2×2 표본: Con/Con 8 · Con/Fai 8 · Fai/Con 4 · Fai/Fai 8 · NA 12</text>
+  <text x="640" y="85" font-size="11" fill="var(--muted)">← 빈 칸 있으면 노란 경고</text>
+
+  <rect x="20" y="104" width="720" height="52" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-dasharray="4 3"></rect>
+  <text x="36" y="124" font-size="11.5" fill="var(--muted)">판정 전에 읽을 안내문 — "차트 x축은 UTC", "판정은 15m 차트에서",</text>
+  <text x="36" y="144" font-size="11.5" fill="var(--muted)">"각 행에서 볼 것 5가지", "태그는 NG가 아니다"</text>
+
+  <!-- 표 헤더 -->
+  <rect x="20" y="168" width="720" height="26" fill="var(--panel)" stroke="var(--line)"></rect>
+  <text x="30" y="186" font-size="10.5" font-weight="700">#</text>
+  <text x="52" y="186" font-size="10.5" font-weight="700">차트</text>
+  <text x="120" y="186" font-size="10.5" font-weight="700">창</text>
+  <text x="196" y="186" font-size="10.5" font-weight="700">2×2</text>
+  <text x="244" y="186" font-size="10.5" font-weight="700">CISD</text>
+  <text x="308" y="186" font-size="10.5" font-weight="700">앵커 봉 open (UTC)</text>
+  <text x="440" y="186" font-size="10.5" font-weight="700">값들…</text>
+  <text x="510" y="186" font-size="10.5" font-weight="700">chk_*</text>
+  <text x="572" y="186" font-size="10.5" font-weight="700">판정</text>
+  <text x="630" y="186" font-size="10.5" font-weight="700">태그</text>
+  <text x="700" y="186" font-size="10.5" font-weight="700">note</text>
+
+  <!-- 행 1 -->
+  <rect x="20" y="194" width="720" height="40" fill="var(--bg)" stroke="var(--line)"></rect>
+  <text x="30" y="218" font-size="10.5">1</text>
+  <text x="52" y="212" font-size="9.5" fill="#2f6fd0">15m · 판정</text>
+  <text x="52" y="226" font-size="9.5" fill="#2f6fd0">1m · 참조</text>
+  <text x="120" y="218" font-size="9.5">20260417…</text>
+  <text x="196" y="218" font-size="9.5">Con/Con</text>
+  <text x="244" y="218" font-size="9.5" font-weight="700" fill="var(--cisd-ok)">CONFIRMED</text>
+  <text x="308" y="218" font-size="9.5" font-family="monospace">2026-04-17 21:45</text>
+  <text x="440" y="218" font-size="9.5" fill="var(--muted)">77413.42 …</text>
+  <text x="510" y="218" font-size="9.5" fill="var(--up)">✓✓✓✓✓</text>
+  <circle cx="576" cy="214" r="4.5" fill="none" stroke="var(--fg)" stroke-width="1.4"></circle>
+  <text x="584" y="218" font-size="9.5">OK</text>
+  <circle cx="606" cy="214" r="4.5" fill="none" stroke="var(--fg)" stroke-width="1.4"></circle>
+  <text x="614" y="218" font-size="9.5">NG</text>
+  <rect x="630" y="206" width="8" height="8" fill="none" stroke="var(--fg)"></rect>
+  <text x="642" y="214" font-size="8.5">overlaps_reclaim</text>
+  <rect x="630" y="220" width="8" height="8" fill="none" stroke="var(--fg)"></rect>
+  <text x="642" y="228" font-size="8.5">run_len_1 …</text>
+  <rect x="694" y="204" width="42" height="22" rx="3" fill="#0d1116" stroke="var(--line)"></rect>
+
+  <rect x="20" y="234" width="720" height="40" fill="var(--panel)" stroke="var(--line)"></rect>
+  <text x="30" y="258" font-size="10.5">2</text>
+  <text x="196" y="258" font-size="9.5">NA</text>
+  <text x="244" y="258" font-size="9.5" fill="var(--cisd-deg)" font-weight="700">NOT_APPLICABLE</text>
+  <text x="308" y="258" font-size="9.5" font-family="monospace">2026-04-17 03:45</text>
+  <text x="440" y="258" font-size="9.5" fill="var(--muted)">degenerate_level</text>
+  <text x="510" y="258" font-size="9.5" fill="var(--muted)">✓✓✓ · ·</text>
+
+  <rect x="20" y="274" width="720" height="24" fill="var(--bg)" stroke="var(--line)"></rect>
+  <text x="380" y="290" text-anchor="middle" font-size="10.5" fill="var(--muted)">… 총 40행 …</text>
+
+  <!-- 하단 고정 바 -->
+  <rect x="20" y="310" width="720" height="40" rx="6" fill="var(--panel)" stroke="var(--cisd-ok)" stroke-width="2"></rect>
+  <rect x="34" y="320" width="118" height="22" rx="5" fill="var(--cisd-ok)"></rect>
+  <text x="93" y="335" text-anchor="middle" font-size="10.5" fill="#fff" font-weight="700">verdicts.csv 저장</text>
+  <text x="166" y="335" font-size="10.5" fill="var(--muted)">저장됨 → reports/ict_phase4_gate/verdicts.csv | CISD OK 12/40 · NG 0 · 미판정 28 | gate_pass=False</text>
+</svg>
+<figcaption>행마다 라디오(OK/NG), 태그 체크박스, 자유 메모가 있습니다. 입력은 브라우저에 자동 저장되지만, <b>반드시 [verdicts.csv 저장]을 눌러야</b> 파일에 남습니다.</figcaption>
+</figure>
+
+<h3>5-2. 열 사전 — 하지만 순서에 뜻이 있습니다</h3>
+
+<p>열은 <b>판정하는 순서</b>대로 배치돼 있습니다: 무엇을 보는가 → 언제 → 값 → 기계 검사.</p>
+
+<div class="scroll">
+<table>
+<tbody><tr><th>그룹</th><th>열</th><th>쉬운 설명</th></tr>
+<tr><td rowspan="4"><b>무엇을</b></td><td><code>창</code></td><td>어느 5일치 차트인가</td></tr>
+<tr><td><code>2×2 칸</code></td><td>Reclaim/CISD 조합. <code>Con/Fai</code> = Reclaim 성공, CISD 실패</td></tr>
+<tr><td><code>CISD</code> / <code>Reclaim</code></td><td>각각의 판정 결과</td></tr>
+<tr><td><code>미적용 사유</code></td><td>비어 있으면 정상 판정. 값이 있으면 분모 밖</td></tr>
+
+<tr><td rowspan="4"><b>언제</b><br><span class="muted">(전부 UTC)</span></td><td><code>bar0 open</code></td><td>스윕이 난 15분봉이 열린 시각</td></tr>
+<tr><td><code>앵커 봉 open</code></td><td>기준선을 얼린 봉 — <b>차트를 찾을 때 이 시각을 쓰세요</b></td></tr>
+<tr><td><code>판정 봉 open</code></td><td>결론이 난 봉이 열린 시각</td></tr>
+<tr><td><code>판정 봉 close</code></td><td>그 봉이 닫힌 시각 — <b>마커는 여기에 찍힙니다</b></td></tr>
+
+<tr><td rowspan="8"><b>값</b></td><td><code>cisd_level</code></td><td>기준선 (run 첫 봉의 시가)</td></tr>
+<tr><td><code>판정 종가</code></td><td>결론을 낸 봉의 종가. 이게 기준선을 넘었는지가 전부</td></tr>
+<tr><td><code>앵커 종가</code></td><td>기준선을 얼린 순간의 종가</td></tr>
+<tr><td><code>level−close</code></td><td>기준선과 앵커 종가의 거리. <b>음수면 퇴화</b></td></tr>
+<tr><td><code>reclaim baseline</code> / <code>level−baseline</code></td><td>Reclaim의 기준선과 CISD 기준선의 차이. 0에 가까우면 두 지표가 같은 말을 하는 것</td></tr>
+<tr><td><code>run 길이</code></td><td>연속 반대봉이 몇 개였나. <b>차트에서 직접 세서 맞춰 보세요</b></td></tr>
+<tr><td><code>run 거리</code></td><td>앵커에서 run 끝까지 몇 봉 떨어졌나 (0이면 앵커 자신이 run의 일부)</td></tr>
+<tr><td><code>소요 봉</code></td><td>bar0부터 몇 봉 만에 확정됐나 (기한 3 중)</td></tr>
+
+<tr><td rowspan="3"><b>눈으로<br>볼 힌트</b></td><td><code>wick만 돌파</code></td><td>기한 안에서 <b>꼬리만</b> 기준선을 넘은 봉의 수. 0보다 크고 FAILED면 규칙이 제대로 작동한 것</td></tr>
+<tr><td><code>앵커=bar0</code></td><td>True면 ◇, False면 ⧗ (15분 데이터 구멍)</td></tr>
+<tr><td><code>excursion</code></td><td>사건 ID. 차트 마커 hover 첫 줄과 <b>글자 그대로 같아야</b> 합니다</td></tr>
+
+<tr><td rowspan="5"><b>chk_*</b><br><span class="muted">기계가 이미<br>끝낸 검사</span></td><td><code>chk 레벨=run첫봉 시가</code></td><td>기준선이 정말 그 봉의 시가와 일치하나</td></tr>
+<tr><td><code>chk run 전부 반대봉</code></td><td>run 구간이 정말 전부 반대봉인가</td></tr>
+<tr><td><code>chk run 경계 끊김</code></td><td>run 바로 앞 봉이 반대봉이 <b>아닌가</b> (제대로 끊겼나)</td></tr>
+<tr><td><code>chk 판정=종가</code></td><td>CONFIRMED면 종가가 넘었고, FAILED면 안 넘었나</td></tr>
+<tr><td><code>chk 판정봉 데이터 안</code></td><td>판정 봉이 실제 데이터 범위 안에 있나 (창 끝에서 잘리지 않았나)</td></tr>
+</tbody></table>
+</div>
+
+<div class="callout">
+  <b>chk_*는 왜 믿을 만한가</b>
+  이 검사들은 detector가 내놓은 값을, <b>detector와 완전히 별개로 다시 만든 15분봉</b>과 대조합니다
+  (<code>audit_agg = IncrementalTimeframeAggregator("15m")</code>).
+  같은 계산식에서 나온 값끼리 비교하면 늘 참이 되는 <b>항등식</b>이 되는데,
+  이 프로젝트는 Phase 3에서 그 함정에 두 번 빠진 적이 있습니다.
+  현재 40행 모두 <b>True 또는 공란</b>(비교 대상이 없어 검사하지 않음)입니다 —
+  즉 정의 불일치는 기계 수준에서 이미 0입니다.
+</div>
+
+<div class="qmemo" data-qid="worksheet-columns" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">특정 열의 의미가 아직 안 잡힌다면 열 이름과 함께 적어주세요</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="walkthrough">6. 실제 행 3개를 끝까지 따라가기</h2>
+
+<p class="sub">아래 숫자는 지금 <code>reports/ict_phase4_gate/cisds.csv</code>에 들어 있는 실제 값입니다.</p>
+
+<h3>6-1. 행 A — 희소 칸 Fai/Con (BTC, 2026-07-27 16:00 UTC)</h3>
+
+<pre><code>excursion_id      BTCUSDT:EXC:SSL:1785168000000:64544.01
+창                20260726-20260730   (희소 칸 때문에 새로 만든 창)
+2×2 칸            Fai/Con     ← Reclaim 실패 · CISD 성공
+side              SSL         ← 아래쪽 유동성을 찔렀다 = 반대 봉은 음봉
+bar0 open (UTC)   2026-07-27 16:00
+앵커 봉 open      2026-07-27 16:00   → 같다 = ◇ 마름모
+판정 봉 open      2026-07-27 16:15
+판정 봉 close     2026-07-27 16:30   → 마커는 여기 찍힘
+cisd_level        64728.87
+앵커 종가         64616.00           → 레벨보다 아래 (퇴화 아님 ✓)
+판정 종가         64734.01           → 64728.87 넘음 ✓ CONFIRMED
+run 길이 3 · run 거리 1 · 소요 봉 1 · wick만 돌파 0</code></pre>
+
+<p><b>차트에서 이렇게 확인합니다.</b></p>
+<ol>
+  <li>15m 차트를 열고 <code>2026-07-27 16:00</code> 근처를 확대한다.</li>
+  <li>◇ 마름모가 16:00 봉 위에 있나? → 앵커 확인.</li>
+  <li>청록 dashdot 선이 <b>왼쪽으로</b> 뻗어 있고, 그 시작점이 연속 음봉 <b>3개</b>의 첫 봉 시가인가?
+      <code>run 거리 1</code>이니 앵커 봉 자신은 run에 안 들어가고, 그 <b>한 봉 앞</b>에서 run이 끝납니다.</li>
+  <li>16:15 봉의 <b>종가</b>가 선 위로 올라갔나? → 그 봉 close에 ● 청록 원이 찍혀 있어야 합니다.</li>
+  <li>마커에 마우스를 올려 hover 첫 줄이 <code>BTCUSDT:EXC:SSL:1785168000000:64544.01</code>인지 확인.</li>
+</ol>
+
+<div class="callout">
+  <b>이 행이 특별한 이유</b>
+  Reclaim은 실패했는데 CISD는 성공했습니다. 7주 데이터 전체에서 이런 조합이 <b>5건</b>뿐입니다.
+  "Reclaim과 CISD는 같은 것의 다른 이름 아니냐"는 의심을 반증하는 <b>가장 중요한 표본</b>이라
+  전수로 수집했습니다. 여기서 NG가 나오면 Phase 4 설계 자체를 재논의해야 합니다.
+</div>
+
+<h3>6-2. 행 B — 꼬리만 넘은 FAILED (BTC, 2026-04-17 04:30 UTC)</h3>
+
+<pre><code>excursion_id      BTCUSDT:EXC:BSL:1776400500000:74842.05
+2×2 칸            Con/Fai
+side              BSL         ← 위쪽 유동성을 찔렀다 = 반대 봉은 양봉,
+                                 확인은 종가가 레벨 "아래로" 내려가야 함
+cisd_level        74615.82
+앵커 종가         74808.88    → 레벨보다 위 (BSL이므로 퇴화 아님 ✓)
+판정 종가         74627.48    → 74615.82보다 위 = 못 내려감 ✗ FAILED
+run 길이 3 · 소요 봉 2 · wick만 돌파 1  ← ★</code></pre>
+
+<div class="warn">
+  <b><code>wick만 돌파 1</code>이 이 행의 핵심입니다.</b>
+  기한 안에서 어떤 봉이 <b>저가로는</b> 74615.82 아래를 찍었지만 <b>종가로는</b> 못 내려갔다는 뜻입니다.
+  당신이 차트에서 확인할 것: 그 봉의 꼬리가 선 아래로 내려갔다가 <b>몸통은 선 위에서 끝났는지</b>.
+  그렇다면 ✕ FAILED가 <b>정답</b>입니다. → <span class="chip">OK</span>
+</div>
+
+<figure>
+<svg viewBox="0 0 700 240" role="img" aria-label="BSL 방향에서 꼬리만 돌파한 봉">
+  <line x1="60" y1="110" x2="600" y2="110" stroke="var(--cisd-no)" stroke-width="2.4" stroke-dasharray="9 3 2 3"></line>
+  <text x="606" y="107" font-size="12" font-weight="700" fill="var(--muted)">cisd_level</text>
+  <text x="606" y="123" font-size="11" fill="var(--muted)">74615.82</text>
+
+  <!-- 정상 봉 -->
+  <line x1="180" y1="52" x2="180" y2="100" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="164" y="60" width="32" height="34" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <text x="180" y="126" text-anchor="middle" font-size="11" fill="var(--muted)">기한 안 봉</text>
+
+  <!-- 꼬리만 내려간 봉 -->
+  <line x1="330" y1="48" x2="330" y2="146" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="314" y="62" width="32" height="30" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <ellipse cx="330" cy="128" rx="22" ry="20" fill="none" stroke="var(--down)" stroke-width="2" stroke-dasharray="4 3"></ellipse>
+  <text x="360" y="150" font-size="11.5" font-weight="700" fill="var(--down)">꼬리는 선 아래로 내려감</text>
+  <text x="360" y="167" font-size="11.5" fill="var(--muted)">→ <tspan font-family="monospace">wick_cross_bars</tspan>가 1 센다</text>
+  <text x="330" y="196" text-anchor="middle" font-size="11" fill="var(--muted)">몸통(종가)은 선 위 → 인정 안 함</text>
+
+  <!-- 판정 봉 -->
+  <line x1="480" y1="60" x2="480" y2="112" stroke="var(--down)" stroke-width="2"></line>
+  <rect x="464" y="72" width="32" height="30" fill="var(--down)" fill-opacity="0.5" stroke="var(--down)" stroke-width="2"></rect>
+  <g stroke="var(--cisd-no)" stroke-width="3.4">
+    <line x1="490" y1="66" x2="504" y2="80"></line>
+    <line x1="504" y1="66" x2="490" y2="80"></line>
+  </g>
+  <text x="516" y="70" font-size="12" font-weight="700" fill="var(--muted)">✕ FAILED</text>
+  <text x="516" y="86" font-size="11" fill="var(--muted)">종가 74627.48</text>
+</svg>
+<figcaption>BSL은 위아래가 뒤집힙니다 — 확인 조건이 "종가가 레벨 <b>아래로</b>"입니다. SSL 그림을 위아래로 뒤집으면 똑같습니다.</figcaption>
+</figure>
+
+<h3>6-3. 행 C — 퇴화 미적용 (BTC, 2026-04-21 12:30 UTC)</h3>
+
+<pre><code>excursion_id      BTCUSDT:EXC:BSL:1776774840000:76517.36
+2×2 칸            NA
+미적용 사유       degenerate_level
+cisd_level        76258.76
+앵커 종가         75829.94    → BSL인데 종가가 이미 레벨 "아래"
+level−close       -428.82     ← 음수 = 앵커 시점에 이미 조건 충족
+판정 종가         (없음)      · 소요 봉 (없음) · run 길이 1</code></pre>
+
+<p>
+확인할 것은 하나입니다. <b>호박색 ▽ 삼각형이 찍힌 봉의 종가가 이미 호박색 선 아래에 있나?</b>
+그렇다면 "관측 없이 정의로 성립"한 것이 맞고, 빼는 게 정당합니다. → <span class="chip">OK</span>
+</p>
+
+<div class="callout">
+  <b>tag 후보</b> <code>level−close</code>의 절댓값이 아주 작으면(0.05 이하)
+  <code>degenerate_near_boundary</code> 태그를 찍습니다. 경계에 아슬아슬하게 걸린 사례를 모아
+  나중에 "이 가드가 너무 빡빡한가"를 재검토하기 위한 자료입니다. <b>NG가 아닙니다.</b>
+</div>
+
+<div class="qmemo" data-qid="walkthrough-rows" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">세 사례 중 따라가다 막힌 지점이 있다면</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="checklist">7. 내가 실제로 할 일 — 5단계 체크리스트</h2>
+
+<p>
+한 행에 대해 <b>이 다섯 가지만</b> 봅니다. 나머지는 기계가 이미 했습니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 760 420" role="img" aria-label="행 하나를 판정하는 5단계">
+  <g font-size="12">
+    <rect x="24" y="14" width="712" height="70" rx="8" fill="var(--panel)" stroke="var(--cisd-ok)" stroke-width="1.8"></rect>
+    <circle cx="54" cy="49" r="15" fill="var(--cisd-ok)"></circle><text x="54" y="54" text-anchor="middle" font-size="15" fill="#fff" font-weight="700">1</text>
+    <text x="82" y="42" font-weight="700">기준선이 run 첫 봉의 시가에 놓였나?</text>
+    <text x="82" y="64" fill="var(--muted)">청록 파선이 시작되는 봉을 보고 연속 반대봉을 세어 <tspan font-family="monospace">run 길이</tspan> 열과 맞춘다.</text>
+
+    <rect x="24" y="92" width="712" height="70" rx="8" fill="var(--panel)" stroke="var(--cisd-ok)" stroke-width="1.8"></rect>
+    <circle cx="54" cy="127" r="15" fill="var(--cisd-ok)"></circle><text x="54" y="132" text-anchor="middle" font-size="15" fill="#fff" font-weight="700">2</text>
+    <text x="82" y="120" font-weight="700">판정이 "종가"로 내려졌나?</text>
+    <text x="82" y="142" fill="var(--muted)"><tspan font-family="monospace">wick만 돌파</tspan> &gt; 0 이면 그 봉을 찾아, 꼬리만 넘고 몸통은 못 넘었는지 눈으로 본다.</text>
+
+    <rect x="24" y="170" width="712" height="70" rx="8" fill="var(--panel)" stroke="var(--cisd-ok)" stroke-width="1.8"></rect>
+    <circle cx="54" cy="205" r="15" fill="var(--cisd-ok)"></circle><text x="54" y="210" text-anchor="middle" font-size="15" fill="#fff" font-weight="700">3</text>
+    <text x="82" y="198" font-weight="700">앵커 심볼이 맞는 봉 위에 있나?</text>
+    <text x="82" y="220" fill="var(--muted)">◇ = bar0 (정상). ⧗ = 15분 데이터에 구멍이 나 다음 봉을 앵커로 썼다는 뜻.</text>
+
+    <rect x="24" y="248" width="712" height="70" rx="8" fill="var(--panel)" stroke="var(--cisd-ok)" stroke-width="1.8"></rect>
+    <circle cx="54" cy="283" r="15" fill="var(--cisd-ok)"></circle><text x="54" y="288" text-anchor="middle" font-size="15" fill="#fff" font-weight="700">4</text>
+    <text x="82" y="276" font-weight="700">퇴화가 눈으로도 퇴화인가?</text>
+    <text x="82" y="298" fill="var(--muted)"><tspan font-family="monospace">degenerate_level</tspan>이면 ▽가 찍힌 봉의 종가가 이미 기준선 너머에 있어야 한다.</text>
+
+    <rect x="24" y="326" width="712" height="76" rx="8" fill="var(--panel)" stroke="var(--cisd-deg)" stroke-width="1.8"></rect>
+    <circle cx="54" cy="364" r="15" fill="var(--cisd-deg)"></circle><text x="54" y="369" text-anchor="middle" font-size="15" fill="#fff" font-weight="700">5</text>
+    <text x="82" y="352" font-weight="700">CISD 선과 Reclaim 선이 서로 다른 것을 말하나?</text>
+    <text x="82" y="374" fill="var(--muted)"><tspan font-family="monospace">level−baseline</tspan>이 0에 가깝고 두 선이 겹쳐 보이면 <tspan font-family="monospace" font-weight="700">overlaps_reclaim</tspan> 태그를 찍는다.</text>
+    <text x="82" y="392" fill="var(--cisd-deg)" font-weight="700">→ 이건 NG가 아니다. 태그다.</text>
+  </g>
+</svg>
+</figure>
+
+<h3>7-1. OK / NG / 태그를 구분하는 규칙</h3>
+
+<div class="scroll">
+<table>
+<tbody><tr><th>상황</th><th>무엇을 찍나</th><th>왜</th></tr>
+<tr><td>다섯 항목 모두 그림과 일치</td><td><b>OK</b></td><td>정의대로 그려졌다</td></tr>
+<tr><td>선이 엉뚱한 봉에서 시작 / 마커가 다른 봉에 / 종가로 안 넘었는데 ● 이 찍힘</td><td><b>NG</b> + note에 이유</td><td>정의 불일치. 코드 수정 사유</td></tr>
+<tr><td>두 선이 겹친다, 레벨이 멀다, run이 1봉뿐이다, 퇴화가 아슬아슬하다, ⧗ 앵커다</td><td><b>OK</b> + 해당 <b>태그</b></td><td>규칙 위반이 아니라 임계값 연구 자료</td></tr>
+</tbody></table>
+</div>
+
+<div class="stop">
+  <b>태그를 NG로 찍지 마세요</b>
+  태그는 "규칙은 맞는데 눈에 띄는 특징"입니다. NG로 찍으면 멀쩡한 표본이 버려지고,
+  나중에 임계값을 재논의할 근거 자체가 사라집니다. 태그는 다섯 가지입니다:
+  <code>overlaps_reclaim</code>, <code>level_far</code>, <code>run_len_1</code>,
+  <code>degenerate_near_boundary</code>, <code>gap_anchor</code>.
+</div>
+
+<h3>7-2. 통과 기준</h3>
+
+<pre><code>gate_pass = (모든 행이 판정됨)      # 미판정 0
+          AND (NG 개수 == 0)
+          AND (chk_* 실패 == 0)</code></pre>
+
+<p>
+셋 중 하나라도 어긋나면 <code>gate_pass=False</code>입니다.
+저장 버튼을 누르면 하단 바에 현재 상태가 바로 표시됩니다.
+</p>
+
+<div class="warn">
+  <b>저장 규칙 (이 저장소가 한 번 데인 부분)</b>
+  판정 20건이 3건으로 줄어든 사고가 있었습니다. 그 뒤로
+  <b>저장은 병합(merge), 서빙은 매 요청 재렌더</b>가 계약이 됐습니다.
+  그래도 작업 중에는 <b>중간중간 [verdicts.csv 저장]</b>을 눌러 두세요 —
+  브라우저 초안(localStorage)은 파일이 아닙니다.
+</div>
+
+<div class="qmemo" data-qid="checklist-verdict" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">OK/NG 판단이 애매한 케이스를 만나면 여기에 적어두세요</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="code">8. 코드는 어떻게 생겼나</h2>
+
+<h3>8-1. 파일 지도</h3>
+
+<div class="scroll">
+<table>
+<tbody><tr><th>파일</th><th>역할</th><th>한 줄 요약</th></tr>
+<tr><td><code>coreEngine/…/ict_long/cisd_detector.py</code></td><td>두뇌</td><td>기준선을 정하고 CONFIRMED/FAILED/미적용을 판정</td></tr>
+<tr><td><code>frontend/specs/ict_long_cisd_layers.py</code></td><td>화가</td><td>detector가 낸 값만 읽어서 선·마커를 그린다 (계산 금지)</td></tr>
+<tr><td><code>frontend/specs/ict_long_viz.py</code></td><td>배선</td><td>다섯 렌더러를 한 패널에 겹치고 CLI 옵션을 노출</td></tr>
+<tr><td><code>research/analysis/ict_phase4_cisd_tables.py</code></td><td>채점 도구</td><td>파이프라인을 다시 흘려 행을 만들고 <code>chk_*</code>를 계산</td></tr>
+<tr><td><code>research/analysis/ict_phase4_gate_html.py</code></td><td>판정표 선언</td><td>어떤 열을, 어떤 순서로, 어떤 안내문과 함께 보여줄지</td></tr>
+<tr><td><code>research/analysis/ict_phase4_gate.py</code></td><td>진입점</td><td><code>render</code> / <code>worksheet</code> / <code>serve</code> / <code>all</code></td></tr>
+</tbody></table>
+</div>
+
+<h3>8-2. 판정의 핵심 세 함수</h3>
+
+<p><b>① 기준선 찾기</b> — 앵커에서 과거로 훑어 run의 첫 봉을 고릅니다.</p>
+
+<pre><code># coreEngine/analysis/composites/ict_long/cisd_detector.py
+
+def resolve_cisd_level(bars, side, lookback_bars) -&gt; CISDLevel:
+    last = len(bars) - 1
+    found = -1
+    for distance in range(min(lookback_bars, len(bars))):   # 앵커 포함 3봉
+        if _is_opposing(bars[last - distance], side):        # 첫 반대봉
+            found = last - distance
+            break
+    if found &lt; 0:
+        return CISDLevel(..., reason=NA_NO_OPPOSING_RUN)     # 잴 발자국 없음
+
+    first = found
+    while first - 1 &gt;= 0 and _is_opposing(bars[first - 1], side):
+        first -= 1                                           # run 시작까지 거슬러
+    if first == 0:
+        return CISDLevel(..., reason=NA_INSUFFICIENT_HISTORY)  # 버퍼 끝에 닿음
+
+    return CISDLevel(level=bars[first].open_price, ...)      # ★ run 첫 봉의 시가</code></pre>
+
+<p><b>② 넘었는지 보기</b> — 엄격 비교입니다. <b>같은 값은 실패</b>입니다.</p>
+
+<pre><code>@staticmethod
+def _beyond(side, close, level) -&gt; bool:
+    if side is LiquiditySide.SSL:
+        return close &gt; level      # 아래로 찔렀으니 위로 넘어야 성립
+    return close &lt; level          # BSL은 반대</code></pre>
+
+<p><b>③ 퇴화 가드</b> — 앵커 시점에 이미 참이면 빼버립니다. 여기만 <code>&gt;=</code>라 동가를 포함합니다.</p>
+
+<pre><code>def _degenerate(self, pending) -&gt; bool:
+    level, close = pending.level.level, pending.anchor_close
+    if pending.side is LiquiditySide.SSL:
+        return close &gt;= level     # 이미 넘어 있음 → 관측한 게 없다
+    return close &lt;= level</code></pre>
+
+<h3>8-3. 그림은 "읽기만" 합니다</h3>
+
+<p>
+렌더 레이어에 계산식이 없다는 게 중요합니다. 예를 들어 판정 마커의 x좌표는
+<code>confirm_bar_open_ms + 15분</code>으로 <b>다시 계산하지 않고</b>,
+이벤트가 이미 들고 있는 <code>available_at_ms</code>를 그대로 씁니다.
+</p>
+
+<pre><code># frontend/specs/ict_long_cisd_layers.py
+mark_x_ms = _as_int(event.available_at_ms)   # 계산하지 말고 읽어라 (마스터 §21)
+
+# 기준선은 run 첫 봉 open → 기한 봉 close 까지
+level_x[outcome].extend([_ts(view.level_from_ms),
+                         _ts(view.deadline_close_ms), None])   # None = 선 끊기</code></pre>
+
+<div class="callout">
+  <b>왜 마커가 봉의 <em>close</em> 시각에 찍히나</b>
+  그 봉의 종가를 관찰자가 <b>알 수 있게 되는 시점</b>이 봉이 닫힌 뒤이기 때문입니다.
+  봉 open에 찍으면 15분 먼저 알았던 것처럼 보이는 착시(hindsight)가 생깁니다.
+  실거래 시뮬레이션의 정직성이 여기서 갈립니다.
+</div>
+
+<div class="callout">
+  <b><code>None</code> 하나가 성능을 살립니다</b>
+  Plotly에서 <code>add_shape()</code>를 사건마다 부르면 O(N²)로 느려집니다 —
+  이 저장소가 <b>5번</b> 물린 규칙입니다. 그래서 선 1,353개를 그리는 대신,
+  outcome 그룹당 <b>trace 하나</b>에 좌표를 몰아넣고 선분 사이를 <code>None</code>으로 끊습니다.
+  CISD 레이어의 trace 수는 사건 수와 무관하게 <b>8개 이하</b>입니다.
+</div>
+
+<div class="qmemo" data-qid="code-walkthrough" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드 흐름이나 특정 함수에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="quiz">9. 퀴즈 5문항</h2>
+<p class="sub">외운 걸 묻는 게 아니라, 이해했는지 확인하는 문제입니다.</p>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q1. SSL excursion에서 <code>cisd_level</code>은 정확히 어디에서 오나요?</div>
+  <button class="opt" data-i="0">스윕이 일어난 봉(bar0)의 시가</button>
+  <button class="opt" data-i="1">앵커에서 과거로 이어지는 연속 음봉 덩어리의, 맨 첫 봉의 시가</button>
+  <button class="opt" data-i="2">스윕당한 전 저점(SSL 선)의 가격</button>
+  <button class="opt" data-i="3">앵커 봉의 종가</button>
+  <div class="fb"></div>
+  <div class="ex" hidden="">기준선은 "내려가던 발자국이 시작된 자리"입니다. bar0의 시가가 아니라 <b>run 첫 봉의 시가</b>이고, 그래서 차트의 청록 선이 bar0보다 <b>왼쪽</b>에서 시작합니다. 그 시작 위치 자체가 "값이 어디서 왔는지"에 대한 눈으로 확인 가능한 증거입니다.</div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q2. 어떤 행의 <code>wick만 돌파</code>가 <b>2</b>이고 판정은 <b>FAILED</b>입니다. 어떻게 해야 할까요?</div>
+  <button class="opt" data-i="0">NG로 찍는다 — 두 번이나 넘었는데 실패라니 버그다</button>
+  <button class="opt" data-i="1">NG로 찍는다 — 꼬리도 돌파는 돌파다</button>
+  <button class="opt" data-i="2">차트에서 그 두 봉의 몸통이 선을 안 넘었는지 확인하고, 맞으면 OK</button>
+  <button class="opt" data-i="3">태그 <code>level_far</code>를 찍는다</button>
+  <div class="fb"></div>
+  <div class="ex" hidden="">이 프로젝트의 판정은 <b>종가로만</b> 합니다. <code>wick만 돌파</code>는 "꼬리만 넘은 봉이 몇 개였나"를 세는 진단 열이고, 이 값이 0보다 큰데 FAILED라면 그게 바로 규칙이 <b>제대로 작동한</b> 증거입니다. 사람은 차트에서 몸통이 정말 안 넘었는지만 확인하면 됩니다.</div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q3. <code>degenerate_level</code>(퇴화)로 미적용 처리하는 진짜 이유는?</div>
+  <button class="opt" data-i="0">앵커 시점에 이미 조건이 참이라 아무것도 관측하지 않은 셈이고, 그대로 두면 자기충족 지표가 되기 때문</button>
+  <button class="opt" data-i="1">그런 경우는 데이터에 구멍이 있어서 신뢰할 수 없기 때문</button>
+  <button class="opt" data-i="2">차트에 그릴 좌표가 없기 때문</button>
+  <button class="opt" data-i="3">Reclaim이 이미 같은 판정을 했기 때문</button>
+  <div class="fb"></div>
+  <div class="ex" hidden="">이미 넘어 있는 상태에서 "넘었다"고 선언하면 미래를 예측한 게 아니라 과거를 되풀이한 것입니다. 성공률의 분모에서 빼야 정직한 숫자가 나옵니다. 참고로 ②는 <code>insufficient_history</code>, ③은 <code>no_opposing_run</code>·<code>insufficient_history</code>에 해당하고(퇴화는 레벨이 있어 ▽로 그려집니다), ④는 detector가 서로를 참조하지 않는다는 원칙에 어긋납니다.</div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q4. 차트에 마커가 압도적으로 많은 <b>가장 직접적인</b> 이유는?</div>
+  <button class="opt" data-i="0">CISD detector가 사건 하나마다 여러 번 판정하기 때문</button>
+  <button class="opt" data-i="1">1분봉 차트를 보고 있기 때문</button>
+  <button class="opt" data-i="2">Plotly가 <code>add_shape</code>를 너무 많이 부르기 때문</button>
+  <button class="opt" data-i="3">차트는 창 안의 사건 전부(9창 1,353건)를 5개 층으로 그리는데, 판정표는 그중 40행만 표본으로 뽑았기 때문</button>
+  <div class="fb"></div>
+  <div class="ex" hidden="">①은 틀렸습니다 — CISD는 excursion당 정확히 1회만 판정합니다(계약 §4.1). ②는 1m 차트가 더 어지럽긴 하지만 원인이 아니고, 애초에 판정은 15m 차트에서 합니다. ③은 정확히 <b>피하려고</b> 설계한 것이라 <code>add_shape</code> 호출은 0회입니다. 답은 집계 단위의 차이이고, 그래서 해결책도 "범례로 층 끄기 + 시각으로 확대"입니다.</div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q5. 어떤 행에서 <code>level−baseline</code>이 거의 0이고, 차트에서 CISD 선과 Reclaim 선이 완전히 겹쳐 보입니다. 어떻게 해야 할까요?</div>
+  <button class="opt" data-i="0">NG — 두 지표가 같은 값이면 중복이므로 버그다</button>
+  <button class="opt" data-i="1">OK + <code>overlaps_reclaim</code> 태그 — 규칙 위반이 아니라 §12.2를 재논의할 자료다</button>
+  <button class="opt" data-i="2">그 행을 판정하지 않고 건너뛴다</button>
+  <button class="opt" data-i="3">Reclaim 판정을 다시 돌린다</button>
+  <div class="fb"></div>
+  <div class="ex" hidden="">태그는 NG가 아닙니다. NG로 찍으면 멀쩡한 표본이 버려지고 재검토 근거가 사라집니다. 실측상 CISD가 Reclaim보다 엄격한 비율이 99%를 넘는데, 이 태그가 모이면 "둘은 같은 상태의 다른 이름이 아니다"라는 전제를 다시 검토할 <b>유일한 근거</b>가 됩니다. ③도 위험합니다 — 미판정 행이 있으면 <code>gate_pass</code>가 False가 됩니다.</div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있다면 왜 헷갈렸는지 적어두세요 — 그게 다음 설명의 재료가 됩니다</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="appendix">10. 부록</h2>
+
+<h3>10-1. 용어 한 줄 사전</h3>
+
+<div class="scroll">
+<table>
+<tbody><tr><th>용어</th><th>한 줄</th></tr>
+<tr><td>SSL / BSL</td><td>아래쪽 / 위쪽에 쌓인 유동성(손절 주문 뭉치)</td></tr>
+<tr><td>sweep</td><td>그 자리를 잠깐 찔러 주문을 터뜨리는 행위</td></tr>
+<tr><td>excursion</td><td>스윕 한 건을 추적하는 사건 서류철. ID가 붙는다</td></tr>
+<tr><td>bar0</td><td>스윕이 일어난 15분봉. 기한을 세는 출발점</td></tr>
+<tr><td>앵커 봉</td><td>기준선을 얼린 봉. 보통 bar0와 같다(◇)</td></tr>
+<tr><td>run</td><td>연속된 반대 봉 덩어리 — "내려가던 발자국"</td></tr>
+<tr><td>freeze</td><td>기준선을 한 번 정하면 이후 절대 바꾸지 않는 것</td></tr>
+<tr><td>기한(deadline)</td><td>bar0 포함 15분봉 3개 안에 결론이 나야 한다</td></tr>
+<tr><td>퇴화(degenerate)</td><td>앵커 시점에 이미 조건이 참 → 분모 밖으로</td></tr>
+<tr><td>chk_*</td><td>기계가 독립 재구성 봉과 대조한 자동 검사</td></tr>
+<tr><td>태그</td><td>규칙 위반이 아닌, 임계값 연구용 관찰 표시</td></tr>
+<tr><td>gate_pass</td><td>전부 판정 + NG 0 + chk 실패 0 일 때만 True</td></tr>
+</tbody></table>
+</div>
+
+<h3>10-2. 명령어</h3>
+
+<pre><code># conda 환경 활성화 (비대화형 쉘이면 PATH prepend 필수 — CLAUDE.md 참고)
+conda activate BinanceBitcoin32
+
+# 전체 (렌더 → 판정표 → 서버)
+python -m research.analysis.ict_phase4_gate all
+
+# 서버만 다시 (판정 이어서 하기 — 기존 verdicts.csv는 병합된다)
+python -m research.analysis.ict_phase4_gate serve --port 8770
+
+# 산출물
+reports/ict_phase4_gate/cisds.csv       ← 40행 표본 (기계 생성, 덮어써도 됨)
+reports/ict_phase4_gate/worksheet.html  ← 판정표
+reports/ict_phase4_gate/verdicts.csv    ← ★ 당신의 판정 (재생성 불가)
+reports/ict_phase4_gate/manifest.json   ← 창 목록·표본 수·커버리지</code></pre>
+
+<h3>10-3. 관련 문서</h3>
+<ul>
+  <li><a href="2026-08-03-explanation-ict-chart-markers.html">ICT 차트 마커 도감</a> — Phase 0~3 마커 전체 목록</li>
+  <li><a href="2026-08-05-explanation-ict-reclaim-gate-basics.html">Reclaim Gate 기초</a> — Phase 3 게이트를 같은 방식으로 설명</li>
+  <li><a href="2026-08-02-explanation-ict-long-strategy.html">ICT LONG 전략 전체</a> — 왜 이런 전략을 만드는가</li>
+</ul>
+
+<div class="qmemo" data-qid="appendix-final" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">문서 전체에 대해 남은 질문 — 다음 판에 반영합니다</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden=""></div>
+</div>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg">입력은 이 브라우저에 자동 저장됩니다. 파일로 남기려면 저장을 누르세요.</span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = document.title.replace(/[^\w\-]+/g, '_') + '-with-questions.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 — 원래 파일 위치(docs/understanding/)에 덮어써 주세요.';
+  });
+})();
+
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    var ex = quiz.querySelector('.ex');
+    quiz.querySelectorAll('button.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.dataset.i, 10);
+        quiz.querySelectorAll('button.opt').forEach(function (b) {
+          b.classList.remove('correct', 'wrong');
+        });
+        if (i === answer) {
+          btn.classList.add('correct');
+          fb.className = 'fb show good';
+          fb.innerHTML = '<b>정답입니다.</b> ' + ex.innerHTML;
+        } else {
+          btn.classList.add('wrong');
+          quiz.querySelector('button.opt[data-i="' + answer + '"]')
+              .classList.add('correct');
+          fb.className = 'fb show bad';
+          fb.innerHTML = '<b>다시 보세요.</b> 정답은 초록으로 표시했습니다. ' + ex.innerHTML;
+        }
+      });
+    });
+  });
+})();
+</script>
+</body></html>
