@@ -18,6 +18,7 @@ from contentcompare.fact.fact_comparator import (
     MISSING,
     UNKNOWN,
     FactComparator,
+    attribute_coverage,
     canonical_unit,
 )
 from contentcompare.fact.fact_matcher import EMBED, EXACT, MatchCandidate
@@ -288,3 +289,49 @@ def test_canonical_unit_known(raw, expected):
 def test_canonical_unit_unknown_is_none():
     """사전에 없으면 '모름' — 추측하지 않고 LLM 에 넘기기 위한 신호."""
     assert canonical_unit("돈") is None
+
+
+# --------------------------------------------------------------------------- #
+# attribute_coverage — _decide_by_code 가 공통 속성만 보는 구멍을 수치화한다
+# --------------------------------------------------------------------------- #
+def test_coverage_is_partial_when_target_has_fewer_attributes():
+    """기준 3속성 · 대상 1속성 → 그 하나가 같으면 match 지만 커버리지는 1/3."""
+    ref = _fact("r", "전지", nominal=("3.85", "V"), upper=("4.55", "V"), lower=("3.0", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    assert attribute_coverage(ref, tgt, confirmed_link=True) == pytest.approx(1 / 3)
+
+
+def test_coverage_is_full_when_all_reference_attributes_are_covered():
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"), extra=("1", ""))
+    assert attribute_coverage(ref, tgt, confirmed_link=True) == 1.0
+
+
+def test_coverage_without_reference_attributes_is_full():
+    """비교할 속성이 없으면 커버리지 논의 자체가 무의미하다 — 게이트가 헛돌면 안 된다."""
+    ref = _fact("r", "전지")
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    assert attribute_coverage(ref, tgt, confirmed_link=True) == 1.0
+
+
+def test_coverage_without_target_is_zero():
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    assert attribute_coverage(ref, None, confirmed_link=True) == 0.0
+
+
+def test_single_attribute_pair_counts_as_full_when_link_is_confirmed():
+    """양쪽 속성이 하나씩이면 키 이름이 달라도 같은 항목의 단일 값이다.
+
+    실측 근거는 _compare_single_attributes 와 같다 — 기준이 공칭용량을 '하한치'
+    열에 적어 lower_limit 이 됐고 대상은 target_value 였다.
+    """
+    ref = _fact("r", "용량", lower_limit=("1150", "mAh"))
+    tgt = _fact("t", "용량", target_value=("1150", "mAh"))
+    assert attribute_coverage(ref, tgt, confirmed_link=True) == 1.0
+
+
+def test_single_attribute_exception_needs_a_confirmed_link():
+    """LLM 이 만든 연결 위에서는 예외를 적용하지 않는다."""
+    ref = _fact("r", "용량", lower_limit=("1150", "mAh"))
+    tgt = _fact("t", "용량", target_value=("1150", "mAh"))
+    assert attribute_coverage(ref, tgt, confirmed_link=False) == 0.0

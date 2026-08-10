@@ -269,6 +269,31 @@ class FactComparator:
 _OPPOSITE = frozenset({frozenset({"lower_limit", "upper_limit"})})
 
 
+def attribute_coverage(
+    ref: Fact, target: Optional[Fact], *, confirmed_link: bool
+) -> float:
+    """기준 fact 의 속성 중 대상에서 대응된 비율.
+
+    :meth:`FactComparator._decide_by_code` 는 **공통 속성만** 보기 때문에 기준에
+    세 속성이 있고 대상에 하나뿐이어도 그 하나가 같으면 ``match`` 가 된다. 이
+    함수가 그 구멍을 수치로 드러내고, Acceptance Gate 가 그것으로 라우팅한다.
+
+    분모는 기준 fact 의 **전체** 속성이다. 값이 빈 속성을 빼는 느슨한 정의는
+    placeholder 판별 규칙이 하나 더 필요해져 채택하지 않았다.
+    """
+    if target is None:
+        return 0.0
+    if not ref.attributes:
+        return 1.0  # 비교할 속성이 없으면 커버리지 논의가 무의미하다
+    if confirmed_link and len(ref.attributes) == 1 and len(target.attributes) == 1:
+        # 근거는 _compare_single_attributes 와 같다 — 속성이 하나뿐인 fact 의 키
+        # 이름은 원본 표의 **열 위치**에서 온 것이라 의미 구분이 아닌 경우가 많다.
+        # 단 LLM 이 만든 연결 위에서는 적용하지 않는다(그 경우 low_confidence 가 붙는다).
+        return 1.0
+    covered = sum(1 for k in ref.attributes if k in target.attributes)
+    return covered / len(ref.attributes)
+
+
 def _compare_single_attributes(ref: Fact, target: Fact) -> Optional[tuple[str, list[str], str]]:
     """공통 키가 없지만 **양쪽 다 속성이 하나뿐**일 때의 비교.
 
