@@ -405,3 +405,45 @@ def test_force_llm_falls_back_to_code_when_llm_is_off():
     probe = cmp_.compare_code(ref, _cand(tgt), _target(tgt))
     out = cmp_.finalize(probe, force_llm=True)
     assert out.result == MATCH and out.decided_by == BY_CODE
+
+
+# --------------------------------------------------------------------------- #
+# 판정 이력 — 2차 검사가 1차를 조용히 덮지 않게 하는 기반
+# --------------------------------------------------------------------------- #
+def test_to_dict_adds_history_fields_and_keeps_existing_keys():
+    cmp_, _ = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    out = cmp_.compare(ref, _cand(tgt), _target(tgt))
+    out.initial_result = MATCH
+    out.review_triggers = ["duplicate_entity_facts"]
+    out.attribute_coverage = 0.5
+
+    d = out.to_dict()
+    # 새 키
+    assert d["initial_result"] == MATCH
+    assert d["review_triggers"] == ["duplicate_entity_facts"]
+    assert d["attribute_coverage"] == 0.5
+    assert d["safe_to_finalize"] is False
+    assert d["result_changed"] is False
+    # 기존 소비자(missing_trace/artifact_reader/why_missing)가 쓰는 키는 그대로
+    for key in ("entity_name", "target_doc", "result", "decided_by", "reason",
+                "mismatch_attributes", "match_score", "match_method",
+                "reference", "target"):
+        assert key in d
+
+
+def test_result_changed_detects_llm_overriding_code():
+    cmp_, _ = _comparator()
+    out = cmp_.compare(_fact("r", "전지"), [], _target())
+    out.initial_result = MATCH          # 코드는 match 라 했는데
+    out.result = MISMATCH               # 최종은 mismatch
+    assert out.result_changed is True
+
+
+def test_result_changed_is_false_without_initial_result():
+    """initial_result 를 안 채운 호출부(롤백 경로)에서 오탐이 나면 안 된다."""
+    cmp_, _ = _comparator()
+    out = cmp_.compare(_fact("r", "전지"), [], _target())
+    assert out.initial_result == ""
+    assert out.result_changed is False

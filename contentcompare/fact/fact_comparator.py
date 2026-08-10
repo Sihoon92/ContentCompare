@@ -82,6 +82,22 @@ class FactComparison:
     """``code`` | ``llm`` — LLM 이 실제로 얼마나 필요했는지의 계측."""
     reason: str = ""
 
+    # --- 판정 이력(Phase 1) — 2차 검사가 1차를 조용히 덮지 않게 하는 기반 --- #
+    initial_result: str = ""
+    """코드 판정. ``result`` 는 최종 판정이다. 비어 있으면 게이트를 안 거친 호출부."""
+    review_triggers: list[str] = field(default_factory=list)
+    """Acceptance Gate 가 붙인 검토 사유. 비면 안전하게 확정 가능."""
+    attribute_coverage: float = 1.0
+
+    @property
+    def result_changed(self) -> bool:
+        """코드 판정을 뒤엎었는가. 개선인지 새 오판인지 진단하려면 둘 다 있어야 한다."""
+        return bool(self.initial_result) and self.initial_result != self.result
+
+    @property
+    def safe_to_finalize(self) -> bool:
+        return not self.review_triggers
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "entity_name": self.reference_fact.entity_name,
@@ -91,6 +107,11 @@ class FactComparison:
             "match_score": round(self.match_score, 4),
             "match_method": self.match_method,
             "decided_by": self.decided_by,
+            "initial_result": self.initial_result,
+            "review_triggers": list(self.review_triggers),
+            "attribute_coverage": round(self.attribute_coverage, 4),
+            "result_changed": self.result_changed,
+            "safe_to_finalize": self.safe_to_finalize,
             "reason": self.reason,
             "reference": _side_dict(self.reference_fact),
             "target": _side_dict(self.target_fact),
