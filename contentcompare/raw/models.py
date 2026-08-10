@@ -156,6 +156,41 @@ class RawExcelDocument:
 # Word
 # --------------------------------------------------------------------------- #
 @dataclass
+class RawLine:
+    """문단 안의 한 줄(soft line break 로 나뉜 단위).
+
+    한 문단에 조건이 여러 개 적히는 문서가 흔하다(충전 온도 4구간). 그것을 한
+    문자열로 뭉개면 어느 조건이 대상에 있고 없는지를 사후에 확인할 방법이 사라진다.
+
+    ``raw_text`` 와 ``normalized_text`` 를 나눈 이유는 **검색 정규화가 원문 인용을
+    훼손하면 안 되기** 때문이다. 사람이 검수할 때 보는 것은 ``raw_text`` 다.
+    """
+
+    line_id: str
+    """``<block_id>:l<NN>`` 형식의 안정 식별자 (예: ``w_b012:l03``)."""
+
+    order: int
+    """문단 안에서의 순서 (1-based)."""
+
+    raw_text: str
+    """인용용 원문. 양끝 공백만 정리하고 내부는 건드리지 않는다."""
+
+    normalized_text: str = ""
+    """검색용 정규화 텍스트. ``raw_text`` 와 같으면 생략한다."""
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "line_id": self.line_id,
+            "order": self.order,
+            "raw_text": self.raw_text,
+        }
+        # 같은 값을 두 번 싣지 않는다 — physical_raw 가 두 배로 커진다.
+        if self.normalized_text and self.normalized_text != self.raw_text:
+            out["normalized_text"] = self.normalized_text
+        return out
+
+
+@dataclass
 class RawWordBlock:
     """Word 본문 블록 1개 (문단 또는 표). 문서 순서(order)를 보존한다."""
 
@@ -169,13 +204,32 @@ class RawWordBlock:
     """``paragraph`` 또는 ``table``."""
 
     text: Optional[str] = None
-    """문단 텍스트(type=paragraph)."""
+    """문단 텍스트(type=paragraph). **줄바꿈이 병합된 기존 표현**이다 —
+    ``compact_raw`` 가 이것을 F3 LLM 입력으로 쓰므로 표현을 바꾸지 않는다."""
 
     style: Optional[dict[str, Any]] = None
-    """스타일 정보 (style_name/bold/font_size 등). 비면 생략."""
+    """서식 정보 (style_name/bold/font_size). 비면 생략.
+
+    ⚠️ **이 dict 는 ``compact_raw`` 를 통해 F3 LLM 입력에 그대로 실린다.** 여기에
+    키를 더하면 프롬프트가 바뀌어 fact 추출 결과와 캐시가 통째로 무효화된다.
+    코드만 쓰는 구조 정보는 :attr:`structure` 에 넣을 것.
+    """
+
+    structure: Optional[dict[str, Any]] = None
+    """구조 정보 (heading_level/list). 비면 생략.
+
+    ``style`` 과 나눈 이유는 두 가지다. 첫째, heading 계층과 목록 여부는 서식이
+    아니라 **문서 구조**이고 Phase 5 에서 ``under_heading``/``same_list`` 관계로
+    쓰인다. 둘째, ``compact_raw`` 가 ``style`` 만 내보내므로 여기 담으면 F3 입력이
+    변하지 않는다 — 원문 보존이 fact 추출을 건드리지 않는다는 것이 이 단계의 계약이다.
+    """
 
     rows: Optional[list[list[str]]] = None
     """표 셀 텍스트 2D(type=table)."""
+
+    lines: list[RawLine] = field(default_factory=list)
+    """문단을 줄 단위로 쪼갠 원문(type=paragraph). 표는 행/셀 2D 로 이미 구조가
+    보존돼 있어 비워 둔다."""
 
     def to_dict(self) -> dict[str, Any]:
         return _drop_none(
@@ -185,7 +239,9 @@ class RawWordBlock:
                 "type": self.type,
                 "text": self.text,
                 "style": self.style,
+                "structure": self.structure,
                 "rows": self.rows,
+                "lines": [l.to_dict() for l in self.lines] or None,
             }
         )
 

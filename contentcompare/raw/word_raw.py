@@ -23,12 +23,13 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
 from ..readers import com_util
-from .models import RawWordBlock, RawWordDocument
+from .models import RawLine, RawWordBlock, RawWordDocument
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,14 @@ class ParaProbe:
     """문단 1개."""
 
     text: str
+    """문단 원문. **줄바꿈(``\\n``)을 그대로 담는다** — ``build_word_doc`` 이 이것을
+    line 으로 쪼개고, 동시에 병합된 ``block.text`` 도 만든다."""
+
     style_name: Optional[str] = None
     bold: Optional[bool] = None
     font_size: Optional[float] = None
+    list_item: bool = False
+    """``<w:numPr>`` 가 있는 목록 문단인가."""
 
 
 @dataclass
@@ -81,13 +87,16 @@ def build_word_doc(file_name: str, probes: list[BlockProbe]) -> RawWordDocument:
             if not text:
                 continue
             order += 1
+            block_id = f"w_b{order:03d}"
             doc.blocks.append(
                 RawWordBlock(
-                    block_id=f"w_b{order:03d}",
+                    block_id=block_id,
                     order=order,
                     type="paragraph",
                     text=text,
                     style=_style_dict(p),
+                    structure=_structure_dict(p),
+                    lines=_split_lines(block_id, p.text or ""),
                 )
             )
         elif isinstance(p, TableProbe):
@@ -106,8 +115,39 @@ def build_word_doc(file_name: str, probes: list[BlockProbe]) -> RawWordDocument:
     return doc
 
 
+def _split_lines(block_id: str, text: str) -> list[RawLine]:
+    """문단 원문을 줄 단위로 쪼갠다. 빈 줄은 담지 않는다.
+
+    번호는 **남은 줄에 연속으로** 매긴다(빈 줄 자리를 비워 두지 않는다) — 사람이
+    리포트의 ``:l03`` 을 원문에서 셀 때 빈 줄까지 세도록 만들 이유가 없다.
+
+    ``raw_text`` 는 양끝 공백만 정리한다. 내부 탭을 지우면 인용이 원문과 달라져
+    사람이 대조할 수 없고, 근거 실재 검증도 어긋난다.
+    """
+    out: list[RawLine] = []
+    for piece in text.splitlines():
+        raw = piece.strip()
+        if not raw:
+            continue
+        out.append(RawLine(
+            line_id=f"{block_id}:l{len(out) + 1:02d}",
+            order=len(out) + 1,
+            raw_text=raw,
+            normalized_text=" ".join(raw.split()),
+        ))
+    return out
+
+
+_HEADING_STYLE = re.compile(r"^heading\s*(\d+)$", re.IGNORECASE)
+
+
 def _style_dict(p: ParaProbe) -> Optional[dict[str, Any]]:
-    """문단 스타일 정보. 알 수 있는 값만 담고, 전부 없으면 None."""
+    """문단 서식 정보. 알 수 있는 값만 담고, 전부 없으면 None.
+
+    ⚠️ 이 값은 ``compact_raw`` 를 타고 **F3 LLM 프롬프트에 그대로 실린다.** 키를
+    더하면 fact 추출 결과와 캐시가 통째로 바뀌므로 늘리지 말 것 — 코드만 쓰는
+    구조 정보는 :func:`_structure_dict` 로 간다.
+    """
     info: dict[str, Any] = {}
     if p.style_name:
         info["style_name"] = p.style_name
@@ -115,6 +155,22 @@ def _style_dict(p: ParaProbe) -> Optional[dict[str, Any]]:
         info["bold"] = p.bold
     if p.font_size is not None:
         info["font_size"] = p.font_size
+    return info or None
+
+
+def _structure_dict(p: ParaProbe) -> Optional[dict[str, Any]]:
+    """문단 구조 정보(heading 계층 · 목록 여부). 전부 없으면 None.
+
+    2차 검사가 "가장 가까운 상위 heading" 과 "같은 목록의 앞뒤 항목"을 회수하려면
+    이 둘이 필요하다(설계 §8.6). ``style`` 과 달리 LLM 에는 노출되지 않는다.
+    """
+    info: dict[str, Any] = {}
+    if p.style_name:
+        m = _HEADING_STYLE.match(p.style_name.strip())
+        if m:
+            info["heading_level"] = int(m.group(1))
+    if p.list_item:
+        info["list"] = True
     return info or None
 
 
@@ -174,24 +230,39 @@ def _parse_paragraph(p: ET.Element) -> ParaProbe:
     text = _runs_text(p)
 
     style_name = None
+    list_item = False
     pPr = p.find(_w("pPr"))
     if pPr is not None:
         pStyle = pPr.find(_w("pStyle"))
         if pStyle is not None:
             style_name = pStyle.get(_w("val"))
+        list_item = pPr.find(_w("numPr")) is not None
 
     bold, size = _first_run_format(p)
-    return ParaProbe(text=text, style_name=style_name, bold=bold, font_size=size)
+    return ParaProbe(
+        text=text, style_name=style_name, bold=bold, font_size=size, list_item=list_item
+    )
 
 
 def _runs_text(container: ET.Element) -> str:
-    """엘리먼트 하위 모든 ``<w:t>`` 텍스트를 이어 붙인다(탭/줄바꿈은 공백)."""
+    """엘리먼트 하위 모든 ``<w:t>`` 텍스트를 이어 붙인다.
+
+    ``<w:br>``/``<w:cr>`` 은 **줄바꿈으로 남긴다.** 예전에는 공백으로 바꿨는데,
+    그러면 한 문단에 조건이 여러 개 적힌 원문(충전 온도 4구간)이 한 줄로 뭉개져
+    어느 조건이 대상에 있고 없는지를 사후에 확인할 수 없었다.
+
+    ``<w:tab>`` 은 그대로 탭이다 — 줄 경계가 아니므로 표 흉내를 낸 문단이 잘못
+    쪼개지지 않는다. 병합된 ``block.text`` 는 :func:`build_word_doc` 이 공백으로
+    정리하므로 이 변경이 **compact 출력에 새어나가지 않는다**.
+    """
     parts: list[str] = []
     for node in container.iter():
         if node.tag == _w("t"):
             parts.append(node.text or "")
-        elif node.tag in (_w("tab"), _w("br"), _w("cr")):
-            parts.append(" ")
+        elif node.tag == _w("tab"):
+            parts.append("\t")
+        elif node.tag in (_w("br"), _w("cr")):
+            parts.append("\n")
     return "".join(parts)
 
 
