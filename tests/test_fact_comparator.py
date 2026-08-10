@@ -17,6 +17,7 @@ from contentcompare.fact.fact_comparator import (
     MISMATCH,
     MISSING,
     UNKNOWN,
+    ComparisonProbe,
     FactComparator,
     attribute_coverage,
     canonical_unit,
@@ -335,3 +336,72 @@ def test_single_attribute_exception_needs_a_confirmed_link():
     ref = _fact("r", "용량", lower_limit=("1150", "mAh"))
     tgt = _fact("t", "용량", target_value=("1150", "mAh"))
     assert attribute_coverage(ref, tgt, confirmed_link=False) == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# compare_code / finalize 분리 — probe 단계는 LLM 을 절대 부르지 않는다
+# --------------------------------------------------------------------------- #
+def test_compare_code_never_calls_llm_even_when_uncertain():
+    """분리의 핵심 계약. 이게 깨지면 게이트가 채점하기 전에 비용이 나간다."""
+    cmp_, chat = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "무슨단위"))   # 단위 미상 → 코드 포기
+    probe = cmp_.compare_code(ref, _cand(tgt, review=True), _target(tgt))
+    assert chat.calls == 0
+    assert probe.code_result is None          # 코드가 판단을 포기한 상태
+    assert probe.uncertain is True
+
+
+def test_compare_code_without_candidates_carries_missing_reason():
+    cmp_, chat = _comparator()
+    probe = cmp_.compare_code(
+        _fact("r", "전지"), [], _target(), missing_reason="개념 연결이 없습니다."
+    )
+    assert chat.calls == 0
+    assert probe.code_result == MISSING
+    assert probe.code_reason == "개념 연결이 없습니다."
+    assert probe.best is None
+
+
+def test_compare_code_records_coverage_and_candidates():
+    cmp_, _ = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"), upper=("4.55", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    probe = cmp_.compare_code(ref, _cand(tgt), _target(tgt))
+    assert probe.code_result == MATCH          # 공통 속성만 보면 일치
+    assert probe.attribute_coverage == pytest.approx(0.5)
+    assert probe.best is not None and probe.best.fact is tgt
+
+
+def test_finalize_reproduces_compare():
+    """compare() 는 compare_code() + finalize() 의 래퍼여야 한다."""
+    cmp_, _ = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    direct = cmp_.compare(ref, _cand(tgt), _target(tgt))
+    staged = cmp_.finalize(cmp_.compare_code(ref, _cand(tgt), _target(tgt)))
+    assert (direct.result, direct.decided_by, direct.reason) == (
+        staged.result, staged.decided_by, staged.reason
+    )
+
+
+def test_force_llm_demotes_a_code_match():
+    """게이트가 거부한 match 를 LLM 으로 강등하는 경로(enforce 모드)."""
+    cmp_, chat = _comparator({"result": "mismatch", "reason": "조건이 다릅니다"})
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    probe = cmp_.compare_code(ref, _cand(tgt), _target(tgt))
+    assert probe.code_result == MATCH
+    out = cmp_.finalize(probe, force_llm=True)
+    assert chat.calls == 1
+    assert out.result == MISMATCH and out.decided_by == BY_LLM
+
+
+def test_force_llm_falls_back_to_code_when_llm_is_off():
+    """LLM 을 못 쓰면 강등해도 코드 판정을 버리지 않는다(§6.2 보류 원칙)."""
+    cmp_ = FactComparator(runner=None, use_llm=False)
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    probe = cmp_.compare_code(ref, _cand(tgt), _target(tgt))
+    out = cmp_.finalize(probe, force_llm=True)
+    assert out.result == MATCH and out.decided_by == BY_CODE

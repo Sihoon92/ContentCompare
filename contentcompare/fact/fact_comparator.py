@@ -110,6 +110,36 @@ def _side_dict(fact: Optional[Fact]) -> Optional[dict]:
     }
 
 
+@dataclass
+class ComparisonProbe:
+    """코드 판정까지만 끝낸 중간 상태 — **LLM 을 거치지 않았다**.
+
+    ``compare()`` 안에 묻혀 있던 "코드 판정"과 "확정"을 갈라, 그 사이에
+    Acceptance Gate 가 들어올 자리를 만든다. 게이트를 사후(판정이 끝난 뒤)에
+    채점하지 않는 이유는 :meth:`FactComparator._decide_by_llm` 이 후보를 교체할 수
+    있어, 사후 채점은 **코드 판정 시점과 다른 후보**를 채점하게 되기 때문이다.
+
+    ``code_result`` 의 ``None`` 과 ``"unknown"`` 은 다르다 — ``None`` 은 코드가
+    판단을 **포기**했다(단위 등가 미상 등)는 뜻이고, ``unknown`` 은 최종 판정
+    라벨이다. 둘을 합치면 "코드가 못 정한 것"과 "사람이 봐야 하는 것"이 섞인다.
+    """
+
+    reference_fact: Fact
+    target_doc: str
+    candidates: list[MatchCandidate] = field(default_factory=list)
+    code_result: Optional[str] = None
+    mismatch_attributes: list[str] = field(default_factory=list)
+    code_reason: str = ""
+    attribute_coverage: float = 0.0
+    uncertain: bool = False
+    """후보 점수 경계·LLM 이 만든 연결·F4a 저신뢰 중 하나라도 해당."""
+    missing_reason: str = ""
+
+    @property
+    def best(self) -> Optional[MatchCandidate]:
+        return self.candidates[0] if self.candidates else None
+
+
 class FactComparator:
     def __init__(
         self,
@@ -134,40 +164,100 @@ class FactComparator:
         ref_low_confidence: bool = False,
         missing_reason: str = "",
     ) -> FactComparison:
-        """기준 fact 1건을 대상 문서 1개와 대조한다.
+        """기준 fact 1건을 대상 문서 1개와 대조한다(코드 판정 → 확정을 한 번에).
 
         ``missing_reason`` 은 후보가 하나도 없을 때의 사유를 **호출자가 주입**하는
         자리다. 후보가 왜 없는지는 매칭 전략마다 다르다 — 유사도 경로는 임계 미달,
         F7 개념 경로는 "개념이 ``same_as`` 로 이어지지 않음"이다. 비우면 유사도
         경로의 기본 문구를 쓴다(롤백 경로 ``use_concept_graph: false`` 가 그대로 사용).
+
+        Acceptance Gate 를 끼우려면 :meth:`compare_code` 와 :meth:`finalize` 를
+        직접 부른다. 이 메서드는 그 둘을 잇는 호환 래퍼다.
+        """
+        return self.finalize(self.compare_code(
+            ref, candidates, target,
+            ref_low_confidence=ref_low_confidence,
+            missing_reason=missing_reason,
+        ))
+
+    def compare_code(
+        self,
+        ref: Fact,
+        candidates: list[MatchCandidate],
+        target: DocFacts,
+        *,
+        ref_low_confidence: bool = False,
+        missing_reason: str = "",
+    ) -> ComparisonProbe:
+        """코드 판정까지만 한다 — **LLM 을 절대 호출하지 않는다.**
+
+        이 계약이 깨지면 게이트가 채점하기도 전에 비용이 나가므로 테스트로 고정한다.
         """
         if not candidates:
-            return FactComparison(
-                reference_fact=ref, target_doc=target.doc_name, result=MISSING,
-                reason=missing_reason.strip() or MISSING_BY_SIMILARITY,
+            return ComparisonProbe(
+                reference_fact=ref,
+                target_doc=target.doc_name,
+                code_result=MISSING,
+                code_reason=missing_reason.strip() or MISSING_BY_SIMILARITY,
+                missing_reason=missing_reason,
             )
 
         best = candidates[0]
-        out = FactComparison(
+        probe = ComparisonProbe(
             reference_fact=ref,
             target_doc=target.doc_name,
+            candidates=candidates,
+            attribute_coverage=attribute_coverage(
+                ref, best.fact, confirmed_link=not best.needs_review
+            ),
+            uncertain=(
+                best.needs_review
+                or ref_low_confidence
+                or target.is_low_confidence(best.fact)
+            ),
+            missing_reason=missing_reason,
+        )
+        verdict = self._decide_by_code(ref, best.fact)
+        if verdict is not None:
+            probe.code_result, probe.mismatch_attributes, probe.code_reason = verdict
+        return probe
+
+    def finalize(
+        self, probe: ComparisonProbe, *, force_llm: bool = False
+    ) -> FactComparison:
+        """probe 를 최종 판정으로 만든다. 필요할 때만(그리고 그때만) LLM 을 부른다.
+
+        ``force_llm`` 은 Acceptance Gate 가 거부한 코드 ``match`` 를 강등하는
+        자리다(``fast_path.enforce``). 기본 False 에서는 분리 이전과 동작이 같다.
+        """
+        if not probe.candidates:
+            return FactComparison(
+                reference_fact=probe.reference_fact,
+                target_doc=probe.target_doc,
+                result=MISSING,
+                reason=probe.code_reason,
+            )
+
+        best = probe.candidates[0]
+        out = FactComparison(
+            reference_fact=probe.reference_fact,
+            target_doc=probe.target_doc,
             target_fact=best.fact,
             match_score=best.score,
             match_method=best.method,
         )
-
-        verdict = self._decide_by_code(ref, best.fact)
-        uncertain = (
-            best.needs_review
-            or ref_low_confidence
-            or target.is_low_confidence(best.fact)
+        verdict = (
+            None if probe.code_result is None
+            else (probe.code_result, probe.mismatch_attributes, probe.code_reason)
         )
-        if verdict is not None and not uncertain:
+        if verdict is not None and not probe.uncertain and not force_llm:
             out.result, out.mismatch_attributes, out.reason = verdict
             return out
 
-        # 코드가 단정하지 못했거나 근거가 불안정 → LLM 판단(없으면 보류).
-        return self._decide_by_llm(out, ref, candidates, verdict, uncertain)
+        # 코드가 단정하지 못했거나 근거가 불안정하거나 게이트가 거부 → LLM(없으면 보류).
+        return self._decide_by_llm(
+            out, probe.reference_fact, probe.candidates, verdict, probe.uncertain
+        )
 
     # ------------------------------------------------------------------ #
     # 코드 결정적 판정
