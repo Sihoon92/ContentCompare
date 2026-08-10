@@ -309,6 +309,24 @@ class KnowledgeConfig:
 
 
 @dataclass
+class FastPathConfig:
+    """F5 Acceptance Gate — 코드 판정 ``match`` 를 믿어도 되는지 채점한다.
+
+    기본값이 shadow(``enforce=False``)인 것은 게이트가 LLM 호출을 **늘리기**
+    때문이다. 오늘도 코드 ``match`` 는 LLM 을 안 부르므로(``fact_comparator``
+    ``finalize()``), 게이트의 실제 효과는 지금까지 조용히 확정되던 unsafe match 를
+    LLM 으로 보내는 것이다. 얼마나 늘어날지는 ``unsafe_match_rate`` 를 실측하기
+    전에는 알 수 없고, 모르는 채로 켜면 비용 회귀를 게이트 탓으로 돌리지 못한다.
+    """
+
+    enabled: bool = True
+    """게이트 채점과 계측. False 면 게이트를 실행하지 않는다(도입 전과 동일)."""
+
+    enforce: bool = False
+    """True 면 게이트가 거부한 code ``match`` 를 LLM 판정으로 강등한다."""
+
+
+@dataclass
 class FactConfig:
     """신규 fact 파이프라인 설정(엔진=fact 일 때만 사용). 현행 RAG 와 무관.
 
@@ -380,6 +398,9 @@ class FactConfig:
     ontology_path: str = "knowledge/ontology.yaml"
     """사람이 승격한 개념 관계 파일. 없으면 빈 온톨로지로 시작한다."""
 
+    # --- Fast Path 게이트(Phase 1) ---------------------------------------- #
+    fast_path: FastPathConfig = field(default_factory=FastPathConfig)
+
     # --- 진단 계측(디버깅 뷰어 입력) ------------------------------------- #
     # ``missing`` 판정의 원인은 여섯 가지인데(recall 실패·LLM 미판정·근거 게이트 강등·
     # F3 추출 누락·의도된 차단·F5 LLM 판정) 기존 산출물만으로는 앞의 둘을 구분할 수
@@ -443,13 +464,16 @@ class AppConfig:
         internal = InternalConfig(**llm_raw.pop("internal", {}) or {})
         langfuse = LangfuseConfig(**llm_raw.pop("langfuse", {}) or {})
         llm = LLMConfig(ollama=ollama, internal=internal, langfuse=langfuse, **llm_raw)
+        # fact 도 중첩 섹션을 갖는다 — pop 하지 않으면 dict 인 채로 필드에 박힌다.
+        fact_raw = dict(data.get("fact", {}) or {})
+        fast_path = FastPathConfig(**fact_raw.pop("fast_path", {}) or {})
         return cls(
             llm=llm,
             excel=ExcelConfig(**data.get("excel", {}) or {}),
             similarity=SimilarityConfig(**data.get("similarity", {}) or {}),
             report=ReportConfig(**data.get("report", {}) or {}),
             knowledge=KnowledgeConfig(**data.get("knowledge", {}) or {}),
-            fact=FactConfig(**data.get("fact", {}) or {}),
+            fact=FactConfig(fast_path=fast_path, **fact_raw),
             logging=LoggingConfig(**data.get("logging", {}) or {}),
         )
 
