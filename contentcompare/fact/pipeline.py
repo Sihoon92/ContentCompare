@@ -217,6 +217,7 @@ class FactPipeline:
             "decided_by_llm": sum(1 for c in result.comparisons if c.decided_by == "llm"),
             "llm_calls": comparator.llm_calls,
             "llm_failures": comparator.llm_failures,
+            "llm_budget_exceeded": comparator.llm_budget_exceeded,
             "multi_candidate_comparisons": len(multi),
             "multi_candidate_overridden": sum(1 for c in multi if c.result_changed),
             "quote_unverified": comparator.quote_unverified,

@@ -216,6 +216,12 @@ class FactComparator:
         self.use_llm = use_llm and runner is not None
         self.llm_calls = 0
         self.llm_failures = 0
+        """판정 LLM 실패 **총계**(예산 고갈 + 파싱 실패). 기존 키라 의미를 바꾸지 않는다."""
+        self.llm_budget_exceeded = 0
+        """그중 예산 고갈. 파싱 실패와 갈라야 하는 이유는 **파급 범위가 다르다**는 것이다 —
+        파싱 실패는 그 항목 하나로 끝나지만, 예산 고갈은 **그 뒤 모든 항목**을 쓸어간다.
+        한 숫자에 섞으면 "왜 갑자기 전부 보류인가"를 사후에 설명할 수 없고, 사용자는
+        예산이 아니라 모델을 바꾸러 간다."""
         self.dropped_findings = 0
         """후보 밖 ``fact_id`` 를 가리켜 버려진 finding 수 — 드롭은 결과에 안 남으므로
         여기서 세지 않으면 영영 보이지 않는다."""
@@ -387,6 +393,8 @@ class FactComparator:
             self.llm_calls += 1
         except (LlmBudgetExceeded, ValueError) as e:
             self.llm_failures += 1
+            if isinstance(e, LlmBudgetExceeded):
+                self.llm_budget_exceeded += 1
             logger.warning("[Fact] 비교 LLM 실패(%s) → 보류: %s", type(e).__name__, ref.entity_name)
             return self._fallback(
                 out, code_verdict, f"LLM 판정 실패({type(e).__name__})로 보류합니다.",

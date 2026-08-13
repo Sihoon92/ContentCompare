@@ -51,6 +51,7 @@ def render_fact_markdown(
         "",
     ]
     lines += _budget_warning(graph)
+    lines += _compare_budget_warning(stats)
     lines += _overview(comparisons)
     lines += _summary_table(comparisons)
     lines += _details(comparisons)
@@ -243,6 +244,33 @@ def _budget_warning(graph: Any) -> list[str]:
         ">",
         "> 조치: `fact.max_llm_calls_per_concept` 를 늘리거나 "
         "`fact.concept_batch_pairs` 를 키운 뒤 다시 실행하세요.",
+        "",
+    ]
+
+
+def _compare_budget_warning(stats: Optional[dict]) -> list[str]:
+    """비교 단계 예산이 떨어지면 **맨 위에** 알린다.
+
+    :func:`_budget_warning`(개념 단계)와 조치가 다르다 — 이쪽은
+    ``max_llm_calls_per_compare`` 다. 경고가 없으면 사용자는 무더기 ``판단보류`` 를
+    보고 모델을 바꾸러 가지, 예산을 올리러 가지 않는다.
+
+    예산 고갈은 **그 시점 이후 전부**를 쓸어가므로, 보류된 항목의 순서가 곧 원인의
+    증거다. 고립된 파싱 실패와 한 칸에 두면 그 성질이 사라진다.
+    """
+    try:
+        exhausted = int((stats or {}).get("llm_budget_exceeded") or 0)
+    except (TypeError, ValueError):
+        return []
+    if exhausted <= 0:
+        return []
+    return [
+        f"> 🚨 **비교 단계 LLM 예산이 부족해 {exhausted} 건을 판정하지 못했습니다.**",
+        ">",
+        "> 예산이 떨어진 뒤의 항목은 판정을 시도하지 못하고 `❓ 판단보류` 로 남습니다.",
+        "> 아래의 판단보류 중 상당수가 실제 모호함이 아니라 **예산 때문**일 수 있습니다.",
+        ">",
+        "> 조치: `fact.max_llm_calls_per_compare` 를 늘린 뒤 다시 실행하세요.",
         "",
     ]
 

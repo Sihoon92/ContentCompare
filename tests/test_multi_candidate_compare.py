@@ -301,6 +301,47 @@ def test_llm_off_with_two_candidates_holds_unknown():
 
 
 # --------------------------------------------------------------------------- #
+# 예산 고갈 — 1:N 라우팅이 호출을 늘렸으므로 더 잘 생긴다
+# --------------------------------------------------------------------------- #
+def test_budget_exhaustion_is_counted_apart_from_parse_failures():
+    """둘을 한 숫자에 섞으면 조치가 갈린다 — 하나는 예산, 하나는 모델/프롬프트다.
+
+    예산 고갈은 **그 뒤 모든 항목**을 쓸어가는 계통 오류라, 고립된 파싱 실패와
+    같은 칸에 두면 "왜 갑자기 전부 보류인가"를 사후에 설명할 수 없다.
+    """
+    from contentcompare.fact.llm_stage import LlmRunner
+
+    ref = _fact("r1", "충전환경온도", current=("0.2", "C"))
+    tgt = _four_ranges()
+    chat = _CountingChat({"result": "match", "reason": "일치"})
+    cmp_ = FactComparator(runner=LlmRunner(chat, max_calls=0))
+
+    out = cmp_.compare(ref, _cands(*tgt), _target(*tgt))
+
+    assert out.result == UNKNOWN
+    assert cmp_.llm_budget_exceeded == 1
+    assert cmp_.llm_failures == 1, "기존 키는 총계로 유지해야 소비자가 안 깨진다"
+
+
+def test_parse_failure_is_not_counted_as_budget_exhaustion():
+    ref = _fact("r1", "충전환경온도", current=("0.2", "C"))
+    tgt = _four_ranges()
+
+    class _BadJson:
+        calls = 0
+
+        def complete(self, system, user, *, temperature=0.0):
+            return "JSON 이 아님"
+
+    from contentcompare.fact.llm_stage import LlmRunner
+
+    cmp_ = FactComparator(runner=LlmRunner(_BadJson()))
+    cmp_.compare(ref, _cands(*tgt), _target(*tgt))
+
+    assert cmp_.llm_budget_exceeded == 0 and cmp_.llm_failures == 1
+
+
+# --------------------------------------------------------------------------- #
 # 리포트 — 기준 1행 = 1줄을 유지하고 내역을 아래에 붙인다
 # --------------------------------------------------------------------------- #
 def _rendered(response: dict) -> str:
