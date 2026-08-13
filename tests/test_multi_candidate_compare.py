@@ -298,3 +298,153 @@ def test_llm_off_with_two_candidates_holds_unknown():
 
     assert out.result == UNKNOWN
     assert out.decided_by == BY_CODE
+
+
+# --------------------------------------------------------------------------- #
+# 리포트 — 기준 1행 = 1줄을 유지하고 내역을 아래에 붙인다
+# --------------------------------------------------------------------------- #
+def _rendered(response: dict) -> str:
+    from contentcompare.report.fact_report import render_fact_markdown
+
+    ref = _fact("r1", "충전환경온도", current=("0.2", "C"))
+    tgt = _four_ranges()
+    cmp_, _ = _comparator(response)
+    out = cmp_.compare(ref, _cands(*tgt), _target(*tgt))
+    return render_fact_markdown(
+        [out], reference_doc="기준.xlsx", target_docs=["규격서.docx"]
+    )
+
+
+def test_report_lists_every_candidate_finding():
+    md = _rendered(_findings_response())
+
+    assert md.count("Charge temperature range") >= 4, "4구간 내역이 리포트에 없다"
+    assert "기준 1C vs 대상 0.7C" in md
+    # 요약은 기준 1행 = 1줄을 유지한다
+    assert md.count("| 1 | 충전환경온도 |") == 1
+
+
+def test_report_flags_unverified_quotes():
+    """인용 검증 실패는 사람이 원문을 확인하도록 표시로 남긴다."""
+    response = _findings_response()
+    response["findings"][2]["quote"] = "문서에 없는 문장"
+
+    md = _rendered(response)
+
+    assert "⚠️" in md and "문서에 없는 문장" in md
+
+
+def test_report_omits_finding_block_for_single_candidate():
+    """후보 1건이면 기존 리포트와 같아야 한다 — 없던 절이 생기면 회귀다."""
+    from contentcompare.report.fact_report import render_fact_markdown
+
+    ref = _fact("r1", "충전환경온도", current=("0.2", "C"))
+    tgt = _fact("t1", "charge temperature range", "0~10C: 0.2C", current=("0.2", "C"))
+    cmp_, _ = _comparator()
+    out = cmp_.compare(ref, _cands(tgt, method=EXACT, score=1.0), _target(tgt))
+
+    md = render_fact_markdown([out], reference_doc="기준.xlsx", target_docs=["규격서.docx"])
+
+    assert "후보별 내역" not in md
+
+
+# --------------------------------------------------------------------------- #
+# 파이프라인 계측 — 이 변경이 없앤 오판의 양을 드러낸다
+# --------------------------------------------------------------------------- #
+class _ScriptedChat:
+    def __init__(self, responses=()):
+        self.responses = list(responses)
+        self.calls = 0
+
+    def complete(self, system, user, *, temperature=0.0):
+        self.calls += 1
+        return self.responses.pop(0) if self.responses else "{}"
+
+
+class _FakeEmbedder:
+    def embed(self, texts, kind="passage"):
+        return [[1.0, 0.0] for _ in texts]
+
+
+def _pipeline_store():
+    """기준 1행 ↔ 대상 조건 구간 2건.
+
+    이름을 다르게 두는 것은 의도적이다 — ``FactMatcher`` 의 이름 완전일치 경로는
+    **조기 종료**라 후보를 1건만 만든다(``fact_matcher.py`` 의 ``EXACT`` 분기). 실제
+    사례(한국어 기준 ↔ 영어 대상)도 완전일치가 원리적으로 불가능해 임베딩 recall 을
+    타므로, 이 테스트가 그 경로를 재현한다.
+    """
+    from contentcompare.fact.fact_store import FactStore
+
+    def _f(fid: str, name: str, value: str) -> Fact:
+        return Fact(fact_id=fid, entity_name=name, search_text=name,
+                    evidence_text=f"{name} {value}A", source={"block_id": "b01"},
+                    attributes={"current": Attribute(value, "A")})
+
+    store = FactStore()
+    store.add(DocFacts(doc_name="기준.xlsx", facts=FactSet(
+        facts=[_f("fact-row-1", "충전전류", "0.2")])), is_reference=True)
+    store.add(DocFacts(doc_name="규격서.docx", facts=FactSet(facts=[
+        _f("fact-word-1", "charge current low", "0.2"),
+        _f("fact-word-2", "charge current room", "1.0"),
+    ])))
+    return store
+
+
+_CONCEPT_RESPONSE = json.dumps({"pairs": [
+    {"left_fact_id": "fact-row-1", "right_fact_id": "fact-word-1", "relation": "same_as",
+     "left_text": "충전전류 0.2A", "right_text": "charge current low 0.2A", "reason": "같은 항목"},
+    {"left_fact_id": "fact-row-1", "right_fact_id": "fact-word-2", "relation": "same_as",
+     "left_text": "충전전류 0.2A", "right_text": "charge current room 1.0A", "reason": "같은 항목"},
+]}, ensure_ascii=False)
+
+
+def _run_pipeline(tmp_path, chat):
+    from contentcompare.config import AppConfig, FactConfig
+    from contentcompare.fact.pipeline import FactPipeline
+
+    cfg = AppConfig()
+    cfg.fact = FactConfig(
+        artifacts_dir=str(tmp_path / "artifacts"),
+        ontology_path=str(tmp_path / "없음.yaml"),
+    )
+    pipe = FactPipeline(cfg, chat=chat, embedder=_FakeEmbedder())
+    return pipe._compare_from_store(_pipeline_store(), "기준.xlsx", ["규격서.docx"])
+
+
+def test_pipeline_stats_expose_the_overridden_count(tmp_path):
+    """``multi_candidate_overridden`` 이 이 작업의 성과 지표다 — 0 이어도 유효한 정보다."""
+    chat = _ScriptedChat([_CONCEPT_RESPONSE, json.dumps({
+        "result": "mismatch",
+        "findings": [
+            {"fact_id": "fact-word-1", "result": "match",
+             "quote": "charge current low 0.2A", "reason": "일치"},
+            {"fact_id": "fact-word-2", "result": "mismatch",
+             "mismatch_attributes": ["current"],
+             "quote": "charge current room 1.0A", "reason": "다름"},
+        ],
+        "reason": "2건 중 1건이 다릅니다",
+    }, ensure_ascii=False)])
+
+    stats = _run_pipeline(tmp_path, chat).compare_stats
+
+    assert stats["multi_candidate_comparisons"] == 1
+    assert stats["multi_candidate_overridden"] == 1, "코드 match → 최종 mismatch 가 안 잡혔다"
+    assert stats["quote_unverified"] == 0
+    assert stats["dropped_findings"] == 0
+
+
+def test_pipeline_counts_unverified_quotes(tmp_path):
+    chat = _ScriptedChat([_CONCEPT_RESPONSE, json.dumps({
+        "result": "match",
+        "findings": [
+            {"fact_id": "fact-word-1", "result": "match", "quote": "지어낸 문장", "reason": "?"},
+            {"fact_id": "fact-word-2", "result": "match",
+             "quote": "charge current room 1.0A", "reason": "일치"},
+        ],
+        "reason": "일치",
+    }, ensure_ascii=False)])
+
+    stats = _run_pipeline(tmp_path, chat).compare_stats
+
+    assert stats["quote_unverified"] == 1

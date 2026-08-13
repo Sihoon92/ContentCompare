@@ -127,10 +127,36 @@ def _details(comparisons: list[FactComparison]) -> list[str]:
             "",
             f"**판단 근거**: {c.reason}",
             "",
+        ]
+        lines += _findings_block(c)
+        lines += [
             f"<sub>판정 주체: {c.decided_by} · 매칭: {c.match_method} "
             f"{c.match_score:.3f}</sub>",
             "",
         ]
+    return lines
+
+
+def _findings_block(c: FactComparison) -> list[str]:
+    """후보 N건이 함께 하나의 규격을 이룰 때의 구간별 내역.
+
+    기준 1행 = 리포트 1줄을 유지하면서도 사람이 **구간 단위로** 검수할 수 있게 한다.
+    후보가 1건뿐이면 위 표가 이미 같은 내용을 담고 있으므로 붙이지 않는다 — 없던 절이
+    생기면 기존 리포트에 대한 회귀다.
+    """
+    if len(c.findings) < 2:
+        return []
+    lines = ["**후보별 내역**", ""]
+    for f in c.findings:
+        mark = LABEL.get(f.result, f.result)
+        attrs = f" ({', '.join(f.mismatch_attributes)})" if f.mismatch_attributes else ""
+        # 인용 검증 실패는 판정을 버리지 않고 표시만 남긴다 — 사람이 원문을 확인해야
+        # 하는 자리라는 뜻이지, 그 내역이 틀렸다는 뜻이 아니다.
+        warn = " ⚠️ 인용을 원문에서 확인하지 못했습니다" if not f.quote_verified else ""
+        quote = f" — “{_truncate(_oneline(f.quote), 70)}”" if f.quote else ""
+        reason = f" · {_oneline(f.reason)}" if f.reason else ""
+        lines.append(f"- {mark}{attrs}{reason}{quote}{warn}")
+    lines.append("")
     return lines
 
 

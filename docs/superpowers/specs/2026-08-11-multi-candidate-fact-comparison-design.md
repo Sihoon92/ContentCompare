@@ -1,7 +1,7 @@
 # F5 다중 후보 통합 판정 (1:N Fact Comparison)
 
 - 작성일: 2026-08-11
-- 상태: 설계 승인됨 (구현 전)
+- 상태: **구현 완료 (2026-08-13)** — 구현 중 확정한 차이는 §13 참고
 - 관련 문서: `docs/FACT_LINKED_GRAPH_RAG_DESIGN.md` §8.1, `docs/FACT_F7_DESIGN.md`,
   `docs/superpowers/specs/2026-08-10-fact-acceptance-gate-phase1-design.md`
 
@@ -256,3 +256,55 @@ quote_unverified              인용 검증에 실패한 finding 수
   `facts_by_block.json` 의 줄 단위 커버리지(Phase 4a)가 탐지 대상이다.
 - 대상 쪽 fact 가 4건이 아니라 1건으로 뭉쳐 추출된 경우도 이 변경의 범위 밖이다
   (후보가 1건이므로 기존 경로를 탄다).
+
+## 13. 구현 시 확정한 차이
+
+### 13.1 라우팅을 `finalize()` **안**에 뒀다 (§3.2 수정)
+
+설계는 `pipeline.py` 의 `force_llm` 인자에 `or len(candidates) >= 2` 를 더하기로 했으나,
+구현은 `FactComparator.finalize()` 안에서 `probe.candidates` 를 직접 본다.
+
+§3.2 가 든 두 이유(게이트가 아니라 호출부 / `fast_path.enabled` 와 독립)는 그대로
+지켜지고, 다음이 추가로 지켜진다.
+
+- `compare()` 호환 래퍼와 그것을 쓰는 모든 호출부가 함께 덮인다. 파이프라인에만 두면
+  `compare()` 를 부르는 경로에는 1:1 버그가 그대로 남는다.
+- §7(N≥2 에서 `_fallback` 금지)은 **어차피 comparator 안에서** 후보 수를 알아야 한다.
+  같은 규칙의 판단 재료를 두 모듈에 쪼개면 한쪽만 고쳐질 수 있다.
+
+### 13.2 필드 3개 · 계측 4개
+
+`candidate_count` 를 추가했다. `target_facts` 는 **드롭 후**의 수라
+`multi_candidate_overridden`(후보 2건 이상 × 판정이 갈림)을 셀 수 없다. 진단
+산출물에도 실려 `why_missing` 이 "후보가 몇 건이었나"를 사후에 확인할 수 있다.
+
+계측은 `dropped_findings` 를 더해 4개다 — §6 이 요구한 "드롭 + 계측"의 그 계측이며,
+드롭된 finding 은 결과에 남지 않으므로 세지 않으면 영영 보이지 않는다.
+
+### 13.3 발견 — 이름 완전일치 경로에는 1:N 이 애초에 생기지 않는다
+
+`FactMatcher.search()` 의 이름 완전일치 분기는 **조기 종료**라 후보를 항상 1건만
+만들고, `_by_name` 이 이름 → 인덱스 1:1 이라 **동명 대상 fact 는 접힌다.** 즉 대상
+문서에 같은 이름의 fact 가 4건 있어도 기준 이름과 완전일치하면 후보는 1건이다.
+
+이 설계가 §2 에서 "후보 생성은 이미 옳게 동작한다"고 본 근거는 실제 사례(한국어 기준
+↔ 영어 대상)가 완전일치가 원리적으로 불가능해 임베딩 recall 을 타기 때문이다. 그
+범위에서는 맞다. 다만 **같은 언어 문서쌍에서는 이 경로가 1:N 을 원천 차단**한다.
+
+고치려면 recall 동작이 전역으로 바뀌어(완전일치 항목이 전부 다중 후보가 되어 LLM 으로
+감) 비용이 크게 늘므로, 별도 결정 사항으로 남긴다 —
+`docs/FACT_LINKED_GRAPH_RAG_DESIGN.md` §10.2 의 "동일 Entity의 다중 후보를 보존하고
+첫 항목 조기 종료 제거"가 같은 항목이다.
+
+### 13.4 실측 (캐시된 `artifacts/자표준문서_xlsx`)
+
+개념 노드 19개 중 **2개**가 대상 fact 2건 이상을 물고 있었다.
+
+| 기준 | 대상 후보 |
+|---|---|
+| 공칭용량 · 정격용량 | Nominal capacity · Rated capacity |
+| 표준충전전류 | Standard charging current · Maximum charging current |
+
+이 실행에서는 셋 다 단위 미상이라 이미 LLM 을 탔으므로 조용한 코드 확정은 없었다.
+그러나 `표준충전전류` 는 단위만 맞았다면 `Standard` 와 `Maximum` 중 하나가 임의로
+확정될 자리였다 — 이 변경이 막는 것이 정확히 그것이다.

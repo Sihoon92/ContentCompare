@@ -209,11 +209,18 @@ class FactPipeline:
                     comparison.attribute_coverage = probe.attribute_coverage
                     result.comparisons.append(comparison)
 
+        # 1:N 계측 — ``multi_candidate_overridden`` 이 "1:1 축약이 만들던 오판 건수"다.
+        # 0 이면 축약이 애초에 오판을 만들지 않았다는 뜻이므로 그 자체가 유효한 정보다.
+        multi = [c for c in result.comparisons if c.candidate_count >= 2]
         result.compare_stats = {
             "comparisons": len(result.comparisons),
             "decided_by_llm": sum(1 for c in result.comparisons if c.decided_by == "llm"),
             "llm_calls": comparator.llm_calls,
             "llm_failures": comparator.llm_failures,
+            "multi_candidate_comparisons": len(multi),
+            "multi_candidate_overridden": sum(1 for c in multi if c.result_changed),
+            "quote_unverified": comparator.quote_unverified,
+            "dropped_findings": comparator.dropped_findings,
             "concept": dict(graph.stats) if graph is not None else {},
             # 게이트가 꺼져 있으면 키를 아예 넣지 않는다 — 0 으로 채우면
             # "게이트가 아무것도 안 잡았다"로 오독된다.
