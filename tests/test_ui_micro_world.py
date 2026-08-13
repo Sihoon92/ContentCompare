@@ -101,6 +101,41 @@ def test_ampersand_and_angle_in_evidence_survive(tmp_path):
     assert "&lt; b &amp; c" in html
 
 
+def _multi_comparison():
+    """후보 3건을 종합 판정한 비교 — 리포트에는 3줄이 나온다."""
+    comp = _comparison(result="mismatch")
+    comp["candidate_count"] = 3
+    comp["findings"] = [
+        {"fact_id": "f1", "result": "match", "mismatch_attributes": [],
+         "quote": "0~10C: 0.2C", "quote_verified": True, "reason": "저온 구간 일치"},
+        {"fact_id": "f2", "result": "mismatch", "mismatch_attributes": ["current"],
+         "quote": "10~45C: 1C", "quote_verified": True, "reason": "상온 구간이 다름"},
+        {"fact_id": "f3", "result": "match", "mismatch_attributes": [],
+         "quote": "지어낸 문장", "quote_verified": False, "reason": "고온 구간 일치"},
+    ]
+    return comp
+
+
+def test_detail_card_shows_every_candidate_finding(tmp_path):
+    """리포트에 4줄이 나오는데 화면엔 대표 1건만 보이면 둘을 대조할 수 없다."""
+    html = render_debug_html(_run(tmp_path, comparisons=[_multi_comparison()])).html
+    for quote in ("0~10C: 0.2C", "10~45C: 1C"):
+        assert quote in html
+    assert "상온 구간이 다름" in html
+
+
+def test_detail_card_flags_unverified_quote(tmp_path):
+    """인용을 원문에서 못 찾은 내역은 화면에서도 구분돼야 검수가 된다."""
+    html = render_debug_html(_run(tmp_path, comparisons=[_multi_comparison()])).html
+    assert "⚠️" in html
+
+
+def test_detail_card_omits_findings_for_single_candidate(tmp_path):
+    """후보 1건이면 위 표가 이미 같은 내용이다 — 없던 절이 생기면 회귀다."""
+    html = render_debug_html(_run(tmp_path)).html
+    assert "후보별 내역" not in html
+
+
 def test_embedded_script_tag_does_not_break_the_page(tmp_path):
     """근거 원문에 </script> 가 들어와도 페이지가 잘리면 안 된다."""
     comp = _comparison(entity="</script><b>x")
