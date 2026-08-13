@@ -493,7 +493,8 @@ ContentCompare 는 엑셀 규격표(<strong>기준</strong>)의 항목들을 워
     <div class="dk">분모 = 2</div>
     <div class="dv">코드 match</div>
     <div class="df"><code>unsafe_match_rate</code><br>
-      <small>(코드가 <code>match</code> 라고 한 건만. 이 실행에선 단 2건)</small></div>
+      <small>(코드가 <code>match</code> 라고 한 건만. 이 실행에선 단 2건)<br>
+      ⚠️ <strong>전환 비용은 <code>enforce_new_llm_count</code></strong> 로 볼 것 — 아래 정정</small></div>
   </div>
 </div>
 
@@ -518,9 +519,20 @@ return {
 <div class="call warn">
   <span class="t">⚠️ 그래서 <code>unsafe_match_rate: 1.0</code> 은 "100% 위험"이 아니다</span>
   분모가 2 입니다. "코드가 의견을 낸 두 건이 둘 다 검토 대상이 됐다"는 뜻일 뿐이죠.
-  이 비율의 원래 용도는 <strong>"<code>enforce</code> 를 켜면 LLM 호출이 얼마나 늘어날까"</strong>를
-  미리 재는 것인데, 분모가 2 라 이번 실행에서는 아무 예측력이 없습니다.
   <strong>비율이 아니라 분모의 크기를 먼저 보세요.</strong>
+</div>
+
+<div class="call bad">
+  <span class="t">🔧 정정 (2026-08-13) — <code>unsafe_match_rate</code> 는 전환 비용이 아니다</span>
+  이 페이지의 초판은 이 값을 "<code>enforce</code> 를 켜면 늘어날 LLM 호출 비율"로 설명했습니다.
+  <strong>그렇게 읽으면 안 됩니다.</strong> 게이트 사유 셋(<code>low_confidence</code> ·
+  <code>code_unknown</code> · <code>duplicate_entity_facts</code>)은 <code>finalize()</code> 가
+  <strong>이미</strong> LLM 으로 보내는 조건과 같은 사실을 가리키므로, 켜도 호출이 늘지 않습니다.
+  <br><br>
+  그래서 <code>enforce_new_llm_count</code> / <code>enforce_new_llm_rate</code> 가 추가됐습니다
+  (커밋 <code>4993933</code>) — <strong>정말로 새로 늘어나는 호출만</strong> 셉니다. 실측에서
+  <code>unsafe_match_rate</code> 0.88 이 실제 순증가 10%를 <strong>3.5배 부풀렸습니다</strong>
+  (unsafe 7건 중 5건은 이미 LLM 경로였음).
 </div>
 
 <div class="qmemo" data-qid="denominator-three" data-status="open">
@@ -582,7 +594,11 @@ return {
     <tr><td><code>secondary_review_rate</code></td><td class="num">1.0</td>
       <td><code>1 - fast_path_rate</code>. 같은 정보의 뒷면이라 <strong>둘 중 하나만 보면 된다</strong></td></tr>
     <tr><td><code>unsafe_match_rate</code></td><td class="num">1.0</td>
-      <td>분모 2. <strong>이번 실행에선 의미 없음</strong>(§4)</td></tr>
+      <td>분모 2. <strong>이번 실행에선 의미 없음</strong>(§4). 게이트가 얼마나 조이는지를 재는 값이지
+          <strong>전환 비용이 아니다</strong></td></tr>
+    <tr><td><code>enforce_new_llm_count</code><br><code>enforce_new_llm_rate</code></td><td class="num">신규</td>
+      <td><strong>이쪽이 전환 비용이다</strong> — 거부된 코드 match 중 <code>finalize</code> 가 아직
+          LLM 으로 보내지 <em>않던</em> 건수. 커밋 <code>4993933</code></td></tr>
     <tr><td><code>mean_attribute_coverage</code></td><td class="num">0.1278</td>
       <td>분모 24. 기준 속성 중 평균 <strong>13%</strong>만 대응됨</td></tr>
     <tr><td><code>result_changed_count</code></td><td class="num">—</td>
@@ -923,8 +939,16 @@ PY</pre>
   <div class="qmemo-answer" hidden></div>
 </div>
 
+<div class="call def">
+  <span class="t">📎 후속편 — <code>missing 76건은 정상인가</code></span>
+  이 페이지를 읽고 나온 세 질문(① <code>missing</code> 은 후보가 없는 항목인가 ② 후보가 있으면
+  판정은 누가 어떻게 내리나 ③ 76건은 결함인가)에 실측으로 답한 글이 있습니다 →
+  <a href="2026-08-13-explanation-run-stats-anatomy-followup.html"><strong>missing 76건은 정상인가 — 후보·판정·그리고 그 숫자의 정체</strong></a>
+</div>
+
 <p class="footnote">
   관련 문서 —
+  후속편: <a href="2026-08-13-explanation-run-stats-anatomy-followup.html">missing 76건은 정상인가</a> ·
   게이트 설계: <a href="2026-08-10-explanation-fact-acceptance-gate.html">2026-08-10-explanation-fact-acceptance-gate.html</a> ·
   1:N 판정 문제: <a href="2026-08-13-explanation-multi-candidate-1n-comparison.html">2026-08-13-explanation-multi-candidate-1n-comparison.html</a> ·
   교차언어 recall: <a href="2026-08-06-explanation-cross-language-recall-bottleneck.html">2026-08-06-explanation-cross-language-recall-bottleneck.html</a> ·
