@@ -342,8 +342,13 @@ class FactConfig:
     cache: bool = True
     """단계별 산출물 캐싱(같은 입력이면 재계산/재호출 0 — 결정 #2)."""
 
-    max_llm_calls_per_doc: int = 50
-    """문서당 LLM 호출 예산(결정 #2). F1+ 단계에서 사용."""
+    max_llm_calls_per_doc: int = 500
+    """문서당 LLM 호출 예산(결정 #2). F1+ 단계에서 사용.
+
+    이 값들은 **비용 목표가 아니라 폭주 방지선**이다. 실제 비용은 문서 크기가 정하고,
+    분당 한도는 ``llm.max_calls_per_minute`` 이 따로 막는다. 낮게 잡으면 큰 문서에서
+    조용히 고갈돼 뒤쪽 항목이 통째로 보류되는데, 그건 절약이 아니라 **결과 손실**이다.
+    """
 
     record_batch_rows: int = 30
     """F2 Record Normalizer 의 행 배치 크기(한 LLM 호출당 처리 행 수)."""
@@ -372,8 +377,13 @@ class FactConfig:
     compare_use_llm: bool = True
     """False 면 코드 결정적 판정만 한다(애매한 건 전부 ``unknown``). 재현성·비용 우선일 때."""
 
-    max_llm_calls_per_compare: int = 100
-    """비교 단계 전체의 LLM 호출 예산(문서 처리 예산과 별도)."""
+    max_llm_calls_per_compare: int = 1000
+    """비교 단계 전체의 LLM 호출 예산(문서 처리 예산과 별도).
+
+    소요량은 대략 ``애매한 기준 항목 수 × 대상 문서 수`` 다. 1:N 판정(후보 2건 이상은
+    무조건 LLM)이 들어오면서 소요가 늘었으므로 여유를 크게 둔다 — 고갈되면 그 시점
+    이후가 전부 ``unknown`` 이 되고, 리포트가 🚨 경고로 그것을 알린다.
+    """
 
     # --- F7 개념 그래프 ------------------------------------------------- #
     use_concept_graph: bool = True
@@ -392,8 +402,13 @@ class FactConfig:
     concept_batch_pairs: int = 20
     """한 LLM 호출당 판정할 쌍 수."""
 
-    max_llm_calls_per_concept: int = 30
-    """개념 단계 LLM 호출 예산(문서 처리·비교 예산과 별도)."""
+    max_llm_calls_per_concept: int = 300
+    """개념 단계 LLM 호출 예산(문서 처리·비교 예산과 별도).
+
+    소요량은 ``기준 fact 수 × concept_recall_top_k ÷ concept_batch_pairs`` 로 커진다 —
+    200행 문서에 기본값(top_k 5 · batch 20)이면 50회다. 여기서 고갈되면 남은 쌍이
+    ``unknown`` → 연결 없음 → **전 항목 ``missing``** 으로 귀결돼 피해가 가장 크다.
+    """
 
     ontology_path: str = "knowledge/ontology.yaml"
     """사람이 승격한 개념 관계 파일. 없으면 빈 온톨로지로 시작한다."""
