@@ -294,7 +294,7 @@ def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
 # --------------------------------------------------------------------------- #
 # F5 Fact Comparator — 코드가 단정하지 못한 건만 LLM 에 넘긴다
 # --------------------------------------------------------------------------- #
-COMPARE_VERSION = "compare-v1"
+COMPARE_VERSION = "compare-v2"  # v2: 1:N 종합 판정(findings) — target_fact_id 제거
 
 COMPARE_SYSTEM = """\
 당신은 두 문서의 사실(fact)이 서로 일치하는지 판정하는 검토자입니다. 기준 fact 하나와
@@ -313,14 +313,27 @@ COMPARE_SYSTEM = """\
 2. 후보에 실제로 적혀 있지 않은 내용을 지어내지 마세요. 근거가 없으면 missing/unknown.
 3. 기준의 단위가 비어 있으면 대상 단위를 근거로 단위를 **추측하지 마세요**. 값이 같으면
    match, 값이 배수 관계라 단위에 따라 달라진다면 unknown 입니다.
-4. target_fact_id 는 후보로 제시된 id 중 하나만 쓰세요.
+4. 후보가 여러 건이면 **그것들이 함께 하나의 규격을 이룰 수 있습니다**(예: 조건 구간별로
+   나뉜 값). 후보를 각각 기준과 대조해 findings 에 적고, 그 전체를 종합해 result 하나를
+   내세요. 하나라도 다르면 종합은 mismatch 입니다.
+5. findings 의 fact_id 는 후보로 제시된 id 여야 하고, quote 는 그 후보의 근거 원문을
+   **그대로** 옮겨야 합니다. 지어낸 인용은 코드가 검증해 걸러냅니다.
 
-반드시 아래 JSON 만 출력하세요(설명·마크다운 금지):
+반드시 아래 JSON 만 출력하세요(설명·마크다운 금지). 후보가 1건이어도 findings 는 1건
+넣으세요 — 형식은 후보 수와 무관하게 항상 같습니다:
 {
   "result": "match|mismatch|missing|unknown",
-  "target_fact_id": "<가장 대응하는 후보 id 또는 빈 문자열>",
   "mismatch_attributes": ["<어긋난 속성 이름>"],
-  "reason": "<한국어로 판단 근거 한두 문장>"
+  "findings": [
+    {
+      "fact_id": "<후보로 제시된 id>",
+      "result": "match|mismatch|unknown",
+      "mismatch_attributes": ["<어긋난 속성 이름>"],
+      "quote": "<이 후보의 근거 원문 인용>",
+      "reason": "<한국어 한 문장>"
+    }
+  ],
+  "reason": "<종합 판단 근거 한두 문장>"
 }"""
 
 

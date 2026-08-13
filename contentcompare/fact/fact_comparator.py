@@ -68,6 +68,33 @@ _UNIT_ALIASES: dict[str, str] = {
 
 
 @dataclass
+class FactFinding:
+    """후보 1건에 대한 내역. 여러 후보가 **함께** 하나의 규격을 이룰 때 쓴다.
+
+    기준 1행 = 리포트 1줄을 유지하면서도 사람이 구간 단위로 검수할 수 있게 하는 그릇이다.
+    """
+
+    fact_id: str
+    result: str = UNKNOWN
+    mismatch_attributes: list[str] = field(default_factory=list)
+    quote: str = ""
+    """LLM 이 인용한 대상 원문."""
+    quote_verified: bool = False
+    """코드가 ``evidence_text`` 와 대조한 결과. 실패해도 판정은 유지하고 표시만 남긴다."""
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "fact_id": self.fact_id,
+            "result": self.result,
+            "mismatch_attributes": list(self.mismatch_attributes),
+            "quote": self.quote,
+            "quote_verified": self.quote_verified,
+            "reason": self.reason,
+        }
+
+
+@dataclass
 class FactComparison:
     """기준 fact 1건 × 대상 문서 1개의 비교 결과(계획 §6.2 스키마)."""
 
@@ -76,6 +103,16 @@ class FactComparison:
     result: str = MISSING
     mismatch_attributes: list[str] = field(default_factory=list)
     target_fact: Optional[Fact] = None
+    """대표 1건. **코드가 결정론적으로 고른다** — 프롬프트에서 ``target_fact_id`` 를
+    없앴으므로 LLM 이 고르지 않는다. 리포트에서 대표로 보여줄 것은 문제가 있는 쪽이어야
+    사람이 먼저 볼 곳을 찾으므로 "첫 mismatch finding → 첫 finding → ``candidates[0]``"
+    순으로 정한다."""
+    target_facts: list[Fact] = field(default_factory=list)
+    """종합 판정에 실제로 쓰인 후보 전부. 후보가 1건이면 1건이라 기존 소비자는 무변경."""
+    findings: list["FactFinding"] = field(default_factory=list)
+    """후보별 내역 — 사람이 구간 단위로 검수할 수 있게 남긴다."""
+    candidate_count: int = 0
+    """후보 수. ``target_facts`` 는 드롭 후의 수라 1:N 계측을 대신할 수 없다."""
     match_score: float = 0.0
     match_method: str = "none"
     decided_by: str = BY_CODE
@@ -115,6 +152,11 @@ class FactComparison:
             "reason": self.reason,
             "reference": _side_dict(self.reference_fact),
             "target": _side_dict(self.target_fact),
+            # 1:N 종합 판정의 내역. 후보가 1건이면 findings 도 1건이라 기존 소비자는
+            # 무변경이고, 여러 건일 때만 사람이 구간 단위로 검수할 거리가 생긴다.
+            "candidate_count": self.candidate_count,
+            "findings": [f.to_dict() for f in self.findings],
+            "targets": [_side_dict(f) for f in self.target_facts],
         }
 
 
@@ -174,6 +216,10 @@ class FactComparator:
         self.use_llm = use_llm and runner is not None
         self.llm_calls = 0
         self.llm_failures = 0
+        self.dropped_findings = 0
+        """후보 밖 ``fact_id`` 를 가리켜 버려진 finding 수 — 드롭은 결과에 안 남으므로
+        여기서 세지 않으면 영영 보이지 않는다."""
+        self.quote_unverified = 0
 
     # ------------------------------------------------------------------ #
     def compare(
@@ -248,6 +294,13 @@ class FactComparator:
 
         ``force_llm`` 은 Acceptance Gate 가 거부한 코드 ``match`` 를 강등하는
         자리다(``fast_path.enforce``). 기본 False 에서는 분리 이전과 동작이 같다.
+
+        **후보가 2건 이상이면 인자와 무관하게 LLM 으로 보낸다.** 동명 fact 들은 recall
+        점수로 갈리지 않으므로 ``candidates[0]`` 축약은 사실상 임의 선택이고, 그 위의
+        판정은 원리적으로 신뢰할 수 없다. 이 규칙을 호출부가 아니라 여기에 두는 것은
+        ``compare()`` 래퍼와 롤백 경로까지 한 번에 덮기 위해서다 — 게이트와는 독립이라
+        ``fast_path.enabled: false`` 여도 살아 있어야 한다(게이트는 라우팅 실험이고
+        이것은 정확성 버그 수정이다).
         """
         if not probe.candidates:
             return FactComparison(
@@ -258,24 +311,28 @@ class FactComparator:
             )
 
         best = probe.candidates[0]
+        multi = len(probe.candidates) >= 2
         out = FactComparison(
             reference_fact=probe.reference_fact,
             target_doc=probe.target_doc,
             target_fact=best.fact,
+            target_facts=[best.fact],
             match_score=best.score,
             match_method=best.method,
+            candidate_count=len(probe.candidates),
         )
         verdict = (
             None if probe.code_result is None
             else (probe.code_result, probe.mismatch_attributes, probe.code_reason)
         )
-        if verdict is not None and not probe.uncertain and not force_llm:
+        if verdict is not None and not probe.uncertain and not force_llm and not multi:
             out.result, out.mismatch_attributes, out.reason = verdict
             return out
 
         # 코드가 단정하지 못했거나 근거가 불안정하거나 게이트가 거부 → LLM(없으면 보류).
         return self._decide_by_llm(
-            out, probe.reference_fact, probe.candidates, verdict, probe.uncertain
+            out, probe.reference_fact, probe.candidates, verdict, probe.uncertain,
+            multi=multi,
         )
 
     # ------------------------------------------------------------------ #
@@ -314,9 +371,13 @@ class FactComparator:
         candidates: list[MatchCandidate],
         code_verdict: Optional[tuple[str, list[str], str]],
         uncertain: bool,
+        *,
+        multi: bool = False,
     ) -> FactComparison:
         if not self.use_llm:
-            return self._fallback(out, code_verdict, "LLM 판정이 꺼져 있어 보류합니다.")
+            return self._fallback(
+                out, code_verdict, "LLM 판정이 꺼져 있어 보류합니다.", multi=multi
+            )
 
         user = build_compare_user(
             ref, [c.fact for c in candidates], knowledge=self.knowledge
@@ -327,23 +388,47 @@ class FactComparator:
         except (LlmBudgetExceeded, ValueError) as e:
             self.llm_failures += 1
             logger.warning("[Fact] 비교 LLM 실패(%s) → 보류: %s", type(e).__name__, ref.entity_name)
-            return self._fallback(out, code_verdict, f"LLM 판정 실패({type(e).__name__})로 보류합니다.")
+            return self._fallback(
+                out, code_verdict, f"LLM 판정 실패({type(e).__name__})로 보류합니다.",
+                multi=multi,
+            )
 
         result = str(parsed.get("result") or "").strip().lower()
         if result not in _RESULTS:
             result = UNKNOWN
-        # LLM 이 지목한 후보로 교체(코드가 준 후보 안에서만 — 할루시네이션 방지).
-        chosen = _pick_target(parsed.get("target_fact_id"), candidates)
-        if chosen is not None:
+
+        by_id = {c.fact.fact_id: c for c in candidates}
+        findings, dropped = _parse_findings(parsed.get("findings"), by_id)
+        self.dropped_findings += dropped
+        self.quote_unverified += sum(1 for f in findings if not f.quote_verified)
+
+        # LLM 이 finding 을 냈는데 **전부** 드롭됐다면 근거가 하나도 없는 판정이다.
+        # finding 을 애초에 하나도 안 낸 경우는 여기에 해당하지 않는다 — 그것은
+        # ``missing``("후보 중 기준과 같은 대상이 없다")의 정상 형태이므로, 합치면
+        # 정당한 missing 이 unknown 으로 바뀐다.
+        if dropped and not findings:
+            out.result = UNKNOWN
+            out.decided_by = BY_LLM
+            out.reason = "LLM 이 제시한 근거가 모두 후보 밖의 id 를 가리켜 보류합니다."
+            return out
+
+        attrs = _dedupe(a for f in findings for a in f.mismatch_attributes)
+        if findings:
+            out.findings = findings
+            out.target_facts = [by_id[f.fact_id].fact for f in findings]
+            # 대표는 **문제가 있는 쪽** — 사람이 먼저 볼 곳을 찾아야 한다.
+            rep = next((f for f in findings if f.result == MISMATCH), findings[0])
+            chosen = by_id[rep.fact_id]
             out.target_fact = chosen.fact
             out.match_score = chosen.score
             out.match_method = chosen.method
         if result == MISSING:
             out.target_fact = None
+            out.target_facts = []
 
         out.result = result
         out.decided_by = BY_LLM
-        out.mismatch_attributes = [
+        out.mismatch_attributes = attrs or [
             str(a) for a in (parsed.get("mismatch_attributes") or []) if str(a)
         ]
         reason = str(parsed.get("reason") or "").strip()
@@ -357,8 +442,21 @@ class FactComparator:
         out: FactComparison,
         code_verdict: Optional[tuple[str, list[str], str]],
         note: str,
+        *,
+        multi: bool = False,
     ) -> FactComparison:
-        """LLM 을 못 쓸 때 — 코드 판정이 있으면 그대로, 없으면 ``unknown``."""
+        """LLM 을 못 쓸 때 — 코드 판정이 있으면 그대로, 없으면 ``unknown``.
+
+        단 후보가 2건 이상이면 **되돌아가지 않는다.** 그 코드 판정은 ``candidates[0]``
+        축약이 만든 임의 선택이라, 복귀시키면 지금 고치려는 오판이 조용히 그대로 남는다.
+        확신이 없으면 보류한다는 ``unknown`` 원칙의 정확한 적용 대상이다.
+        """
+        if multi:
+            out.result = UNKNOWN
+            out.reason = (
+                f"후보 {out.candidate_count}건을 종합 판정할 수 없어 보류합니다. {note}"
+            )
+            return out
         if code_verdict is not None:
             out.result, out.mismatch_attributes, out.reason = code_verdict
             out.reason += f" {note}"
@@ -531,9 +629,51 @@ def _fmt(attr: Attribute) -> str:
     return f"{attr.value}{unit}"
 
 
-def _pick_target(fact_id: Any, candidates: list[MatchCandidate]) -> Optional[MatchCandidate]:
-    fid = str(fact_id or "")
-    for c in candidates:
-        if c.fact.fact_id == fid:
-            return c
-    return None
+def _parse_findings(
+    raw: Any, by_id: dict[str, MatchCandidate]
+) -> tuple[list[FactFinding], int]:
+    """``findings`` 배열 → 검증된 내역 + 드롭 수.
+
+    제안은 LLM, 차단은 코드 — F7 의 인용 검증과 같은 권한 비대칭이다. 후보 밖 id 는
+    드롭하지만(할루시네이션 방지), **인용 불일치는 드롭하지 않는다** — 드롭하면 종합
+    판정이 통째로 날아가 사용성이 크게 떨어지므로 표시만 남겨 사람이 검수하게 한다.
+    """
+    items = raw if isinstance(raw, list) else []
+    out: list[FactFinding] = []
+    dropped = 0
+    for item in items:
+        cand = by_id.get(str(item.get("fact_id") or "")) if isinstance(item, dict) else None
+        if cand is None:
+            dropped += 1
+            continue
+        result = str(item.get("result") or "").strip().lower()
+        quote = str(item.get("quote") or "").strip()
+        out.append(FactFinding(
+            fact_id=cand.fact.fact_id,
+            result=result if result in (MATCH, MISMATCH, UNKNOWN) else UNKNOWN,
+            mismatch_attributes=[
+                str(a) for a in (item.get("mismatch_attributes") or []) if str(a)
+            ],
+            quote=quote,
+            quote_verified=_quote_in_evidence(quote, cand.fact.evidence_text),
+            reason=str(item.get("reason") or "").strip(),
+        ))
+    return out, dropped
+
+
+def _quote_in_evidence(quote: str, evidence: str) -> bool:
+    """인용이 그 fact 의 근거 원문 안에 실재하는가(공백 병합 후 부분일치).
+
+    정규화 규약은 ``fact_extractor._norm`` 과 같다 — 공백만 병합하고 대소문자·기호는
+    건드리지 않는다. 두 곳이 갈리면 같은 인용이 한쪽에서만 검증에 통과한다.
+    """
+    q = " ".join(str(quote or "").split())
+    return bool(q) and q in " ".join(str(evidence or "").split())
+
+
+def _dedupe(values: Any) -> list[str]:
+    """순서를 지키는 중복 제거 — 리포트에서 속성 순서가 흔들리면 대조가 어렵다."""
+    seen: dict[str, None] = {}
+    for v in values:
+        seen.setdefault(str(v), None)
+    return list(seen)
