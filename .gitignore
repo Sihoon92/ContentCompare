@@ -9,7 +9,13 @@ dist/
 venv/
 
 # 설정/산출물
-config/config.yaml
+# config/ 는 **기본 차단**이다 — 실제 설정에는 사내 엔드포인트·API 키가 들어간다.
+# config/config.yaml 만 막으면 "config copy.yaml"(윈도우 복사 기본 이름) 같은 사본이
+# 그대로 빠져나간다. 실제로 그런 파일이 키를 담은 채 untracked 로 남아 있었다.
+# 예시 파일만 예외로 둔다. 새 설정을 일부러 올리려면 git add -f 로 의도를 밝힐 것.
+config/*.yaml
+config/*.yml
+!config/config.example.yaml
 report.md
 *.md.bak
 .cache/
