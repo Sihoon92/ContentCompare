@@ -149,12 +149,43 @@ def test_enforce_flag_is_exposed():
 # --------------------------------------------------------------------------- #
 # 통계 — enforce 전환 비용을 켜기 전에 알려주는 것이 목적이다
 # --------------------------------------------------------------------------- #
-def _comparison(initial, final, triggers, coverage=1.0) -> FactComparison:
+def _comparison(initial, final, triggers, coverage=1.0, candidates=1) -> FactComparison:
     return FactComparison(
         reference_fact=_fact("r"), target_doc="규격서.docx", result=final,
         initial_result=initial, review_triggers=list(triggers),
-        attribute_coverage=coverage,
+        attribute_coverage=coverage, candidate_count=candidates,
     )
+
+
+# --------------------------------------------------------------------------- #
+# enforce 순증가 — unsafe_match_rate 는 이 질문에 답하지 못한다
+# --------------------------------------------------------------------------- #
+def test_enforce_delta_counts_only_matches_that_are_not_already_routed():
+    """게이트 사유 중 상당수는 finalize 가 이미 LLM 으로 보내는 조건과 같다.
+
+    그것까지 세면 "켜면 얼마나 늘어나는가"가 부풀려진다(실측 3.5배).
+    """
+    rows = [
+        _comparison(MATCH, MATCH, [PARTIAL_ATTRIBUTE_COVERAGE], 0.67),      # ★ 순증가
+        _comparison(MATCH, MATCH, [LOW_CONFIDENCE]),                        # 이미 LLM
+        _comparison(MATCH, MATCH, [DUPLICATE_ENTITY_FACTS], candidates=2),  # 이미 LLM
+        _comparison(MATCH, MATCH, []),                                      # 안전
+    ]
+    s = gate_stats(rows)
+    assert s["unsafe_match_rate"] == pytest.approx(0.75)      # 사유가 붙은 match 3/4
+    assert s["enforce_new_llm_count"] == 1                     # 실제로 늘어나는 건 1건
+    assert s["enforce_new_llm_rate"] == pytest.approx(0.25)
+
+
+def test_invalid_evidence_alone_is_a_real_enforce_delta():
+    rows = [_comparison(MATCH, MATCH, [INVALID_EVIDENCE])]
+    assert gate_stats(rows)["enforce_new_llm_count"] == 1
+
+
+def test_code_unknown_match_is_impossible_but_never_counted_as_delta():
+    """코드가 포기한 건은 finalize 가 이미 LLM 으로 보낸다."""
+    rows = [_comparison(MATCH, MATCH, [CODE_UNKNOWN, PARTIAL_ATTRIBUTE_COVERAGE], 0.5)]
+    assert gate_stats(rows)["enforce_new_llm_count"] == 0
 
 
 def test_gate_stats_reports_rates():

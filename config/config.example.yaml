@@ -151,7 +151,11 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
     enabled: true                  # 코드 match 의 신뢰도 채점 + 계측
     enforce: false                 # true 면 게이트가 거부한 code match 를 LLM 에 넘긴다
                                    # 기본 false(shadow) — 켜면 LLM 호출이 늘어난다.
-                                   # 얼마나 늘지는 리포트의 unsafe_match_rate 가 알려준다.
+                                   # 얼마나 늘지는 enforce_new_llm_count 를 볼 것.
+                                   # unsafe_match_rate 를 전환 비용으로 읽지 말 것 —
+                                   # 거부된 match 의 상당수는 finalize 가 이미 LLM 으로
+                                   # 보내고 있어(저신뢰·후보 2건 이상) 늘지 않는다.
+                                   # 실측: unsafe 0.88 인데 실제 순증가는 10% 였다.
   # --- 개념 그래프(F7) ---
   use_concept_graph: true          # false 면 예전 유사도 매칭으로 롤백
   concept_recall_top_k: 5          # 기준 fact 당 개념 판정에 올릴 후보 수

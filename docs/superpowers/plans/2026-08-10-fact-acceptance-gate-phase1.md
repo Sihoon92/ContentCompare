@@ -1,5 +1,9 @@
 # Fact Acceptance Gate (Phase 1) Implementation Plan
 
+> **상태: 구현 완료 (2026-08-10, 커밋 `43e2afc`·`6dffd54`·`228ea7e`·`f20f0d2`).**
+> 아래 체크박스는 구현 당시 갱신되지 않았다. 실측과 `enforce` 전환 결정은 문서 끝의
+> "실측 절차" 절에 있다 — **결론은 켜지 않는 것이다(2026-08-13).**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `FactComparator.compare()` 를 LLM 을 안 부르는 `compare_code()` 와 `finalize()` 로 쪼개고 그 사이에 Acceptance Gate 를 넣어, 코드가 확정한 `match` 를 믿어도 되는지 채점하고 `unsafe_match_rate` 를 실측한다.
@@ -1345,7 +1349,58 @@ python -c "import json;d=json.load(open('artifacts/기준_xlsx/comparison_result
 
 | 관측 | 해석 | 다음 행동 |
 |---|---|---|
-| `unsafe_match_rate` 가 낮다 | enforce 를 켜도 비용이 거의 안 는다 | `enforce: true` 로 전환 |
+| `enforce_new_llm_count` 가 작다 | enforce 를 켜도 비용이 거의 안 는다 | 늘어나는 그 건들이 **실제 오판인지** 먼저 확인 |
 | `review_reasons` 가 `partial_attribute_coverage` 일색 | coverage 정의가 실제 문서에 너무 엄격할 수 있다 | lenient 정의(값 있는 속성만) 재검토 |
-| `review_reasons` 가 `duplicate_entity_facts` 일색 | 같은 개념에 대상 fact 가 여럿 = 2차 검사가 실제로 필요하다 | Phase 5-6 우선순위 상향 |
+| `review_reasons` 가 `duplicate_entity_facts` 일색 | 같은 개념에 대상 fact 가 여럿 | F5 1:N 판정이 이미 처리한다(2026-08-13) |
 | `result_changed_count` 가 크다 | 코드 판정을 LLM 이 자주 뒤엎고 있다 | 어느 방향으로 뒤엎는지 표본 감사 |
+
+⚠️ **`unsafe_match_rate` 를 전환 비용으로 읽지 말 것.** 게이트 사유 셋
+(`low_confidence`·`code_unknown`·`duplicate_entity_facts`)은 `finalize` 가 이미 LLM 으로
+보내는 조건과 **같은 사실**을 가리켜서, enforce 를 켜도 늘어나지 않는다. 그 차이를 뺀
+값이 `enforce_new_llm_count` 다.
+
+---
+
+## 실측 결과와 `enforce` 결정 (2026-08-13)
+
+캐시된 `artifacts/자표준문서_xlsx`(자표준문서.xlsx ↔ spec_en.docx, 20건)를 오프라인
+재현했다. `compare_code` 와 `gate.evaluate` 는 LLM 을 안 부르고 개념 그래프는 캐시에
+있으므로 비용 0 이다.
+
+```text
+전체 비교              20
+코드 match              8
+unsafe match            7   (unsafe_match_rate 0.88)
+  ├ 이미 LLM 으로 가던 것  5   (low_confidence 5 · duplicate_entity_facts 3, 중복)
+  └ enforce 순증가        2   (enforce_new_llm_rate 0.10)
+```
+
+`unsafe_match_rate` 0.88 이 실제 순증가 10% 를 **3.5배 부풀렸다.** 이 계측 결함을
+`enforce_new_llm_count`/`_rate` 추가로 고쳤다.
+
+### 결정: `enforce` 를 켜지 않는다
+
+순증가 2건이 전부 `partial_attribute_coverage` 단독이었고, 열어 보니 **둘 다 올바른
+match** 였다.
+
+| 기준 항목 | 기준 속성 | 대상 속성 | coverage |
+|---|---|---|---|
+| 표준환경온도 | `lower=21` `target_value=25` `upper=29` | `lower=21` **`center_value=25`** `upper=29` | 0.67 |
+| 평가환경습도 | `lower=33` `target_value=43` `upper=53` | `lower=33` **`center_value=43`** `upper=53` | 0.67 |
+
+값은 같고 **속성 이름만** 다르다(`target_value` ↔ `center_value`).
+`attribute_coverage` 가 키 겹침만 세기 때문에 생기는 오탐이다 —
+`_compare_single_attributes` 가 이미 "키 이름은 원본 표의 **열 위치**에서 온 것이라
+의미 구분이 아닌 경우가 많다"고 인정한 문제인데, 그 예외는 양쪽 속성이 1개일 때만
+적용된다. 여기는 양쪽 3개라 예외가 안 걸린다.
+
+즉 이 데이터에서 enforce 의 순효과는 **정상 판정 2건을 LLM 에 보내 `unknown` 으로
+뒤집힐 위험을 만드는 것뿐**이다. 잡아낸 오판은 0 건이다.
+
+### 다시 검토할 조건
+
+- 다른 문서쌍에서 `enforce_new_llm_count` 가 커지고, 그 건들 표본을 열었을 때 **실제
+  오판이 섞여 있을 때.** 건수만으로 켜지 말 것 — 이번 실측이 그 함정이었다.
+- `partial_attribute_coverage` 를 속성 **이름**이 아니라 **값** 기준으로 재정의했을 때
+  (기준 속성값이 대상 어딘가에 같은 값으로 존재하는가). 그러면 위 두 건은 coverage
+  1.0 이 되어 사유 자체가 사라진다. 이것이 게이트를 유용하게 만드는 선행 작업이다.

@@ -83,11 +83,36 @@ def _evidence_invalid(probe: ComparisonProbe) -> bool:
     return not best.fact.evidence_text.strip() or not best.fact.source
 
 
+def _already_routed_to_llm(c: FactComparison) -> bool:
+    """게이트와 **무관하게** :meth:`FactComparator.finalize` 가 이미 LLM 으로 보내는가.
+
+    finalize 는 ``code_result is None`` · ``probe.uncertain`` · 후보 2건 이상이면
+    ``force_llm`` 없이도 LLM 을 부른다. 게이트 사유 중 셋이 그 조건과 **같은 사실**을
+    가리키므로, 그것들은 enforce 를 켜도 새로 늘어나지 않는다.
+
+    ==============================  ===================================
+    게이트 사유                      finalize 의 같은 조건
+    ==============================  ===================================
+    ``low_confidence``              ``probe.uncertain``
+    ``code_unknown``                ``code_result is None``
+    ``duplicate_entity_facts``      ``len(candidates) >= 2`` (1:N 라우팅)
+    ==============================  ===================================
+    """
+    return (
+        c.candidate_count >= 2
+        or LOW_CONFIDENCE in c.review_triggers
+        or CODE_UNKNOWN in c.review_triggers
+    )
+
+
 def gate_stats(comparisons: list[FactComparison]) -> dict:
     """게이트 계측 — ``enforce`` 전환 비용을 켜기 전에 알려준다.
 
-    ``unsafe_match_rate`` 가 핵심이다. 코드 ``match`` 중 게이트가 거부한 비율이
-    그대로 "enforce 를 켜면 늘어날 LLM 호출 비율"이다.
+    **``enforce_new_llm_count`` 가 그 비용이다.** ``unsafe_match_rate`` 는 게이트가
+    얼마나 조이는지를 재는 별개의 값이고, 전환 비용으로 읽으면 안 된다 — 거부된
+    match 의 상당수는 finalize 가 **이미** LLM 으로 보내고 있어서 enforce 를 켜도
+    늘어나지 않는다(실측 `artifacts/자표준문서_xlsx`: unsafe 7건 중 5건이 그렇고,
+    ``unsafe_match_rate`` 0.88 이 실제 순증가 10% 를 3.5배 부풀렸다).
     """
     total = len(comparisons)
     if not total:
@@ -95,7 +120,8 @@ def gate_stats(comparisons: list[FactComparison]) -> dict:
 
     safe = sum(1 for c in comparisons if c.safe_to_finalize)
     code_match = [c for c in comparisons if c.initial_result == MATCH]
-    unsafe = sum(1 for c in code_match if not c.safe_to_finalize)
+    unsafe = [c for c in code_match if not c.safe_to_finalize]
+    new_llm = [c for c in unsafe if not _already_routed_to_llm(c)]
 
     reasons: dict[str, int] = {}
     for c in comparisons:
@@ -110,7 +136,9 @@ def gate_stats(comparisons: list[FactComparison]) -> dict:
     return {
         "fast_path_rate": round(safe / total, 4),
         "secondary_review_rate": round(1 - safe / total, 4),
-        "unsafe_match_rate": round(unsafe / len(code_match), 4) if code_match else 0.0,
+        "unsafe_match_rate": round(len(unsafe) / len(code_match), 4) if code_match else 0.0,
+        "enforce_new_llm_count": len(new_llm),
+        "enforce_new_llm_rate": round(len(new_llm) / total, 4),
         "review_reasons": {k: reasons[k] for k in REASON_ORDER if k in reasons},
         "mean_attribute_coverage": (
             round(sum(c.attribute_coverage for c in measured) / len(measured), 4)

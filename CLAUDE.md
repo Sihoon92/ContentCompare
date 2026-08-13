@@ -99,7 +99,11 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 
 **게이트는 탐지가 아니라 라우팅이다** — "후보가 2건 이상이다" 같은 셀 수 있는 사실만 확인하고 "어느 후보가 맞는가"는 판단하지 않는다. 그것은 2차 Evidence 검사의 몫이다(`docs/FACT_LINKED_GRAPH_RAG_DESIGN.md`).
 
-⚠️ **이 단계는 비용을 줄이지 않고 늘린다.** 오늘도 코드 `match` 는 LLM 을 안 부르므로, 게이트의 실제 효과는 지금까지 조용히 확정되던 unsafe match 를 LLM 으로 보내는 것이다. 그래서 기본값이 shadow(`fact.fast_path.enforce: false`)이고, `unsafe_match_rate` 가 "켜면 얼마나 늘어나는가"를 미리 알려준다. 절감은 상위 설계의 Phase 2(개념 판정 LLM)와 Phase 6(Entity 별 그룹 배치)에서 나온다.
+⚠️ **이 단계는 비용을 줄이지 않고 늘린다.** 오늘도 코드 `match` 는 LLM 을 안 부르므로, 게이트의 실제 효과는 지금까지 조용히 확정되던 unsafe match 를 LLM 으로 보내는 것이다. 그래서 기본값이 shadow(`fact.fast_path.enforce: false`)다. 절감은 상위 설계의 Phase 2(개념 판정 LLM)와 Phase 6(Entity 별 그룹 배치)에서 나온다.
+
+전환 비용은 **`enforce_new_llm_count`** 로 본다. `unsafe_match_rate` 를 그 용도로 읽지 말 것 — 게이트 사유 셋(`low_confidence`·`code_unknown`·`duplicate_entity_facts`)은 `finalize` 가 **이미** LLM 으로 보내는 조건(`probe.uncertain`·`code_result is None`·후보 2건 이상)과 같은 사실을 가리켜서, 켜도 늘어나지 않는다. 실측(`artifacts/자표준문서_xlsx`)에서 `unsafe_match_rate` 0.88 이 실제 순증가 10%(2건)를 3.5배 부풀렸다.
+
+**enforce 는 켜지 않는다(2026-08-13 결정).** 위 실측에서 순증가 2건이 전부 `partial_attribute_coverage` 단독이었고, 열어 보니 **둘 다 올바른 match** 였다 — 기준 `target_value` ↔ 대상 `center_value` 로 값(25 / 43)은 같은데 속성 **이름만** 달랐다. `attribute_coverage` 가 키 겹침만 세기 때문에 생기는 오탐이다(`_compare_single_attributes` 가 이미 인정한 "키 이름은 원본 표의 열 위치에서 온다"는 문제인데, 그 예외는 양쪽 속성이 1개일 때만 적용된다). 즉 이 데이터에서 enforce 의 순효과는 정상 판정 2건을 LLM 에 보내 `unknown` 으로 뒤집힐 위험을 만드는 것뿐이다.
 
 `attribute_coverage` 가 필요한 이유는 `_decide_by_code()` 가 **양쪽의 공통 속성만** 보기 때문이다 — 기준에 세 속성이 있고 대상에 하나뿐이어도 그 하나가 같으면 `match` 가 된다.
 
