@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>후보가 넷일 때 — 1:N Fact 비교 문제와 해법</title>
+<style>
+  :root{
+    --code:#1565c0;      /* ⚙️ 코드 */
+    --llm:#e65100;       /* 🤖 LLM */
+    --embed:#00796b;     /* 🔢 임베딩 */
+    --human:#6a1b9a;     /* 👤 사람 */
+    --ink:#1a1a1a;
+    --muted:#5f6b7a;
+    --line:#dfe4ea;
+    --bg:#ffffff;
+    --soft:#f6f8fa;
+    --warn:#b26a00;
+    --bad:#c62828;
+    --good:#2e7d32;
+    --maxw: 860px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Malgun Gothic",sans-serif;
+    color:var(--ink); background:var(--bg); line-height:1.75;
+    font-size:17px; padding-bottom:110px;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 20px}
+  header.top{
+    border-bottom:1px solid var(--line); margin-bottom:28px;
+    padding:44px 0 26px; background:linear-gradient(180deg,#fbfcfd,#fff);
+  }
+  h1{font-size:2rem; line-height:1.3; margin:0 0 10px}
+  .sub{color:var(--muted); margin:0; font-size:1.02rem}
+  .meta{color:var(--muted); font-size:.86rem; margin-top:14px}
+  h2{
+    font-size:1.5rem; margin:56px 0 6px; padding-top:12px;
+    border-top:3px solid var(--ink);
+  }
+  h3{font-size:1.16rem; margin:34px 0 6px}
+  h4{font-size:1.02rem; margin:24px 0 4px; color:var(--muted)}
+  p{margin:14px 0}
+  code{
+    background:var(--soft); border:1px solid var(--line); border-radius:4px;
+    padding:1px 5px; font-size:.88em;
+    font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  pre{
+    white-space:pre-wrap; word-break:break-word;
+    background:#0f172a; color:#e2e8f0; border-radius:10px;
+    padding:16px 18px; overflow-x:auto; font-size:.84rem; line-height:1.6;
+    font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  pre.plain{background:var(--soft); color:var(--ink); border:1px solid var(--line)}
+  pre b{color:#fbbf24; font-weight:600}
+  pre.plain b{color:var(--bad)}
+  a{color:var(--code)}
+  table{border-collapse:collapse; width:100%; margin:18px 0; font-size:.93rem}
+  th,td{border:1px solid var(--line); padding:9px 11px; text-align:left; vertical-align:top}
+  th{background:var(--soft); font-weight:650}
+  ul,ol{padding-left:22px}
+  li{margin:7px 0}
+
+  /* --- 콜아웃 --- */
+  .call{
+    border-left:5px solid var(--code); background:#f2f7fd;
+    padding:14px 18px; border-radius:0 8px 8px 0; margin:22px 0;
+  }
+  .call.warn{border-color:var(--warn); background:#fff8ec}
+  .call.bad{border-color:var(--bad); background:#fdf1f1}
+  .call.def{border-color:var(--human); background:#f8f3fb}
+  .call .t{font-weight:700; display:block; margin-bottom:4px; font-size:.95rem}
+
+  /* --- 행위자 배지 (프로젝트 공용 시각 언어) --- */
+  .who{
+    display:inline-block; border-radius:20px; padding:1px 9px; font-size:.78rem;
+    font-weight:650; border:1.5px solid; white-space:nowrap;
+  }
+  .who.code{color:var(--code); border-color:var(--code); background:#eaf2fc}
+  .who.llm{color:var(--llm); border-color:var(--llm); background:#fdf0e6}
+  .who.embed{color:var(--embed); border-color:var(--embed); background:#e6f4f2}
+  .who.human{color:var(--human); border-color:var(--human); background:#f4ecfa}
+
+  /* --- 다이어그램: 레인 --- */
+  .lane{
+    display:flex; flex-wrap:wrap; align-items:stretch; gap:8px;
+    margin:22px 0; padding:16px; border:1px solid var(--line);
+    border-radius:12px; background:var(--soft);
+  }
+  .lane .step{
+    flex:1 1 128px; min-width:128px; background:#fff; border:1.5px solid var(--line);
+    border-radius:9px; padding:9px 10px; font-size:.83rem; line-height:1.45;
+  }
+  .lane .step .lbl{font-weight:700; display:block; margin-bottom:3px; font-size:.82rem}
+  .lane .step .note{color:var(--muted); font-size:.78rem}
+  .lane .step.code{border-color:var(--code)}
+  .lane .step.llm{border-color:var(--llm)}
+  .lane .step.embed{border-color:var(--embed)}
+  .lane .step.drop{border-style:dashed; opacity:.62}
+  .lane .arrow{align-self:center; color:var(--muted); font-size:1.1rem; flex:0 0 auto}
+  .lane .step.hit{box-shadow:0 0 0 3px rgba(198,40,40,.14); border-color:var(--bad)}
+  .lane .step.fix{box-shadow:0 0 0 3px rgba(46,125,50,.14); border-color:var(--good)}
+  .lane-title{
+    font-size:.83rem; font-weight:700; color:var(--muted);
+    margin:26px 0 -12px; text-transform:none;
+  }
+
+  /* --- 다이어그램: 후보 카드 --- */
+  .cands{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:18px 0}
+  .cand{
+    border:1.5px solid var(--line); border-radius:9px; padding:10px 12px;
+    background:#fff; font-size:.85rem;
+  }
+  .cand .id{font-family:Consolas,monospace; font-size:.76rem; color:var(--muted)}
+  .cand .val{font-weight:650; margin:3px 0}
+  .cand .tag{font-size:.75rem; border-radius:12px; padding:1px 7px; display:inline-block; margin-top:5px}
+  .cand.looked{border-color:var(--code); background:#f4f9ff}
+  .cand.looked .tag{background:#eaf2fc; color:var(--code)}
+  .cand.ignored{border-style:dashed; background:#fafbfc; opacity:.72}
+  .cand.ignored .tag{background:#f0f0f0; color:#8a8a8a}
+  .cand.ok{border-color:var(--good); background:#f3faf4}
+  .cand.ok .tag{background:#e6f4e8; color:var(--good)}
+  .cand.no{border-color:var(--bad); background:#fdf3f3}
+  .cand.no .tag{background:#fbe6e6; color:var(--bad)}
+
+  /* --- 리포트 목업 --- */
+  .report{
+    border:1px solid var(--line); border-radius:10px; overflow:hidden;
+    font-size:.87rem; margin:20px 0; background:#fff;
+  }
+  .report .rhead{background:var(--soft); padding:8px 13px; font-weight:700; border-bottom:1px solid var(--line); font-size:.84rem}
+  .report .row{padding:10px 13px; border-bottom:1px solid var(--line)}
+  .report .row:last-child{border-bottom:0}
+  .report .sub{padding-left:20px; color:var(--muted); font-size:.83rem; margin-top:5px; border-left:2px solid var(--line); margin-left:3px}
+  .report .sub div{padding:2px 0 2px 9px}
+  .quote{color:#6b7280; font-style:italic}
+
+  /* --- 층 스택 --- */
+  .layers{display:grid; gap:10px; margin:20px 0}
+  .layer{
+    display:grid; grid-template-columns:118px 1fr; gap:12px; align-items:start;
+    border:1.5px solid var(--bad); background:#fdf3f3; border-radius:9px; padding:11px 13px;
+  }
+  .layer .lname{font-weight:700; font-size:.86rem; color:var(--bad)}
+  .layer .ldesc{font-size:.86rem}
+  .layer.fixed{border-color:var(--good); background:#f3faf4}
+  .layer.fixed .lname{color:var(--good)}
+  .layer code{font-size:.8em}
+  @media (max-width:560px){ .layer{grid-template-columns:1fr; gap:4px} }
+
+  /* --- TOC --- */
+  nav.toc{
+    background:var(--soft); border:1px solid var(--line); border-radius:12px;
+    padding:16px 20px; margin:26px 0;
+  }
+  nav.toc .tt{font-weight:700; margin-bottom:8px; display:block}
+  nav.toc ol{margin:0; padding-left:20px; font-size:.93rem}
+  nav.toc li{margin:4px 0}
+  nav.toc a{text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+
+  /* --- 질문 메모 --- */
+  .qmemo{
+    border:2px dashed #c7cdd6; background:#fcfcfd; border-radius:10px;
+    padding:12px 15px; margin:24px 0;
+  }
+  .qmemo[data-status="answered"]{border:2px solid var(--human); background:#faf6fd}
+  .qmemo-head{display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin-bottom:6px}
+  .qmemo-label{font-weight:700; font-size:.83rem; color:var(--human)}
+  .qmemo-hint{font-size:.76rem; color:var(--muted)}
+  .qmemo-question{
+    min-height:2.1em; background:#fff; border:1px solid var(--line);
+    border-radius:6px; padding:8px 10px; font-size:.9rem; outline:none;
+  }
+  .qmemo-question:focus{border-color:var(--human); box-shadow:0 0 0 3px rgba(106,27,154,.09)}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#aab1bb}
+  .qmemo-answer{
+    margin-top:9px; padding:10px 12px; background:#fff;
+    border-left:4px solid var(--human); border-radius:0 6px 6px 0; font-size:.9rem;
+  }
+  .qmemo-answer:before{content:"답변 "; font-weight:700; color:var(--human); font-size:.82rem}
+
+  /* --- 퀴즈 --- */
+  .quiz{border:1px solid var(--line); border-radius:11px; padding:16px 18px; margin:20px 0; background:#fff}
+  .quiz .q{font-weight:650; margin-bottom:10px}
+  .quiz .opt{
+    display:block; width:100%; text-align:left; border:1.5px solid var(--line);
+    background:#fff; border-radius:8px; padding:9px 12px; margin:7px 0;
+    cursor:pointer; font-size:.92rem; font-family:inherit; line-height:1.5;
+    transition:background .12s,border-color .12s;
+  }
+  .quiz .opt:hover{background:var(--soft)}
+  .quiz .opt.correct{border-color:var(--good); background:#eef8f0}
+  .quiz .opt.wrong{border-color:var(--bad); background:#fdf1f1}
+  .quiz .opt:disabled{cursor:default}
+  .quiz .fb{margin-top:10px; font-size:.89rem; padding:10px 12px; border-radius:8px; display:none}
+  .quiz .fb.show{display:block}
+  .quiz .fb.ok{background:#eef8f0; border-left:4px solid var(--good)}
+  .quiz .fb.ng{background:#fdf1f1; border-left:4px solid var(--bad)}
+
+  /* --- 저장 바 --- */
+  #qmemo-bar{
+    position:fixed; left:0; right:0; bottom:0; z-index:50;
+    background:rgba(255,255,255,.97); border-top:1px solid var(--line);
+    padding:10px 18px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+    box-shadow:0 -2px 14px rgba(0,0,0,.06);
+  }
+  #qmemo-save-btn{
+    background:var(--human); color:#fff; border:0; border-radius:8px;
+    padding:9px 16px; font-size:.9rem; font-weight:650; cursor:pointer; font-family:inherit;
+  }
+  #qmemo-save-btn:hover{background:#54157c}
+  #qmemo-saymsg{font-size:.78rem; color:var(--muted); word-break:break-all}
+  .footnote{color:var(--muted); font-size:.85rem; border-top:1px solid var(--line); margin-top:50px; padding-top:18px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <h1>후보가 넷일 때 — 1:N Fact 비교 문제와 해법</h1>
+    <p class="sub">워드 문서의 <code>Charge temperature ranges</code> 네 구간이 어떻게 하나로 뭉개졌고, 왜 그게 검색 문제가 아니며, 어떻게 고치기로 했는가</p>
+    <p class="meta">
+      2026-08-13 · ContentCompare fact 엔진 (F5 값 대조) ·
+      관련 설계: <code>docs/superpowers/specs/2026-08-11-multi-candidate-fact-comparison-design.md</code> ·
+      상태: <strong>설계 승인 · 구현 전</strong>
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <span class="tt">목차</span>
+  <ol>
+    <li><a href="#bg">배경 — 이 시스템은 무엇을 하는가</a></li>
+    <li><a href="#problem">문제 — 한 문단, 네 개의 조건</a></li>
+    <li><a href="#cause">원인 — 1:1 이 세 층에 박혀 있다</a></li>
+    <li><a href="#intuition">직관 — 네 명을 한 법정에 세운다</a></li>
+    <li><a href="#decisions">설계 결정 다섯 가지와 그 이유</a></li>
+    <li><a href="#code">구현 — 무엇이 어떻게 바뀌는가</a></li>
+    <li><a href="#limits">남는 한계와 현재 상태</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+  <p style="font-size:.85rem;color:var(--muted);margin:12px 0 0">
+    📝 페이지 곳곳의 <strong>질문 메모</strong> 칸에 궁금한 점을 적으면 이 브라우저에 자동 저장됩니다
+    (localStorage). 다 읽은 뒤 맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 그대로 박힌 HTML 이
+    <em>같은 파일명으로</em> 다운로드되고, 덮어쓸 정확한 경로가 안내됩니다. 그 파일을 덮어쓴 다음
+    Claude 에게 "이 파일 질문에 답해줘"라고 하면 답변이 채워집니다.
+  </p>
+</nav>
+
+<!-- ================================================================= -->
+<h2 id="bg">1. 배경 — 이 시스템은 무엇을 하는가</h2>
+
+<h3>1.1 아주 깊은 배경 <span style="font-weight:400;color:var(--muted);font-size:.9rem">(이미 아는 분은 1.2 로 건너뛰세요)</span></h3>
+
+<p>
+회사에는 같은 내용을 서로 다른 양식으로 적은 문서가 여럿 있습니다. 엑셀로 정리된 <em>표준 규격표</em>가
+하나 있고, 같은 규격을 문장으로 풀어쓴 <em>워드 규격서</em>가 있고, 고객에게 보여줄 <em>PPT</em>가 또
+있습니다. 문제는 이들이 시간이 지나면서 서로 어긋난다는 것입니다. 엑셀에서는 상한이 55℃인데 PPT 에서는
+50℃로 남아 있는 식이죠.
+</p>
+
+<p>
+ContentCompare 는 이 대조를 자동화합니다. 엑셀을 <strong>기준</strong>으로 두고, 워드·PPT 를
+<strong>대상</strong>으로 두어 항목마다 "같음 / 다름 / 대상에 없음 / 판단보류"를 판정합니다. 핵심 요구는
+정확도만이 아닙니다 — <strong>사람이 원문으로 재확인할 수 있어야</strong> 합니다. 그래서 모든 판정에는
+양쪽 원문 인용과 좌표(시트·행·슬라이드·문단 번호)가 함께 실립니다.
+</p>
+
+<p>
+엔진은 둘입니다. 옛 방식(<code>--engine rag</code>)은 임베딩으로 비슷한 문장을 찾아 LLM 에게
+"이 둘이 같냐"고 묻습니다. 새 방식(<code>--engine fact</code>)은 다릅니다. 문서를 LLM 에게 통째로 주는
+대신, 코드가 먼저 문서를 물리 구조로 읽어내고, LLM 은 그것을 보고 <strong>fact</strong> 라는 공통 형태로
+정규화합니다.
+</p>
+
+<div class="call def">
+  <span class="t">📌 fact 란</span>
+  문서에서 뽑아낸 하나의 주장을, 문서 종류와 무관한 공통 모양으로 정규화한 것입니다.
+  <pre class="plain">{
+  "fact_id":      "w_f012",
+  "entity_name":  "charge temperature range",     ← 무엇에 대한 주장인가
+  "attributes":   { "upper_limit": {"value": 45, "unit": "℃"} },   ← 값 + 단위
+  "evidence_text":"15~45℃, 1.2C(4.20V)",          ← 실제 원문 (지어내기 금지)
+  "source":       { "block_id": "w_b010", "line": "l05" }          ← 어디서 왔나
+}</pre>
+  값을 <code>{value, unit}</code> 으로 쪼개 둔 이유가 중요합니다. <strong>값 비교는 LLM 이 아니라 코드가
+  하기 위해서</strong>입니다. 55 와 50 이 다르다는 것을 확률적 모델에게 물어볼 이유가 없죠.
+</div>
+
+<div class="qmemo" data-qid="bg-deep-what-is-fact" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>1.2 이 사건에 필요한 배경 — 비교는 두 단계다</h3>
+
+<p>
+fact 끼리 비교할 때 던져야 할 질문은 사실 <strong>둘</strong>입니다. 이 둘을 섞으면 시스템이 망가집니다.
+</p>
+
+<ol>
+  <li><strong>이 둘을 비교해도 되는가?</strong> — 엑셀의 "충전환경온도"와 워드의
+      "charge temperature range"가 <em>같은 것</em>을 가리키는가? (언어가 다르고 표기가 달라도)</li>
+  <li><strong>값이 같은가?</strong> — 그렇다면 45 와 45 가 같은가, 45 와 50 이 다른가?</li>
+</ol>
+
+<p>
+1번이 <strong>F7 개념 그래프</strong>, 2번이 <strong>F5 값 대조</strong>입니다. 판정 규칙은 하나뿐입니다 —
+개념이 <code>same_as</code> 로 이어져 있지 않으면 아예 비교하지 않습니다. 유사도 점수(임베딩·BM25)는
+판정에 쓰이지 않고 <strong>후보를 좁히는 recall 용도로만</strong> 남았습니다. 코사인 유사도 0.7 은
+"관계 있음"도 "무관함"도 뜻하지 못한다는 것이 실측의 결론이었기 때문입니다.
+</p>
+
+<p class="lane-title">fact 엔진의 비교 경로 (오늘)</p>
+<div class="lane">
+  <div class="step embed"><span class="lbl">🔢 후보 검색</span><span class="note">임베딩 + BM25 로 후보만 좁힌다 (판정 아님)</span></div>
+  <div class="arrow">→</div>
+  <div class="step llm"><span class="lbl">🤖 F7 개념 판정</span><span class="note">same_as / differs_by. 인용 없으면 무효</span></div>
+  <div class="arrow">→</div>
+  <div class="step code"><span class="lbl">⚙️ F5 코드 대조</span><span class="note">값·단위를 결정적으로 비교</span></div>
+  <div class="arrow">→</div>
+  <div class="step llm"><span class="lbl">🤖 F5 LLM 위임</span><span class="note">애매한 것만 (실측 30%)</span></div>
+  <div class="arrow">→</div>
+  <div class="step"><span class="lbl">📄 리포트</span><span class="note">양측 원문 + 좌표</span></div>
+</div>
+
+<p>
+F5 안쪽은 최근에 한 번 더 쪼개졌습니다. 예전에는 <code>compare()</code> 하나가 "코드 판정"과 "최종 확정"을
+한꺼번에 했는데, 그 사이에 <strong>Acceptance Gate</strong>(수용 게이트)가 들어갈 자리를 만들려고
+갈랐습니다.
+</p>
+
+<ul>
+  <li><code>compare_code()</code> — 코드 판정까지만. <strong>LLM 을 절대 부르지 않습니다</strong>(테스트로 고정).
+      결과는 <code>ComparisonProbe</code> 라는 중간 상태입니다.</li>
+  <li><code>AcceptanceGate.evaluate(probe)</code> — 그 중간 상태를 채점해 <em>검토 사유</em>를 붙입니다.
+      게이트는 <strong>판단하지 않습니다.</strong> "후보가 2건 이상이다", "커버리지가 1.0 미만이다" 같은
+      <em>셀 수 있는 사실</em>만 확인합니다.</li>
+  <li><code>finalize(probe, force_llm=…)</code> — 최종 판정을 만듭니다. 필요할 때만 LLM 을 부릅니다.</li>
+</ul>
+
+<div class="call warn">
+  <span class="t">⚠️ 게이트는 지금 <em>구경만</em> 하고 있다 (shadow 모드)</span>
+  기본 설정은 <code>fast_path.enforce: false</code> 입니다. 즉 게이트는 사유를 붙이고 통계를 남기지만
+  <strong>판정을 바꾸지는 않습니다.</strong> 켜면 지금까지 조용히 확정되던 판정들이 LLM 으로 넘어가
+  비용이 <em>늘어나기</em> 때문에, 얼마나 늘지를 <code>unsafe_match_rate</code> 로 먼저 재보는 중입니다.
+  이 사실이 뒤에서 결정적으로 중요해집니다.
+</div>
+
+<div class="qmemo" data-qid="bg-gate-shadow" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">게이트 · probe · finalize 분리가 헷갈린다면 여기에 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="problem">2. 문제 — 한 문단, 네 개의 조건</h2>
+
+<p>
+실제 문서에는 이런 문단이 있습니다. 충전 온도를 구간별로 나눠 각 구간의 충전율(C-rate)을 다르게 정한
+것입니다. 배터리에서는 아주 흔한 표기입니다.
+</p>
+
+<pre class="plain">Charge temperature ranges:
+-5~5℃,   0.1C(4.55V)
+5~12℃,   0.3C(4.55V)
+12~15℃,  0.7C(4.55V)
+15~45℃,  1.2C(4.20V)</pre>
+
+<p>
+눈으로 보면 다섯 줄이지만, 워드 파일 안에서 이것은 <strong>문단 하나</strong>입니다. 줄바꿈이
+문단 나눔(<code>&lt;w:p&gt;</code>)이 아니라 문단 <em>안</em>의 줄바꿈(<code>&lt;w:br/&gt;</code>)이기
+때문입니다. 이 형태가 바로 설계가 문제 삼는 모양이고, 그래서 샘플 문서에도 일부러 이 형태로 넣었습니다.
+</p>
+
+<p>
+기준 엑셀 쪽에는 같은 내용이 <strong>한 행</strong>(항목명 <code>충전환경온도</code>)으로 들어 있습니다.
+그러니까 이것은 <strong>1 대 N</strong> 대응입니다. 기준 1건 ↔ 대상 4건.
+</p>
+
+<h3>2.1 검색은 성공한다</h3>
+
+<p>
+가장 먼저 의심할 곳은 검색입니다. 4건 중 3건을 못 찾은 게 아닐까? <strong>아닙니다.</strong>
+진단 산출물 <code>candidate_pairs.json</code> 을 열어 보면 네 건이 전부 후보로 들어와 있습니다.
+개념 그래프도 정상 동작해서 넷 다 같은 개념 노드에 <code>same_as</code> 로 이어져 있습니다.
+</p>
+
+<p>그런데 판정 단계에서 <strong>세 건이 사라집니다.</strong></p>
+
+<p class="lane-title">오늘 실제로 일어나는 일</p>
+<div class="lane">
+  <div class="step embed"><span class="lbl">🔢 후보 검색</span><span class="note">4건 전부 회수 ✔</span></div>
+  <div class="arrow">→</div>
+  <div class="step llm"><span class="lbl">🤖 개념 그래프</span><span class="note">4건 전부 same_as ✔</span></div>
+  <div class="arrow">→</div>
+  <div class="step code hit"><span class="lbl">⚙️ compare_code</span><span class="note"><strong>candidates[0] 하나만</strong> 본다 ✗</span></div>
+  <div class="arrow">→</div>
+  <div class="step drop"><span class="lbl">게이트</span><span class="note">duplicate_entity_facts 사유를 붙이지만 shadow</span></div>
+  <div class="arrow">→</div>
+  <div class="step code hit"><span class="lbl">⚙️ finalize</span><span class="note">역시 candidates[0]</span></div>
+  <div class="arrow">→</div>
+  <div class="step"><span class="lbl">📄 결과</span><span class="note">✅ 일치 (조용히 확정)</span></div>
+</div>
+
+<p>후보 카드로 보면 이렇습니다.</p>
+
+<div class="cands">
+  <div class="cand looked">
+    <div class="id">w_f012 · candidates[0]</div>
+    <div class="val">-5~5℃, 0.1C</div>
+    <div class="tag">⚙️ 코드가 본 유일한 후보</div>
+  </div>
+  <div class="cand ignored">
+    <div class="id">w_f013</div>
+    <div class="val">5~12℃, 0.3C</div>
+    <div class="tag">무시됨</div>
+  </div>
+  <div class="cand ignored">
+    <div class="id">w_f014</div>
+    <div class="val">12~15℃, 0.7C</div>
+    <div class="tag">무시됨</div>
+  </div>
+  <div class="cand ignored">
+    <div class="id">w_f015</div>
+    <div class="val">15~45℃, 1.2C</div>
+    <div class="tag">무시됨</div>
+  </div>
+</div>
+
+<div class="call bad">
+  <span class="t">🚨 진짜 위험한 것은 "틀렸다"가 아니라 "조용하다"</span>
+  첫 구간만 보고 <code>✅ 일치</code>로 확정되면, 리포트를 읽는 사람은 <em>네 구간을 다 확인했다</em>고
+  믿습니다. 잘못된 답보다 나쁜 것은 <strong>확인했다는 착각</strong>입니다. 두 번째 구간의 값이
+  기준과 달라도 아무도 모릅니다.
+</div>
+
+<h3>2.2 왜 <code>candidates[0]</code> 은 믿을 수 없는가</h3>
+
+<p>
+후보 목록은 recall 점수 순으로 정렬돼 있습니다. 보통은 1등이 가장 그럴듯한 후보죠. 그런데 이 경우는
+다릅니다 — 네 후보의 <code>entity_name</code> 이 <strong>전부 같습니다</strong>
+(<code>charge temperature range</code>). 이름이 같으니 임베딩 벡터도 거의 같고, BM25 점수도 거의 같습니다.
+</p>
+
+<p>
+즉 1등이 1등인 이유가 <strong>없습니다.</strong> 정렬 순서는 사실상 임의입니다. 실측 리포트가 표현했듯이
+"두 분포가 겹칩니다". 그 위에서 내린 <code>match</code> / <code>mismatch</code> 는 원리적으로 신뢰할 수
+없습니다.
+</p>
+
+<div class="qmemo" data-qid="problem-candidates-zero" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"동명 후보는 점수로 안 갈린다"가 왜 결정적인지 헷갈리면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="cause">3. 원인 — 1:1 이 세 층에 박혀 있다</h2>
+
+<p>
+버그를 한 줄로 지목하고 싶지만, 이 문제는 한 줄이 아닙니다. "기준 하나 ↔ 대상 <em>하나</em>"라는 가정이
+서로 다른 세 곳에 각각 박혀 있습니다. 하나만 고치면 다른 둘이 되돌립니다.
+</p>
+
+<div class="layers">
+  <div class="layer">
+    <div class="lname">① 후보 선택<br><span style="font-weight:400;font-size:.78rem">코드</span></div>
+    <div class="ldesc">
+      <code>fact_comparator.py:226</code> 과 <code>:260</code>
+      <pre class="plain">best = candidates[0]        <b># compare_code</b>
+best = probe.candidates[0]  <b># finalize</b></pre>
+      후보가 몇 건이든 <strong>첫 번째만</strong> 꺼내 씁니다. 나머지는 <code>probe.candidates</code> 에
+      남아는 있지만 아무도 읽지 않습니다.
+    </div>
+  </div>
+  <div class="layer">
+    <div class="lname">② LLM 프롬프트<br><span style="font-weight:400;font-size:.78rem">지시문</span></div>
+    <div class="ldesc">
+      <code>prompts.py</code> <code>COMPARE_SYSTEM</code> 원칙 4번
+      <pre class="plain">4. target_fact_id 는 후보로 제시된 id 중 <b>하나만</b> 쓰세요.</pre>
+      LLM 에게는 후보를 <em>전부</em> 보여주면서(<code>build_compare_user</code> 는 이미 4건을 다 넣습니다),
+      정작 답은 하나만 고르라고 <strong>금지</strong>하고 있습니다. 설령 LLM 이 "넷이 함께 하나의 규격"임을
+      알아채도 표현할 방법이 없습니다.
+    </div>
+  </div>
+  <div class="layer">
+    <div class="lname">③ 결과 스키마<br><span style="font-weight:400;font-size:.78rem">데이터 모델</span></div>
+    <div class="ldesc">
+      <code>FactComparison.target_fact: Optional[Fact]</code>
+      <br>단수 필드입니다. 4건을 담을 <strong>그릇 자체가 없습니다.</strong> 리포트도, 진단 도구도,
+      현미경 UI 도 전부 이 단수 필드를 전제로 만들어져 있습니다.
+    </div>
+  </div>
+</div>
+
+<div class="call">
+  <span class="t">🔍 그래서 이건 무엇의 문제가 <em>아닌가</em></span>
+  <ul style="margin:6px 0 0">
+    <li><strong>recall 문제가 아니다</strong> — 후보 4건이 전부 들어왔습니다.</li>
+    <li><strong>개념 그래프(F7) 문제가 아니다</strong> — 넷 다 올바르게 연결됐습니다.</li>
+    <li><strong>추출(F3) 문제가 아니다</strong> — 워드에서 fact 4건이 제대로 뽑혔습니다.</li>
+  </ul>
+  <strong>F5 값 대조의 계약이 1:1 로 고정된 것</strong>이 원인입니다. 원인을 잘못 짚으면
+  <code>concept_recall_min</code> 같은 무관한 손잡이를 돌리며 시간을 낭비하게 됩니다.
+</div>
+
+<h3>3.1 게이트는 이미 알고 있었다</h3>
+
+<p>
+재미있는 사실이 있습니다. Acceptance Gate 에는 <code>duplicate_entity_facts</code> 라는 사유가
+이미 있습니다(<code>review_router.py:71</code>).
+</p>
+
+<pre>if len(probe.candidates) &gt; 1:
+    reasons.append(DUPLICATE_ENTITY_FACTS)</pre>
+
+<p>
+게이트는 "후보가 2건 이상이다"라는 사실을 <strong>정확히 탐지하고 있었습니다.</strong> 그런데
+아무 일도 일어나지 않았습니다. 기본이 shadow(<code>enforce: false</code>)라서 사유만 통계에 쌓이고
+판정은 그대로 나갔기 때문입니다. 강제 조건은 이것뿐입니다(<code>pipeline.py:205</code>):
+</p>
+
+<pre>unsafe_match = bool(reasons) and probe.code_result == MATCH
+comparison = comparator.finalize(
+    probe, force_llm=<b>gate.enforce</b> and unsafe_match      # ← enforce=false 면 항상 False
+)</pre>
+
+<p>
+탐지와 조치 사이에 스위치가 하나 끼어 있었고, 그 스위치가 꺼져 있었던 것입니다. 이 관찰이
+해법의 모양을 결정합니다.
+</p>
+
+<div class="qmemo" data-qid="cause-three-layers" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">세 층 중 하나만 고치면 왜 안 되는지 등, 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="intuition">4. 직관 — 네 명을 한 법정에 세운다</h2>
+
+<p>
+해법의 핵심은 한 문장입니다.
+</p>
+
+<div class="call">
+  <span class="t">💡 한 줄 요약</span>
+  후보가 2건 이상이면 <strong>하나를 고르지 말고 넷을 한꺼번에 LLM 에 넣어, 종합 판정 하나와
+  후보별 내역 넷을 받는다.</strong> 그리고 그 내역이 원문에 실재하는지는 코드가 검증한다.
+</div>
+
+<p>
+법정에 비유하면 이렇습니다. 지금은 증인 넷 중 <em>아무나 한 명</em>만 불러 세우고 판결을 내립니다.
+바뀐 방식은 넷을 모두 세워 각자 진술을 받고(<code>findings</code>), 그 진술을 종합해 하나의 판결
+(<code>result</code>)을 내립니다. 그리고 각 증인의 진술이 실제 문서에 있는 말인지는
+<strong>서기(코드)가 대조</strong>합니다.
+</p>
+
+<p class="lane-title">바뀐 경로</p>
+<div class="lane">
+  <div class="step embed"><span class="lbl">🔢 후보 검색</span><span class="note">4건 (무변경)</span></div>
+  <div class="arrow">→</div>
+  <div class="step code"><span class="lbl">⚙️ compare_code</span><span class="note">무변경 — candidates[0] 기준 코드 판정을 <em>일부러</em> 남긴다</span></div>
+  <div class="arrow">→</div>
+  <div class="step fix"><span class="lbl">🔀 라우팅</span><span class="note"><strong>len(candidates) ≥ 2 → 무조건 LLM</strong></span></div>
+  <div class="arrow">→</div>
+  <div class="step llm fix"><span class="lbl">🤖 종합 판정</span><span class="note">후보 4건 전부 투입 → findings 4 + result 1</span></div>
+  <div class="arrow">→</div>
+  <div class="step code fix"><span class="lbl">⚙️ 인용 검증</span><span class="note">quote 가 evidence_text 에 실재하나</span></div>
+  <div class="arrow">→</div>
+  <div class="step"><span class="lbl">📄 결과</span><span class="note">❌ 불일치 + 구간별 내역</span></div>
+</div>
+
+<h3>4.1 결과가 어떻게 달라지는가</h3>
+
+<p>같은 입력에 대해 후보 카드가 이렇게 채워집니다.</p>
+
+<div class="cands">
+  <div class="cand ok">
+    <div class="id">w_f012</div>
+    <div class="val">-5~5℃, 0.1C</div>
+    <div class="tag">✅ 기준과 일치</div>
+  </div>
+  <div class="cand no">
+    <div class="id">w_f013</div>
+    <div class="val">5~12℃, <strong>0.3C</strong></div>
+    <div class="tag">❌ 기준 0.5C 와 다름</div>
+  </div>
+  <div class="cand ok">
+    <div class="id">w_f014</div>
+    <div class="val">12~15℃, 0.7C</div>
+    <div class="tag">✅ 기준과 일치</div>
+  </div>
+  <div class="cand ok">
+    <div class="id">w_f015</div>
+    <div class="val">15~45℃, 1.2C</div>
+    <div class="tag">✅ 기준과 일치</div>
+  </div>
+</div>
+
+<p>
+그리고 리포트는 <strong>기준 1행 = 1줄</strong>이라는 원칙을 유지한 채, 그 아래에 내역을 답니다.
+행이 넷으로 불어나면 "엑셀 한 줄에 대한 판정 하나"라는 읽기 규칙이 깨지기 때문입니다.
+</p>
+
+<div class="report">
+  <div class="rhead">문서 비교 리포트 (fact 엔진) — 발췌</div>
+  <div class="row">
+    <strong>충전환경온도</strong> · <span style="color:var(--bad)">❌ 불일치</span> — 4구간 중 3구간 일치
+    <div class="sub">
+      <div>✅ -5~5℃ 0.1C &nbsp; <span class="quote">"Charge temperature range -5~5℃, 0.1C(4.55V)"</span></div>
+      <div>❌ 5~12℃ — 기준 0.5C vs 대상 0.3C</div>
+      <div>✅ 12~15℃ 0.7C</div>
+      <div>✅ 15~45℃ 1.2C</div>
+    </div>
+  </div>
+</div>
+
+<div class="call def">
+  <span class="t">📌 권한 비대칭 — 제안은 LLM, 차단은 코드</span>
+  이 프로젝트 전체를 관통하는 규칙입니다. F7 개념 판정에서도 <em>연결을 제안</em>하는 것은 LLM 이지만,
+  근거 인용이 원문에 없으면 <em>연결을 무효화</em>하는 것은 코드입니다. 1:N 판정에도 같은 규칙을 적용합니다 —
+  후보별 판단은 LLM 이 하지만, 존재하지 않는 <code>fact_id</code> 를 지어냈거나 원문에 없는 문장을
+  인용했는지는 <strong>코드가 단독으로</strong> 확인합니다.
+</div>
+
+<div class="qmemo" data-qid="intuition-court-metaphor" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">종합 판정 + 후보별 내역 구조에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="decisions">5. 설계 결정 다섯 가지와 그 이유</h2>
+
+<p>
+여기서부터가 이 설계의 알맹이입니다. 각 결정에는 "그럴듯한데 채택하지 않은 대안"이 하나씩 붙어 있고,
+그 대안을 왜 버렸는지가 이유를 설명합니다.
+</p>
+
+<h3>결정 1 — N≥2 에서도 코드 판정을 <em>지우지 않는다</em></h3>
+
+<p>
+후보가 넷일 때 <code>candidates[0]</code> 기준 코드 판정은 의미가 없습니다. 그러니
+<code>code_result = None</code>(판단 포기)로 두는 게 깔끔해 보입니다. <strong>채택하지 않았습니다.</strong>
+</p>
+
+<p>
+이유가 둘입니다. 첫째, <code>None</code> 은 게이트에서 <code>code_unknown</code> 사유가 됩니다. 그러면
+"단위 등가를 몰라 포기했다"와 "후보가 여럿이라 포기했다"가 <strong>같은 사유로 뭉쳐</strong> 통계가
+흐려집니다. 둘째, 그리고 이게 더 중요한데 — 코드 판정을 남겨 두면
+<code>_code_overridden()</code> 이 <strong>"1:1 축약이 만들던 오판 건수"를 그대로 드러냅니다.</strong>
+이 변경의 효과 측정치가 공짜로 생기는 셈입니다.
+</p>
+
+<pre># review_router.py — 이미 있는 함수. 이 케이스에 정확히 들어맞는다.
+def _code_overridden(c):
+    """코드가 <b>의견을 냈는데</b> 최종 판정이 그것과 다른가."""
+    return c.initial_result in (MATCH, MISMATCH) and c.result != c.initial_result</pre>
+
+<h3>결정 2 — 강제는 게이트가 아니라 <code>finalize</code> 호출부에 붙인다</h3>
+
+<p>
+가장 쉬운 구현은 게이트 안에 "후보 2건 이상이면 강제" 규칙을 넣는 것입니다. 하지만
+<code>fast_path.enabled: false</code>(게이트 자체를 끔)로 두면 그 규칙이 함께 죽습니다.
+</p>
+
+<div class="call warn">
+  <span class="t">⚠️ 게이트는 <em>실험</em>이고, 이건 <em>정확성 버그 수정</em>이다</span>
+  게이트는 "얼마나 더 엄격하게 볼까"를 재보는 실험 장치라 언제든 꺼질 수 있습니다. 반면 1:N 라우팅은
+  틀린 답을 막는 수정이라 <strong>항상 살아 있어야 합니다.</strong> 수명이 다른 두 기능을 한 스위치에
+  묶으면 안 됩니다.
+</div>
+
+<p>따라서 조건은 게이트 상태가 아니라 <code>probe.candidates</code> 를 직접 봅니다.</p>
+
+<pre>force_llm = (gate.enforce and unsafe_match) <b>or len(probe.candidates) &gt;= 2</b></pre>
+
+<p>
+덤으로, 롤백 경로(<code>use_concept_graph: false</code> 의 옛 유사도 매칭)도 <code>match_top_k</code> 만큼
+후보를 주므로 같은 규칙에 그대로 걸립니다. 분기를 따로 만들 필요가 없습니다.
+</p>
+
+<h3>결정 3 — 인용 검증 실패는 드롭이 아니라 <em>표시</em>다</h3>
+
+<p>
+LLM 이 후보별 근거를 인용하면, 코드가 그 인용이 해당 fact 의 <code>evidence_text</code> 안에 실제로
+있는지 대조합니다(공백 병합 후 부분일치 — <code>fact_extractor._norm</code> 과 같은 규약). 없으면?
+</p>
+
+<table>
+  <thead><tr><th>검사</th><th>실패 시 처리</th><th>왜</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>fact_id</code> 가 실제 후보 목록에 있나</td>
+      <td>그 finding <strong>드롭</strong> + 계측</td>
+      <td>존재하지 않는 것을 가리키는 진술은 근거가 될 수 없다 (기존 할루시네이션 방지 규칙과 동일)</td>
+    </tr>
+    <tr>
+      <td><code>quote</code> 가 그 fact 의 원문에 있나</td>
+      <td><code>quote_verified: false</code> 로 <strong>표시</strong>, 판정은 유지, 리포트에 ⚠️</td>
+      <td>드롭하면 종합 판정이 통째로 날아가 사용성이 무너진다. 사람이 확인하도록 깃발만 세운다</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+단, LLM 이 finding 을 냈는데 <strong>그것이 전부 드롭되면</strong> 근거가 하나도 없는 판정이므로
+<code>unknown</code> 으로 강등합니다. 여기에 함정이 하나 있습니다.
+</p>
+
+<div class="call bad">
+  <span class="t">🚨 놓치기 쉬운 구분 — "전부 드롭" ≠ "애초에 없음"</span>
+  <code>findings: []</code>(LLM 이 애초에 아무 내역도 안 냄)는 <code>result: "missing"</code> —
+  <em>"후보 중 기준과 같은 대상이 없다"</em> — 의 <strong>정상적인 형태</strong>입니다. 이 둘을 합쳐서
+  처리하면 정당한 <code>⚪ 대상에 없음</code> 이 전부 <code>❓ 판단보류</code> 로 바뀌어 버립니다.
+  "비어 있음"과 "비워졌음"은 다릅니다.
+</div>
+
+<h3>결정 4 — 실패해도 1:1 로 되돌아가지 않는다</h3>
+
+<p>
+LLM 이 꺼져 있거나(<code>compare_use_llm: false</code>), 호출 예산이 끝났거나
+(<code>LlmBudgetExceeded</code>), JSON 파싱이 실패하면(<code>ValueError</code>) 어떻게 할까요?
+현재 코드에는 <code>_fallback()</code> 이 있어 <strong>코드 판정으로 되돌아갑니다.</strong>
+</p>
+
+<table>
+  <thead><tr><th>상황</th><th>후보 1건</th><th>후보 N≥2</th></tr></thead>
+  <tbody>
+    <tr><td>LLM 꺼짐</td><td>기존 <code>_fallback</code>(코드 판정 복귀)</td><td><code>❓ unknown</code> 보류</td></tr>
+    <tr><td>예산 초과</td><td>기존 <code>_fallback</code></td><td><code>❓ unknown</code> 보류</td></tr>
+    <tr><td>JSON 파싱 실패</td><td>기존 <code>_fallback</code></td><td><code>❓ unknown</code> 보류</td></tr>
+  </tbody>
+</table>
+
+<p>
+N≥2 에서 <code>_fallback</code> 으로 돌아간다는 것은 <em>임의의 <code>candidates[0]</code> 축약</em>으로
+돌아간다는 뜻입니다. 지금 고치려는 바로 그 오판이 조용히 그대로 남습니다. 확신이 없으면 보류한다는
+<code>unknown</code> 원칙의 정확한 적용 대상입니다.
+</p>
+
+<h3>결정 5 — "조건 계열"로 묶는 코드 휴리스틱은 넣지 않는다</h3>
+
+<p>
+"-5~5, 5~12, 12~15, 15~45 는 연속된 구간이니 한 계열로 묶자" 같은 규칙을 코드에 넣고 싶은 유혹이
+있습니다. 넣지 않습니다. 두 가지 이유입니다.
+</p>
+
+<ul>
+  <li><strong>원칙 충돌</strong> — 게이트(와 그 주변 코드)는 <em>셀 수 있는 사실</em>만 확인하고
+      "어느 후보가 맞는가"는 판단하지 않습니다. 구간 계열 판별은 명백히 판단입니다. 이 경계를 흐리면
+      게이트가 또 하나의 축약된 판정기가 되어 <strong>지금 고치려는 문제를 재생산</strong>합니다.</li>
+  <li><strong>불필요</strong> — "후보 2건 이상"이라는 단순한 규칙만으로 이 케이스가 이미 잡힙니다.
+      복잡한 규칙을 추가해서 얻을 것이 없습니다(YAGNI).</li>
+</ul>
+
+<div class="qmemo" data-qid="decisions-tradeoffs" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">다섯 결정 중 납득이 안 되는 것이 있으면 여기에 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="code">6. 구현 — 무엇이 어떻게 바뀌는가</h2>
+
+<p>
+설계는 승인됐고 <strong>코드는 아직 손대지 않았습니다.</strong> 아래는 확정된 변경 계획입니다.
+파일 다섯 개, 그중 넷은 이미 존재하는 파일입니다.
+</p>
+
+<h3>6.1 데이터 모델 — 필드를 <em>추가</em>한다 (기존 필드는 그대로)</h3>
+
+<pre>@dataclass
+class FactComparison:
+    ...
+    target_fact:  Optional[Fact] = None       <b># 유지 — 대표 1건</b>
+    target_facts: list[Fact] = field(default_factory=list)        <b># 신규</b>
+    findings:     list[FactFinding] = field(default_factory=list) <b># 신규</b>
+
+@dataclass
+class FactFinding:
+    fact_id: str
+    result: str                     # match | mismatch | unknown
+    mismatch_attributes: list[str]
+    quote: str                      # 🤖 LLM 이 인용한 대상 원문
+    quote_verified: bool            # ⚙️ 코드가 evidence_text 와 대조한 결과
+    reason: str</pre>
+
+<p>
+기존 <code>target_fact</code> 를 지우지 않는 것이 핵심입니다. 후보가 1건이면
+<code>target_facts</code>/<code>findings</code> 도 1건이므로, 기존 소비자
+(<code>report/fact_report.py</code>, <code>fact/missing_trace.py</code>, 현미경 UI)는
+<strong>무변경</strong>입니다. 회귀 위험을 이 설계로 사 놓은 셈입니다.
+</p>
+
+<div class="call">
+  <span class="t">🎯 대표 1건은 <em>코드가</em> 결정론적으로 고른다</span>
+  프롬프트에서 <code>target_fact_id</code> 를 없앴으므로 LLM 이 대표를 고르지 않습니다. 규칙은
+  <strong>"첫 <code>mismatch</code> finding → 없으면 첫 finding → findings 가 비면
+  <code>candidates[0]</code>"</strong> 입니다. 리포트에서 대표로 보여줄 것은 <em>문제가 있는 쪽</em>이어야
+  사람이 먼저 볼 곳을 바로 찾습니다.
+</div>
+
+<h3>6.2 프롬프트 — 금지를 허가로 바꾼다</h3>
+
+<pre class="plain">- 4. target_fact_id 는 후보로 제시된 id 중 하나만 쓰세요.
++ 4. 후보가 여러 건이면 <b>그것들이 함께 하나의 규격을 이룰 수 있습니다</b>(예: 조건 구간별로
++    나뉜 값). 후보를 각각 기준과 대조해 findings 에 적고, 그 전체를 종합해 result
++    하나를 내세요. 하나라도 다르면 종합은 mismatch 입니다.</pre>
+
+<p>출력 JSON 은 이렇게 바뀝니다.</p>
+
+<pre>{
+  "result": "match|mismatch|missing|unknown",
+  "mismatch_attributes": ["&lt;어긋난 속성 이름&gt;"],
+  "findings": [
+    { "fact_id": "&lt;후보로 제시된 id&gt;",
+      "result": "match|mismatch|unknown",
+      "mismatch_attributes": ["..."],
+      "quote":  "&lt;이 후보의 근거 원문 인용&gt;",
+      "reason": "&lt;한국어 한 문장&gt;" }
+  ],
+  "reason": "&lt;종합 판단 근거 한두 문장&gt;"
+}</pre>
+
+<p>
+<strong>스키마는 후보 수와 무관하게 항상 같습니다</strong> — 후보가 1건이면 <code>findings</code> 가
+1건일 뿐입니다. 파서에 분기를 만들지 않기 위한 결정입니다. 분기가 없으면 "후보 1건일 때만 나는 버그"도
+없습니다.
+</p>
+
+<p>
+한편 <code>build_compare_user()</code> 는 <strong>변경하지 않습니다.</strong> 이미 후보 전부를
+<code>[id]</code> 와 함께 프롬프트에 넣고 있기 때문입니다 — 입력은 처음부터 옳았고, 출력 계약만
+1:1 이었던 것입니다.
+</p>
+
+<h3>6.3 파이프라인 — 라우팅 한 줄과 계측 셋</h3>
+
+<pre># pipeline.py — force_llm 조건
+comparison = comparator.finalize(
+    probe,
+    force_llm=(gate.enforce and unsafe_match) <b>or len(probe.candidates) &gt;= 2</b>,
+)</pre>
+
+<table>
+  <thead><tr><th>계측 키</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td><code>multi_candidate_comparisons</code></td><td>후보 2건 이상이었던 비교 수</td></tr>
+    <tr><td><code>multi_candidate_overridden</code></td><td>그중 코드 1:1 판정과 최종 판정이 갈린 수 — <strong>이 작업의 성과 지표</strong></td></tr>
+    <tr><td><code>quote_unverified</code></td><td>인용 검증에 실패한 finding 수</td></tr>
+  </tbody>
+</table>
+
+<p>
+<code>multi_candidate_overridden</code> 이 0 이면 어떨까요? 실패가 아닙니다 — "1:1 축약이 애초에 오판을
+만들지 않았다"는 뜻이고, 그것 자체가 유효한 정보입니다. <strong>측정 가능한 실패 조건을 미리 정해 두는
+것</strong>이 이 프로젝트의 습관입니다.
+</p>
+
+<h3>6.4 변경 파일 요약</h3>
+
+<table>
+  <thead><tr><th>파일</th><th>변경</th></tr></thead>
+  <tbody>
+    <tr><td><code>fact/fact_comparator.py</code></td><td><code>FactFinding</code> 신규 · 필드 2개 · <code>_decide_by_llm</code> 다건 처리 · <code>_fallback</code> 분기</td></tr>
+    <tr><td><code>fact/prompts.py</code></td><td><code>COMPARE_SYSTEM</code> 원칙 4번 교체 + JSON 스키마</td></tr>
+    <tr><td><code>fact/pipeline.py</code></td><td><code>force_llm</code> 조건 · 계측 3개</td></tr>
+    <tr><td><code>report/fact_report.py</code></td><td>후보별 내역 렌더(<code>LABEL</code>/<code>ORDER</code> 단일 출처 유지)</td></tr>
+    <tr><td><code>tests/test_multi_candidate_compare.py</code></td><td>신규 — FakeLLM 주입, 플랫폼 독립</td></tr>
+  </tbody>
+</table>
+
+<h4>테스트 9종이 지키는 것</h4>
+<ol>
+  <li>후보 1건 → 결과가 기존과 <strong>완전히 동일</strong> (회귀 방어)</li>
+  <li>후보 2건 이상 → <code>finalize</code> 가 LLM 을 부른다 (게이트가 꺼져 있어도)</li>
+  <li><code>compare_code</code> 는 후보가 몇 건이든 <strong>LLM 0회</strong> (기존 계약 유지)</li>
+  <li>findings 4건 → 종합 <code>mismatch</code> + 내역 4건</li>
+  <li>후보에 없는 <code>fact_id</code> → 드롭 + 계측</li>
+  <li>인용이 원문에 없음 → <code>quote_verified: false</code>, 판정 유지</li>
+  <li>모든 finding 드롭 → <code>unknown</code></li>
+  <li>LLM 없음 + 후보 2건 → <code>unknown</code> (코드 판정 복귀 <strong>안 함</strong>)</li>
+  <li>골든셋 27건 회귀</li>
+</ol>
+
+<h3>6.5 이미 들어간 준비 작업 (2026-08-10, 커밋 3개)</h3>
+
+<p>
+판정 쪽은 아직이지만, 그 앞의 <em>입력과 진단</em>은 이미 정비됐습니다. 이 셋이 없으면 위 변경을
+검증할 방법이 없습니다.
+</p>
+
+<table>
+  <thead><tr><th>커밋</th><th>내용</th><th>이 문제와의 관계</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>75bfd8e</code></td>
+      <td>Word <code>&lt;w:br&gt;</code> 를 <code>RawLine</code> 으로 보존 (Phase 3)</td>
+      <td>네 구간이 <code>w_b010:l02~l05</code> 로 구분 저장됨. 없으면 2차 검사가 읽을 원문 자체가 없다.
+          <code>compact_raw</code> 출력은 <strong>바이트 동일</strong>이라 F3 캐시가 무효화되지 않는다</td>
+    </tr>
+    <tr>
+      <td><code>c27932e</code></td>
+      <td>샘플 문서에 4구간 사례 추가</td>
+      <td>한 문단 안 <code>&lt;w:br/&gt;</code> 형태 그대로 재현. 골든셋 27건이 행 좌표를 참조하므로
+          <strong>문서 끝에</strong> 추가했다</td>
+    </tr>
+    <tr>
+      <td><code>a173ad5</code></td>
+      <td><code>facts_by_block</code> 줄 단위 인용 커버리지 (Phase 4a)</td>
+      <td>블록은 <code>cited=true</code> 인데 실제론 5줄 중 1줄만 인용된 <strong>무증상 손실</strong>을
+          드러낸다. LLM 을 안 부르므로 캐시 히트에도 남는다</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="call">
+  <span class="t">🧭 샘플 문서의 작은 트릭</span>
+  샘플 엑셀에는 충전 온도를 <em>구간별 4행</em>으로 넣고 행 이름에 구간을 실었습니다. 모두
+  "충전온도범위"로 두면 <strong>기준 쪽에서도</strong> 동명 fact 4건이 생겨,
+  진단하려는 <code>duplicate_entity_facts</code> 신호가 양쪽에서 겹쳐 원인이 흐려지기 때문입니다.
+  실측 사례(엑셀 1행 ↔ 워드 4건)와는 다른 배치이며, 이는 <em>의도된</em> 차이입니다.
+</div>
+
+<div class="qmemo" data-qid="code-walkthrough-questions" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">구현 계획에서 더 알고 싶은 부분을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="limits">7. 남는 한계와 현재 상태</h2>
+
+<p>이 변경이 <strong>고치지 못하는</strong> 것을 명확히 해 둡니다.</p>
+
+<table>
+  <thead><tr><th>남는 문제</th><th>왜 범위 밖인가</th><th>어디가 담당인가</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>기준(엑셀) 셀 안에 4구간이 문장으로 들어 있는데 F3 가 그중 하나만 <code>attributes</code> 로 뽑은 경우</td>
+      <td>기준 쪽 손실은 판정 계약과 무관하다 — 애초에 fact 에 값이 안 실려 있다</td>
+      <td>F3 추출 문제. <code>facts_by_block.json</code> 의 줄 단위 커버리지(Phase 4a)가 탐지</td>
+    </tr>
+    <tr>
+      <td>대상 쪽 fact 가 4건이 아니라 1건으로 뭉쳐 추출된 경우</td>
+      <td>후보가 1건이므로 <code>len(candidates) &gt;= 2</code> 규칙에 걸리지 않는다</td>
+      <td>역시 F3 추출. 상위 설계의 Phase 3~6(EvidenceUnit · Claim 그래프)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>7.1 지금 상태</h3>
+
+<ul>
+  <li>설계: <strong>승인 완료</strong> (2026-08-11 커밋 <code>4054987</code>)</li>
+  <li>구현: <strong>착수 전</strong> — 코드에 <code>FactFinding</code>/<code>target_facts</code>/
+      <code>multi_candidate</code> 흔적이 없음을 확인했습니다</li>
+  <li>테스트: 현재 <code>798 passed</code> (회귀 기준선)</li>
+  <li>당장의 우회책: <code>knowledge/ontology.yaml</code> 에 사람이 관계를 승격하는 것뿐 —
+      판정 계약 자체는 그대로이므로 근본 해결이 아닙니다</li>
+</ul>
+
+<div class="call def">
+  <span class="t">🗺️ 더 큰 그림에서의 위치</span>
+  상위 로드맵(<code>docs/FACT_LINKED_GRAPH_RAG_DESIGN.md</code> §14)에서 이 작업은 Phase 1(끝남)과
+  Phase 6(Evidence Comparator) 사이를 메우는 <strong>정확성 수정</strong>입니다. Phase 6 은 "첫 구간만
+  인용하고 전체를 <code>match</code> 로 확정하는 오판이 발생하지 않는다"를 완료 조건으로 못 박아 두었는데,
+  그 오판의 <em>가장 흔한 형태</em>를 훨씬 적은 비용으로 먼저 잡는 것입니다.
+</div>
+
+<div class="qmemo" data-qid="limits-and-status" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">남은 한계나 우선순위에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="quiz">8. 퀴즈 — 제대로 이해했는지 확인하기</h2>
+
+<p>다섯 문제입니다. 함정 문제는 없지만, 대충 읽었다면 틀리도록 만들었습니다.</p>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q1. 워드의 네 온도 구간 중 세 건이 판정에서 사라진 근본 원인은?</div>
+  <button class="opt">임베딩 검색이 상위 1건만 회수해서 (recall 실패)</button>
+  <button class="opt">F5 값 대조의 계약이 1:1 로 고정돼 있어서 — 코드는 <code>candidates[0]</code> 만 보고, 프롬프트는 하나만 고르라 하고, 결과 스키마가 단수라서</button>
+  <button class="opt">F7 개념 그래프가 네 건을 서로 다른 개념으로 갈라놔서</button>
+  <button class="opt">Acceptance Gate 가 세 건을 <code>differs_by</code> 로 차단해서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q2. "후보 2건 이상이면 LLM 강제" 규칙을 <code>AcceptanceGate</code> 안이 아니라 <code>finalize</code> 호출부에 넣기로 한 이유는?</div>
+  <button class="opt">게이트 코드가 이미 너무 길어서 더 넣을 수 없기 때문</button>
+  <button class="opt">게이트는 <code>ComparisonProbe</code> 에 접근할 수 없어서 후보 개수를 셀 수 없기 때문</button>
+  <button class="opt"><code>fast_path.enabled: false</code> 로 게이트를 꺼도 1:N 라우팅은 살아 있어야 하기 때문 — 게이트는 실험이고 이것은 정확성 버그 수정이라 수명이 다르다</button>
+  <button class="opt">게이트에 넣으면 <code>unsafe_match_rate</code> 값이 1.0 으로 고정되기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q3. 후보가 4건일 때 <code>candidates[0]</code> 기준의 코드 판정을 <code>None</code> 으로 지우지 않고 <em>일부러 남기는</em> 이유로 맞는 것은?</div>
+  <button class="opt"><code>_code_overridden()</code> 이 "1:1 축약이 만들던 오판 건수"를 그대로 드러내 효과 측정치가 되고, <code>None</code> 으로 두면 <code>code_unknown</code> 사유에 "단위 등가 미상"과 섞여 통계가 흐려지기 때문</button>
+  <button class="opt">코드 판정이 없으면 리포트가 렌더링되지 않기 때문</button>
+  <button class="opt">LLM 이 실패했을 때 그 값으로 되돌아가야 하기 때문</button>
+  <button class="opt">골든셋 채점이 <code>initial_result</code> 필드를 필수로 요구하기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q4. LLM 이 <code>findings</code> 를 <strong>빈 배열</strong>로 주고 <code>result: "missing"</code> 이라고 답했다. 올바른 처리는?</div>
+  <button class="opt">근거가 없으므로 <code>unknown</code> 으로 강등한다</button>
+  <button class="opt">JSON 이 불완전하므로 파싱 실패로 보고 재요청한다</button>
+  <button class="opt"><code>candidates[0]</code> 기준 코드 판정으로 되돌린다</button>
+  <button class="opt">정당한 <code>missing</code>("후보 중 기준과 같은 대상이 없다")의 정상 형태이므로 그대로 둔다 — 이것을 "finding 이 전부 드롭된 경우"와 합치면 정당한 missing 이 unknown 으로 바뀐다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q5. LLM 이 인용한 <code>quote</code> 가 해당 fact 의 <code>evidence_text</code> 에서 발견되지 않았다. 설계가 정한 처리는?</div>
+  <button class="opt">해당 finding 을 드롭하고, 남은 finding 으로 종합 판정을 다시 만든다</button>
+  <button class="opt"><code>quote_verified: false</code> 로 표시하고 판정은 유지하며 리포트에 ⚠️ 를 단다. 드롭하면 종합 판정이 통째로 날아가기 때문</button>
+  <button class="opt">비교 전체를 <code>unknown</code> 으로 강등한다</button>
+  <button class="opt">LLM 에게 같은 후보로 한 번 더 물어본다 (repair loop)</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있다면, 어느 부분이 아직 흐릿한지 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="footnote">
+  관련 문서 —
+  설계 원본: <code>docs/superpowers/specs/2026-08-11-multi-candidate-fact-comparison-design.md</code> ·
+  상위 로드맵: <code>docs/FACT_LINKED_GRAPH_RAG_DESIGN.md</code> §8.1, §14 ·
+  게이트 설계: <code>docs/superpowers/specs/2026-08-10-fact-acceptance-gate-phase1-design.md</code> ·
+  같은 문단의 추출 쪽 이야기:
+  <a href="2026-08-10-explanation-charge-temperature-merge.html">2026-08-10-explanation-charge-temperature-merge.html</a>
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+/* --- 질문 메모: 자동 저장 + 파일로 굽기 --- */
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-13-explanation-multi-candidate-1n-comparison.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-13-explanation-multi-candidate-1n-comparison.html';
+  });
+})();
+
+/* --- 퀴즈 --- */
+(function () {
+  var FB = {
+    ok: '정답입니다. ',
+    ng: '아쉽네요. '
+  };
+  var EXPLAIN = [
+    '후보 4건은 <code>candidate_pairs.json</code> 에 전부 들어옵니다(recall 성공). 개념 그래프도 넷 다 <code>same_as</code> 로 이었습니다. 사라진 곳은 F5 값 대조이고, 1:1 가정이 코드·프롬프트·스키마 세 층에 박혀 있는 것이 원인입니다.',
+    '게이트는 "얼마나 엄격하게 볼까"를 재보는 실험 장치라 언제든 꺼질 수 있습니다(<code>fast_path.enabled: false</code>). 1:N 라우팅은 틀린 답을 막는 수정이라 항상 살아 있어야 하므로, 조건이 게이트 상태가 아니라 <code>probe.candidates</code> 를 직접 봅니다.',
+    '<code>code_result = None</code> 은 게이트에서 <code>code_unknown</code> 이 되어 "단위 등가 미상"과 사유가 섞입니다. 남겨 두면 <code>_code_overridden()</code>(코드가 의견을 냈는데 최종이 다른가)이 이 변경의 성과 지표 <code>multi_candidate_overridden</code> 을 공짜로 만들어 줍니다.',
+    '"finding 이 전부 드롭된 경우"(근거가 사라짐 → <code>unknown</code> 강등)와 "애초에 finding 이 없는 경우"(정당한 <code>missing</code>)는 다릅니다. 합치면 정당한 ⚪ 대상에 없음 이 전부 ❓ 판단보류 로 바뀝니다.',
+    '제안은 LLM, 차단은 코드 — 다만 차단의 강도가 검사마다 다릅니다. 존재하지 않는 <code>fact_id</code> 는 드롭(근거가 될 수 없음), 인용 불일치는 표시(드롭하면 종합 판정이 통째로 날아감). 단, 모든 finding 이 드롭되면 그때는 <code>unknown</code> 입니다.'
+  ];
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = quiz.querySelectorAll('.opt');
+    var fb = quiz.querySelector('.fb');
+    opts.forEach(function (opt, i) {
+      opt.addEventListener('click', function () {
+        if (quiz.dataset.done) return;
+        quiz.dataset.done = '1';
+        opts.forEach(function (o, j) {
+          o.disabled = true;
+          if (j === answer) o.classList.add('correct');
+        });
+        var right = i === answer;
+        if (!right) opt.classList.add('wrong');
+        fb.className = 'fb show ' + (right ? 'ok' : 'ng');
+        fb.innerHTML = '<strong>' + (right ? FB.ok : FB.ng) + '</strong>' + EXPLAIN[qi];
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
