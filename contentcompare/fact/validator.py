@@ -13,6 +13,7 @@ LLM 산출물을 코드가 검증·교정한다는 설계 원칙 3의 전반부�
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
@@ -107,6 +108,7 @@ def validate_facts(
         report.checks.extend(_check_quant_bounds(fact))
         report.checks.extend(_check_units(fact))
         report.checks.extend(_check_attributes(fact))
+        report.checks.extend(_check_numeric_coverage(fact))
         report.checks.extend(_check_evidence(fact, doc_tokens))
         report.checks.extend(_check_source(fact, locators))
 
@@ -179,6 +181,43 @@ def _check_attributes(fact: Fact) -> list[CheckResult]:
         check="no_attributes", severity=WARN, fact_id=fact.fact_id,
         reason="비교할 속성이 하나도 없음(값 대조 불가)",
         suggestion="원문에 값이 있는데 누락됐다면 속성으로 추출하세요.",
+    )]
+
+
+_NUMERIC_MIN_IN_EVIDENCE = 4
+"""근거에 서로 다른 숫자가 이만큼은 있어야 검사를 켠다.
+
+버전 번호(``ver.4.7``)나 조항 번호가 근거에 섞이는 경우가 흔해, 숫자 한둘로 켜면
+오탐이 신호를 덮는다.
+"""
+
+_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _check_numeric_coverage(fact: Fact) -> list[CheckResult]:
+    """근거에는 숫자가 여럿인데 속성에 수치가 **하나도** 없는가.
+
+    **판단이 아니라 셈이다** — "어느 조건이 맞는가"를 묻지 않고 "근거에 숫자가 몇
+    개인데 속성엔 몇 개인가"만 센다.
+
+    이 검사가 필요한 이유는 한 셀·한 문단에 조건이 여럿인데 fact 가 그것을 한
+    문자열로 뭉쳐 담으면 **기존 검사가 전부 통과**하기 때문이다. 속성이 0개가 아니라
+    ``no_attributes`` 가 안 걸리고, 값이 문자열이라 ``_as_number`` 가 ``None`` 을 줘
+    단위 검사도 안 걸리고, 인용은 원문에 실재하니 근거 검사도 통과한다(설계 §1.2).
+
+    ``warn`` 인 이유는 서술형 fact 가 정당하게 걸릴 수 있어서다. 임계를 "수치 0개"로
+    좁게 잡은 것도 같은 이유다 — 비율 임계는 데이터가 쌓인 뒤 정할 일이다(YAGNI).
+    """
+    in_evidence = set(_NUM_RE.findall(fact.evidence_text or ""))
+    if len(in_evidence) < _NUMERIC_MIN_IN_EVIDENCE:
+        return []
+    for attr in (fact.attributes or {}).values():
+        if _NUM_RE.search(str(attr.value)):
+            return []
+    return [CheckResult(
+        check="numeric_coverage", severity=WARN, fact_id=fact.fact_id,
+        reason=f"근거에 숫자가 {len(in_evidence)}개인데 속성에 수치가 없음(축약 의심)",
+        suggestion="조건마다 속성을 나눠 담으세요(charge_temp_range_1 / _2 …).",
     )]
 
 
