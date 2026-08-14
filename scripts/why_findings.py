@@ -46,6 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run", default="", help="실행 라벨(기본: 가장 최근)")
     p.add_argument("--lines", action="store_true",
                    help="여러 줄 문단과 인용 누락 줄까지 상세히 출력")
+    p.add_argument("--trace-fact", default="",
+                   help="이 대상 fact 가 왜 후보가 못 됐는지 F7 세 관문을 추적"
+                        "(예: --trace-fact fact-word-53)")
     return p
 
 
@@ -68,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     for problem in snap.problems:
         print(f"  ⚠ {problem}")
     print()
+
+    if args.trace_fact:
+        return _trace_fact(snap, args.entity, args.trace_fact)
 
     _report_findings(snap, args.entity)
     if args.lines:
@@ -134,6 +140,105 @@ def _report_findings(snap, entity: str) -> None:
     if not holes:
         print("✅ 후보 2건 이상인 항목에서 내역 결손이 없습니다"
               " (후보 수 = 내역 수).")
+
+
+# --------------------------------------------------------------------------- #
+# 1-b) 특정 대상 fact 추적 — F7 세 관문 중 어디서 떨어졌나
+# --------------------------------------------------------------------------- #
+def _trace_fact(snap, entity: str, fact_id: str) -> int:
+    """``fact_id`` 가 왜 ``entity`` 의 후보가 못 됐는지 관문별로 짚는다.
+
+    F7 은 한 칸이 아니라 셋이다 — ①recall(임베딩) ②관계 판정(LLM) ③검증·병합(코드).
+    셋의 조치가 완전히 다르므로(top_k / 프롬프트·배치 / 근거 인용) 어느 칸인지 모르면
+    고칠 수 없다. 각 칸이 남긴 흔적을 순서대로 읽어 하나로 좁힌다.
+    """
+    rows = [c for c in snap.comparisons
+            if not entity or entity in str(c.get("entity_name") or "")]
+    if not rows:
+        print(f"'{entity}' 에 해당하는 비교 항목이 없습니다.")
+        return 1
+
+    for c in rows:
+        ref = c.get("reference") or {}
+        ref_id = str(ref.get("fact_id") or "")
+        target_doc = str(c.get("target_doc") or "")
+        print("=" * 72)
+        print(f"{c.get('entity_name')} ({ref_id})  →  {target_doc}")
+        print(f"판정 {c.get('result')} ({c.get('decided_by')}) · 후보 {c.get('candidate_count')}건")
+        print("=" * 72)
+
+        facts = snap.facts_of(target_doc)
+        target = facts.get(fact_id)
+        if target is None:
+            print(f"❌ {fact_id} 가 {target_doc} 의 facts.json 에 없습니다 "
+                  f"→ F3 추출 단계에서 이미 없는 것입니다(F7 이전 문제).")
+            continue
+        print(f"대상 fact: {fact_id}  {target.get('entity_name')}")
+        ev = " ".join(str(target.get("evidence_text") or "").split())
+        print(f"  근거: {ev[:160]}")
+        print(f"  속성: {', '.join(target.get('attributes') or {}) or '(없음)'}\n")
+
+        # ③ 최종 결과부터 — 후보가 됐는가
+        partners = snap.index.partners(snap.reference_doc, ref_id, target_doc)
+        if fact_id in partners:
+            print("✅ 이 fact 는 개념 노드의 멤버입니다 = F5 에 후보로 전달됐습니다.")
+            hit = [f for f in (c.get("findings") or [])
+                   if str(f.get("fact_id")) == fact_id]
+            print("   findings 에도 " + ("있습니다." if hit else
+                  "**없습니다** → F5 의 LLM 응답 누락입니다(_parse_findings 는 응답만 훑습니다)."))
+            continue
+
+        # ① recall
+        slot = snap.ranked_for(ref_id, target_doc)
+        row = None
+        for r in (slot or {}).get("ranked") or []:
+            if str(r.get("fact_id")) == fact_id:
+                row = r
+                break
+        print("① recall — 후보 쌍 생성 (🔢 임베딩)")
+        if slot is None:
+            print("   candidate_pairs.json 이 없어 확인 불가"
+                  " (fact.save_candidate_pairs 를 켜고 다시 실행하세요).")
+        elif row is None:
+            in_ontology = fact_id in ((slot or {}).get("from_ontology") or [])
+            if in_ontology:
+                print("   랭킹에는 없지만 온톨로지 보강으로 쌍이 추가됐습니다.")
+            else:
+                print("   ❌ 랭킹 기록에 아예 없습니다 → 상위 top_k+5 밖으로 크게 밀렸습니다."
+                      "\n      조치: concept_recall_top_k 를 올리세요(기본 5).")
+                continue
+        elif not row.get("kept"):
+            cut = row.get("cut_by")
+            hint = ("concept_recall_min 을 낮추세요" if cut == "min_score"
+                    else "concept_recall_top_k 를 올리세요")
+            print(f"   ❌ 탈락 — cut_by={cut} · score={row.get('score')}"
+                  f" ({row.get('method')})\n      조치: {hint}.")
+            continue
+        else:
+            print(f"   ✅ 통과 — score={row.get('score')} ({row.get('method')})")
+
+        # ②·③ 개념 판정과 검증
+        print("\n②·③ 관계 판정(🤖 LLM) · 검증/병합(⚙️ 코드)")
+        edges = [e for e in snap.index.edges_touching(snap.reference_doc, ref_id)
+                 if fact_id in (e.left.fact_id, e.right.fact_id)]
+        if not edges:
+            print("   ❌ 이 쌍의 엣지가 concept_graph.json 에 없습니다 →"
+                  " 쌍이 판정 배치에 오르지 못했습니다(예산 고갈 가능).")
+            continue
+        for e in edges:
+            rejected = getattr(e, "rejected_by", "") or ""
+            print(f"   relation={e.relation} · decided_by={e.decided_by}"
+                  f" · rejected_by={rejected or '(없음)'} · recall={e.recall_score:.4f}")
+            print(f"   사유: {e.reason or '(없음)'}")
+            if rejected == "evidence":
+                print("   → ③ 코드가 인용 검증(80%)에서 강등했습니다."
+                      " LLM 이 인용한 원문이 그 fact 의 근거에 없습니다.")
+            elif rejected == "differs_by":
+                print("   → ③ 코드가 differs_by 위반 병합으로 차단했습니다.")
+            elif e.relation != "same_as":
+                print(f"   → ② LLM 이 same_as 를 주지 않았습니다({e.relation}).")
+        print()
+    return 0
 
 
 def _missing_candidate_ids(snap, comparison: dict, findings: list) -> list[str]:
