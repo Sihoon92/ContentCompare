@@ -84,3 +84,25 @@ def test_factset_roundtrip():
     assert f.attributes["lower_limit"].value == 1
     assert f.attributes["lower_limit"].unit == "℃"
     assert f.source["doc_type"] == "excel"
+
+
+def test_fact_roundtrips_inherited_from():
+    """LLM 이 표시한 상속 출처가 산출물까지 왕복한다."""
+    from contentcompare.fact.fact_models import Fact
+
+    fact = Fact.from_llm({
+        "entity_name": "충전온도범위",
+        "attributes": {"lower_limit": {"value": 15, "unit": "℃"}},
+        "inherited_from": ["w_b245", 7, "", None],
+    })
+
+    assert fact.inherited_from == ["w_b245", "7"]      # 문자열화 + 빈 값 제거
+    assert fact.to_dict()["inherited_from"] == ["w_b245", "7"]
+    assert Fact.from_dict(fact.to_dict()).inherited_from == ["w_b245", "7"]
+
+
+def test_fact_without_inherited_from_defaults_empty():
+    """옛 산출물을 읽어도 깨지지 않는다."""
+    from contentcompare.fact.fact_models import Fact
+
+    assert Fact.from_dict({"entity_name": "x"}).inherited_from == []
