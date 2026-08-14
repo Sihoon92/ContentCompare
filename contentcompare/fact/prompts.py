@@ -341,6 +341,11 @@ def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
         f"다음은 {doc_type} 문서의 블록/도형입니다. 각 항목 앞의 [id] 는 "
         "source_ids 에 넣을 식별자입니다."
     )
+    if any(u.get("context") for u in units):
+        header += (
+            "\n[맥락] 표시가 붙은 블록은 앞에서 이미 처리했습니다 — 앞뒤 관계를 "
+            "이해하는 데만 쓰고, 그 블록에 대한 fact 는 만들지 마세요."
+        )
     purpose = _profile_purpose(profile)
     if purpose:
         header += f"\n문서 맥락: {purpose}"

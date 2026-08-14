@@ -161,8 +161,9 @@ def _facts_from_blocks(
     dropped: dict[str, int] = {"not_dict": 0, "no_valid_source_id": 0}
     samples: list[str] = []  # 드롭된 fact 의 entity_name 예시(원인 진단용)
     cited: set[str] = set()  # 실제로 근거로 쓰인 블록 id(커버리지 계측)
-    for batch in _pack_batches(groups, batch_blocks):
-        batch_ids = {u["id"] for u in batch}
+    for batch in _with_context(_pack_batches(groups, batch_blocks)):
+        # 맥락 블록은 근거 id 로 인정하지 않는다 — 중복 fact 를 원천 차단한다.
+        batch_ids = {u["id"] for u in batch if not u.get("context")}
         obj = runner.complete_json(FACT_SYSTEM, build_fact_user(batch, doc_type, profile))
         for raw in obj.get("facts") or []:
             seen += 1
@@ -268,6 +269,46 @@ def _pack_batches(groups: list[list[dict]], batch_blocks: int) -> list[list[dict
     if cur:
         batches.append(cur)
     return batches
+
+
+_CONTEXT_BLOCKS = 3
+"""배치 앞에 붙일 직전 배치의 꼬리 블록 수.
+
+배치가 20개씩 겹침 없이 잘리므로 **20블록마다 한 번씩** 의미가 경계에서 갈린다.
+겹쳐 넣고 사후에 중복을 지우는 방식은 쓰지 않는다 — 중복 판정 기준이 또 하나의
+추측이 되기 때문이다. 대신 맥락 블록을 ``batch_ids`` 에서 빼서 원천적으로 막는다.
+"""
+
+_CONTEXT_TABLE_ROWS = 2
+"""맥락으로 실을 표의 최대 행 수. 표 하나가 배치 토큰을 통째로 삼키는 것을 막는다."""
+
+
+def _with_context(batches: list[list[dict]]) -> list[list[dict]]:
+    """각 배치 앞에 직전 배치의 꼬리 블록을 ``context`` 표시로 덧붙인다.
+
+    원본 unit dict 를 건드리지 않고 **얕은 복사**를 붙인다 — 원본에 표시를 찍으면
+    그 블록이 자기 배치에서도 맥락으로 렌더돼 fact 가 통째로 사라진다.
+    """
+    out: list[list[dict]] = []
+    for i, batch in enumerate(batches):
+        if i == 0:
+            out.append(list(batch))
+            continue
+        tail = batches[i - 1][-_CONTEXT_BLOCKS:]
+        out.append([_as_context(u) for u in tail] + list(batch))
+    return out
+
+
+def _as_context(u: dict) -> dict:
+    """맥락용 사본. 표는 앞 몇 행만 남긴다."""
+    ctx = dict(u)
+    ctx["context"] = True
+    if ctx.get("type") == "table":
+        if ctx.get("rows"):
+            ctx["rows"] = ctx["rows"][:_CONTEXT_TABLE_ROWS]
+        if ctx.get("cell_lines"):
+            ctx["cell_lines"] = ctx["cell_lines"][:_CONTEXT_TABLE_ROWS]
+    return ctx
 
 
 # --------------------------------------------------------------------------- #
