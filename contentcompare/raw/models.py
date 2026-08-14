@@ -240,6 +240,9 @@ class RawWordBlock:
     """문단을 줄 단위로 쪼갠 원문(type=paragraph). 표는 행/셀 2D 로 이미 구조가
     보존돼 있어 비워 둔다."""
 
+    indent: int = 0
+    """문단 자체의 들여쓰기 칸 수(type=paragraph). 0 이면 ``to_dict`` 에서 생략한다."""
+
     def to_dict(self) -> dict[str, Any]:
         return _drop_none(
             {
@@ -251,6 +254,7 @@ class RawWordBlock:
                 "structure": self.structure,
                 "rows": self.rows,
                 "lines": [l.to_dict() for l in self.lines] or None,
+                "indent": self.indent or None,
             }
         )
 

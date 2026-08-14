@@ -230,3 +230,52 @@ def test_build_word_doc_filters_empty_table():
     probes = [TableProbe(rows=[["", ""], ["", ""]]), ParaProbe(text="x")]
     blocks = build_word_doc("d.docx", probes).to_dict()["blocks"]
     assert len(blocks) == 1 and blocks[0]["text"] == "x"
+
+
+# --------------------------------------------------------------------------- #
+# 문단 들여쓰기 (Task 2)
+# --------------------------------------------------------------------------- #
+def _doc_xml(body: str) -> str:
+    return (
+        '<?xml version="1.0"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{body}</w:body></w:document>"
+    )
+
+
+def test_paragraph_indent_from_w_ind():
+    """<w:ind w:left> 를 칸 수로 환산해 담는다(720 twips = 0.5인치 ≈ 6칸)."""
+    from contentcompare.raw.word_raw import parse_word_xml
+
+    xml = _doc_xml(
+        '<w:p><w:pPr><w:ind w:left="720"/></w:pPr><w:r><w:t>들여쓴 문단</w:t></w:r></w:p>'
+        "<w:p><w:r><w:t>보통 문단</w:t></w:r></w:p>"
+    )
+    probes = parse_word_xml(xml)
+
+    assert probes[0].indent == 6
+    assert probes[1].indent == 0
+
+
+def test_paragraph_indent_accepts_w_start_alias():
+    """w:start 는 w:left 의 신형 이름이다 — 둘 다 읽어야 한다."""
+    from contentcompare.raw.word_raw import parse_word_xml
+
+    xml = _doc_xml(
+        '<w:p><w:pPr><w:ind w:start="360"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>'
+    )
+    assert parse_word_xml(xml)[0].indent == 3
+
+
+def test_block_indent_reaches_physical_raw():
+    """문단 들여쓰기가 블록까지 흐르고, 0 이면 키가 없다."""
+    from contentcompare.raw.word_raw import build_word_doc, parse_word_xml
+
+    xml = _doc_xml(
+        '<w:p><w:pPr><w:ind w:left="720"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>'
+        "<w:p><w:r><w:t>b</w:t></w:r></w:p>"
+    )
+    blocks = build_word_doc("t.docx", parse_word_xml(xml)).to_dict()["blocks"]
+
+    assert blocks[0]["indent"] == 6
+    assert "indent" not in blocks[1]

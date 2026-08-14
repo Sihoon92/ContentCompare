@@ -63,6 +63,13 @@ class ParaProbe:
     list_item: bool = False
     """``<w:numPr>`` 가 있는 목록 문단인가."""
 
+    indent: int = 0
+    """문단 자체의 들여쓰기 칸 수(``<w:pPr><w:ind w:left>``).
+
+    문단이 통째로 밀려 있으면 그 텍스트 안에는 공백이 없어 :func:`_indent_width` 로는
+    잡히지 않는다. 별도 문단으로 갈라진 연속행이 이 경로로만 드러난다.
+    """
+
 
 @dataclass
 class TableProbe:
@@ -97,6 +104,7 @@ def build_word_doc(file_name: str, probes: list[BlockProbe]) -> RawWordDocument:
                     style=_style_dict(p),
                     structure=_structure_dict(p),
                     lines=_split_lines(block_id, p.text or ""),
+                    indent=p.indent,
                 )
             )
         elif isinstance(p, TableProbe):
@@ -247,22 +255,45 @@ def _find_body(xml_str: str) -> Optional[ET.Element]:
     return root.find(f".//{_w('body')}")
 
 
+_TWIPS_PER_COL = 120
+"""twips(1/1440인치) → 칸 환산 계수. 720 twips(0.5인치) ≈ 6칸.
+
+절대 정확도는 필요 없다 — 렌더에서 **다른 줄과의 상대 비교**에만 쓰이기 때문이다.
+"""
+
+
+def _twips_to_cols(value: Optional[str]) -> int:
+    """``<w:ind>`` 속성값(twips 문자열) → 칸 수. 못 읽으면 0(추측하지 않는다)."""
+    if not value:
+        return 0
+    try:
+        return max(0, round(int(value) / _TWIPS_PER_COL))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _parse_paragraph(p: ET.Element) -> ParaProbe:
-    """``<w:p>`` → :class:`ParaProbe` (텍스트 + 스타일/굵게/크기)."""
+    """``<w:p>`` → :class:`ParaProbe` (텍스트 + 스타일/굵게/크기/들여쓰기)."""
     text = _runs_text(p)
 
     style_name = None
     list_item = False
+    indent = 0
     pPr = p.find(_w("pPr"))
     if pPr is not None:
         pStyle = pPr.find(_w("pStyle"))
         if pStyle is not None:
             style_name = pStyle.get(_w("val"))
         list_item = pPr.find(_w("numPr")) is not None
+        ind = pPr.find(_w("ind"))
+        if ind is not None:
+            # w:start 는 w:left 의 신형 이름 — 둘 다 나타난다.
+            indent = _twips_to_cols(ind.get(_w("left")) or ind.get(_w("start")))
 
     bold, size = _first_run_format(p)
     return ParaProbe(
-        text=text, style_name=style_name, bold=bold, font_size=size, list_item=list_item
+        text=text, style_name=style_name, bold=bold, font_size=size,
+        list_item=list_item, indent=indent,
     )
 
 
