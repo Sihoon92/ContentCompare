@@ -389,8 +389,25 @@ class FactConfig:
     use_concept_graph: bool = True
     """False 면 F5 가 기존 유사도 매칭으로 동작한다(롤백 스위치)."""
 
-    concept_recall_top_k: int = 5
-    """기준 fact 당 개념 판정에 올릴 후보 수."""
+    concept_recall_top_k: int = 10
+    """기준 fact 당 개념 판정에 올릴 후보 수.
+
+    **5 는 "한 기준 항목의 진짜 짝 후보가 5개 이하"라는 가정이었고, 규격표에서 그
+    가정은 자주 깨진다.** 한 항목이 조건별로 쪼개지면(충전 온도 4~5구간, 온도별
+    충전전류…) 형제 fact 만으로 자리가 다 차고, 거기에 다른 온도·전류 항목까지 같은
+    자리를 두고 경쟁한다. 실측에서 정답 후보가 6위로 밀려 ``cut_by: top_k`` 로
+    탈락했고, 그 기준 항목은 비교 자체가 일어나지 않아 ``missing`` 이 됐다.
+
+    올려도 정확도 위험이 낮은 이유는 이 값이 **판정이 아니라 recall** 이기 때문이다
+    (:attr:`concept_recall_min` 주석과 같은 근거). 후보가 늘어도 연결은 여전히 LLM
+    제안 → 코드 인용 검증 → ``differs_by`` 병합 차단을 거친다. 반대로 작게 잡아
+    놓치면 리포트에 "대상에 없다"는 **확신에 찬 거짓**이 실린다 — 실패 방향이
+    비대칭이라 넉넉한 쪽이 안전하다.
+
+    대가는 LLM 호출이다(:attr:`max_llm_calls_per_concept` 참고). ⚠️ 정규화 이름이
+    완전히 일치하면 :meth:`FactMatcher.search` 가 **조기 종료로 1건만** 돌려주므로,
+    같은 언어 문서쌍에서는 이 값을 올려도 후보가 늘지 않는다.
+    """
 
     concept_recall_min: float = 0.3
     """후보 생성 최소 유사도. **판정이 아니라 계산량 제한**이라 느슨해도 안전하다.
@@ -406,8 +423,9 @@ class FactConfig:
     """개념 단계 LLM 호출 예산(문서 처리·비교 예산과 별도).
 
     소요량은 ``기준 fact 수 × concept_recall_top_k ÷ concept_batch_pairs`` 로 커진다 —
-    200행 문서에 기본값(top_k 5 · batch 20)이면 50회다. 여기서 고갈되면 남은 쌍이
-    ``unknown`` → 연결 없음 → **전 항목 ``missing``** 으로 귀결돼 피해가 가장 크다.
+    200행 문서에 기본값(top_k 10 · batch 20)이면 100회다. 뒤집으면 이 예산은 기준
+    fact **600개**까지 감당한다. 여기서 고갈되면 남은 쌍이 ``unknown`` → 연결 없음 →
+    **전 항목 ``missing``** 으로 귀결돼 피해가 가장 크다.
     """
 
     ontology_path: str = "knowledge/ontology.yaml"
