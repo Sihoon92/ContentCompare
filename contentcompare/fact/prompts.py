@@ -264,15 +264,72 @@ def _profile_purpose(profile: Any) -> str:
     return _as_str(getattr(profile, "main_purpose", ""))
 
 
+_RENDER_INDENT_CAP = 40
+"""렌더에서 허용할 최대 들여쓰기 칸 수.
+
+원문에 비정상적으로 큰 들여쓰기가 있으면 한 줄이 화면을 넘어가 LLM 이 구조를 오히려
+더 못 읽는다. 자르는 것이 정보 손실이지만, 여기서 필요한 것은 **줄끼리의 상대 위치**라
+상한을 둬도 그 신호는 남는다.
+"""
+
+
 def _render_unit(u: dict) -> str:
+    """블록/도형 하나를 프롬프트 한 덩어리로. 여러 줄이면 개행이 들어간다.
+
+    **코드는 여기서 아무 판단도 하지 않는다** — 원문 구조를 덜 훼손해 옮길 뿐이고,
+    "저 줄들이 앞 레이블에 딸린 것인가"는 LLM 이 본다(설계 §5).
+    """
     uid = u.get("id")
     loc = f" slide={u['slide_no']}" if u.get("slide_no") else ""
     note = " (스피커노트)" if u.get("is_note") else ""
+    tag = "[맥락]" if u.get("context") else ""
+    head = f"{tag}[{uid}]{loc}{note}"
+
     if u.get("type") == "table":
-        content = f"표 {u.get('rows')}"
-    else:
-        content = _as_str(u.get("text"))
-    return f"[{uid}]{loc}{note} {content}"
+        return f"{head} {_render_table(u)}"
+
+    lines = u.get("lines") or []
+    if len(lines) < 2:
+        return f"{head} {_as_str(u.get('text'))}"
+
+    block_ind = int(u.get("indent") or 0)
+    pad = " " * (len(head) + 1)
+    out = []
+    for i, ln in enumerate(lines):
+        ind = " " * min(block_ind + int(ln.get("indent") or 0), _RENDER_INDENT_CAP)
+        out.append((f"{head} " if i == 0 else pad) + ind + _as_str(ln.get("raw_text")))
+    return "\n".join(out)
+
+
+def _render_table(u: dict) -> str:
+    """표를 행 단위로. 여러 줄인 셀은 줄을 살린다.
+
+    예전에는 ``표 [['a','b'], …]`` 라는 파이썬 리스트 repr 이었다. 그 모양은 마지막
+    칸이 아무리 길어도 **하나의 값**처럼 보여서, 한 셀에 조건표가 들어간 문서에서
+    속성이 한 개만 나왔다(설계 §1.2).
+    """
+    rows = u.get("rows") or []
+    cell_lines = u.get("cell_lines") or []
+    n_cols = len(rows[0]) if rows else 0
+    out = [f"표 ({len(rows)}행 × {n_cols}열)"]
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            prefix = f"  행{r + 1} | " if c == 0 else "      | "
+            lines = _cell_lines_at(cell_lines, r, c)
+            if len(lines) < 2:
+                out.append(prefix + _as_str(cell))
+                continue
+            out.append(prefix + lines[0])
+            out.extend("        " + s for s in lines[1:])
+    return "\n".join(out)
+
+
+def _cell_lines_at(cell_lines: Any, r: int, c: int) -> list[str]:
+    """``cell_lines[r][c]`` 를 안전하게 꺼낸다. 모양이 어긋나면 빈 리스트."""
+    try:
+        return list(cell_lines[r][c] or [])
+    except (IndexError, KeyError, TypeError):
+        return []
 
 
 def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
