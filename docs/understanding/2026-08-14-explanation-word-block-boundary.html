@@ -1,0 +1,1376 @@
+<title>사라진 두 줄 — 워드의 Enter 가 fact 를 지우는 자리</title>
+<style>
+  :root{
+    --code:#1565c0; --code-bg:#e8f1fb;
+    --llm:#e65100;  --llm-bg:#fdf0e3;
+    --emb:#00796b;  --emb-bg:#e2f2f0;
+    --human:#6a1b9a;--human-bg:#f4e9f7;
+    --ink:#16202a; --muted:#5c6b7a; --line:#d8e0e8;
+    --bg:#fbfcfd; --card:#ffffff;
+    --warn:#b3261e; --warn-bg:#fdecea;
+    --ok:#1b5e20; --ok-bg:#e8f5e9;
+    --minsu:#00695c; --minsu-bg:#e0f2f1;
+    --jiyoung:#ad1457; --jiyoung-bg:#fce4ec;
+    --taeho:#4527a0; --taeho-bg:#ede7f6;
+    --maxw: 900px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic","맑은 고딕",
+                "Noto Sans KR",Roboto,sans-serif;
+    line-height:1.75; font-size:16.5px; padding-bottom:96px;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 20px}
+  header.hero{
+    background:linear-gradient(160deg,#0f2233,#1b3d54);
+    color:#eaf2f8; padding:46px 20px 38px; margin-bottom:34px;
+  }
+  header.hero .wrap{padding:0}
+  header.hero h1{margin:0 0 12px; font-size:clamp(23px,4.4vw,34px); line-height:1.35; letter-spacing:-.01em}
+  header.hero p{margin:0; color:#a8c3d6; font-size:15px}
+  header.hero .meta{margin-top:16px; font-size:13.5px; color:#89a8bf}
+  header.hero code{background:rgba(255,255,255,.12); color:#dbe9f3; padding:1px 6px; border-radius:4px}
+
+  h2{margin:56px 0 6px; font-size:clamp(20px,3.2vw,26px); line-height:1.4;
+     padding-top:14px; border-top:3px solid var(--line); letter-spacing:-.01em}
+  h2 .num{color:var(--muted); font-weight:600; margin-right:10px; font-variant-numeric:tabular-nums}
+  h3{margin:34px 0 6px; font-size:clamp(17px,2.6vw,20px); line-height:1.45}
+  h4{margin:24px 0 4px; font-size:16px; color:#22384a}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0; padding-left:24px}
+  li{margin:6px 0}
+  a{color:#1565c0}
+  hr{border:0; border-top:1px solid var(--line); margin:34px 0}
+
+  nav.toc{background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:18px 22px; margin:26px 0 10px}
+  nav.toc h2{margin:0 0 8px; border:0; padding:0; font-size:16px; letter-spacing:.02em;
+             color:var(--muted); text-transform:uppercase}
+  nav.toc ol{margin:0; padding-left:20px}
+  nav.toc li{margin:4px 0}
+  nav.toc a{text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+  nav.toc .sub{color:var(--muted); font-size:14px}
+
+  .call{border-left:4px solid var(--code); background:var(--code-bg);
+        padding:14px 18px; border-radius:0 10px 10px 0; margin:20px 0}
+  .call .t{font-weight:700; display:block; margin-bottom:4px}
+  .call.warn{border-color:var(--warn); background:var(--warn-bg)}
+  .call.key{border-color:var(--human); background:var(--human-bg)}
+  .call.ok{border-color:var(--ok); background:var(--ok-bg)}
+  .call.llm{border-color:var(--llm); background:var(--llm-bg)}
+  .call p:first-of-type{margin-top:0}
+  .call p:last-child{margin-bottom:0}
+
+  /* ---------- 등장인물 대화 ---------- */
+  .cast{display:flex; gap:12px; flex-wrap:wrap; margin:22px 0}
+  .cast .c{flex:1 1 240px; background:var(--card); border:1px solid var(--line);
+           border-radius:12px; padding:13px 15px}
+  .cast .c .nm{font-weight:700; font-size:15.5px; margin-bottom:2px}
+  .cast .c .rl{font-size:13px; color:var(--muted)}
+  .cast .c p{font-size:14px; margin:8px 0 0}
+  .c-minsu{border-left:5px solid var(--minsu)} .c-minsu .nm{color:var(--minsu)}
+  .c-jiyoung{border-left:5px solid var(--jiyoung)} .c-jiyoung .nm{color:var(--jiyoung)}
+  .c-taeho{border-left:5px solid var(--taeho)} .c-taeho .nm{color:var(--taeho)}
+
+  .dlg{margin:22px 0; border:1px solid var(--line); border-radius:12px;
+       background:var(--card); padding:6px 14px 14px}
+  .dlg .hd{font-size:12.5px; color:var(--muted); text-transform:uppercase;
+           letter-spacing:.05em; padding:10px 0 2px; font-weight:700}
+  .msg{display:flex; gap:11px; margin:12px 0; align-items:flex-start}
+  .msg .av{flex:0 0 auto; width:34px; height:34px; border-radius:50%;
+           display:flex; align-items:center; justify-content:center;
+           font-weight:700; font-size:13px; color:#fff; margin-top:2px}
+  .msg .bd{flex:1 1 auto; border-radius:11px; padding:9px 13px; font-size:15px}
+  .msg .bd .nm{font-weight:700; font-size:13px; display:block; margin-bottom:2px}
+  .msg p{margin:5px 0}
+  .m-minsu .av{background:var(--minsu)} .m-minsu .bd{background:var(--minsu-bg)}
+  .m-minsu .nm{color:var(--minsu)}
+  .m-jiyoung .av{background:var(--jiyoung)} .m-jiyoung .bd{background:var(--jiyoung-bg)}
+  .m-jiyoung .nm{color:var(--jiyoung)}
+  .m-taeho .av{background:var(--taeho)} .m-taeho .bd{background:var(--taeho-bg)}
+  .m-taeho .nm{color:var(--taeho)}
+  .m-ans .av{background:#37474f} .m-ans .bd{background:#eceff1}
+  .m-ans .nm{color:#263238}
+
+  .actor{display:inline-block; font-size:12.5px; font-weight:700; padding:1px 9px;
+         border-radius:999px; white-space:nowrap; line-height:1.7}
+  .a-code{background:var(--code-bg); color:var(--code); border:1px solid #bcd8f2}
+  .a-llm{background:var(--llm-bg); color:var(--llm); border:1px solid #f3d3ae}
+  .a-emb{background:var(--emb-bg); color:var(--emb); border:1px solid #b3ddd6}
+  .a-human{background:var(--human-bg); color:var(--human); border:1px solid #ddc4e8}
+
+  .v{display:inline-block; font-size:13px; font-weight:700; padding:1px 9px; border-radius:6px; white-space:nowrap}
+  .v-match{background:#e8f5e9; color:#1b5e20}
+  .v-mismatch{background:#fdecea; color:#b3261e}
+  .v-missing{background:#eceff1; color:#455a64}
+  .v-unknown{background:#fff8e1; color:#8a6100}
+
+  pre{white-space:pre; overflow-x:auto; background:#101c26; color:#dbe7f0;
+      padding:15px 17px; border-radius:10px; font-size:13.5px; line-height:1.62;
+      font-family:"Cascadia Mono",Consolas,"D2Coding",ui-monospace,Menlo,monospace;
+      margin:16px 0; border:1px solid #21313e}
+  pre .c{color:#7fa3bd; font-style:italic}
+  pre .hl{background:rgba(230,81,0,.24); border-radius:3px; padding:1px 0}
+  pre .hl2{background:rgba(21,101,192,.30); border-radius:3px; padding:1px 0}
+  pre .ok{background:rgba(46,125,50,.28); border-radius:3px; padding:1px 0}
+  code{background:#eef2f6; padding:1.5px 6px; border-radius:5px; font-size:.9em;
+       font-family:"Cascadia Mono",Consolas,"D2Coding",ui-monospace,Menlo,monospace;
+       overflow-wrap:break-word}
+  .filepath{color:var(--muted); font-size:13px; margin:16px 0 -8px;
+            font-family:ui-monospace,Consolas,monospace}
+
+  figure{margin:26px 0; background:var(--card); border:1px solid var(--line);
+         border-radius:12px; padding:18px 16px 10px}
+  figure svg{display:block; width:100%; height:auto}
+  figcaption{font-size:14px; color:var(--muted); margin-top:10px; text-align:center; line-height:1.6}
+  .scrollx{overflow-x:auto}
+
+  .tablewrap{overflow-x:auto; margin:20px 0}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--card); min-width:520px}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#eef3f7; font-weight:700}
+  td.num{font-variant-numeric:tabular-nums; white-space:nowrap}
+  tr.bad td{background:#fdf4f3}
+  tr.good td{background:#f3faf4}
+
+  .qmemo{border:2px dashed #b9c6d2; background:#f4f7fa; border-radius:11px;
+         padding:13px 16px; margin:24px 0}
+  .qmemo[data-status="answered"]{border:2px solid var(--emb); background:#f2fbf9}
+  .qmemo-head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+  .qmemo-label{font-weight:700; font-size:13.5px; color:#42576b}
+  .qmemo[data-status="answered"] .qmemo-label{color:var(--emb)}
+  .qmemo-hint{font-size:12.5px; color:#7d8d9c}
+  .qmemo-question{margin-top:8px; min-height:2.4em; background:#fff; border:1px solid #ccd6e0;
+                  border-radius:8px; padding:9px 12px; font-size:14.5px; outline:none}
+  .qmemo-question:focus{border-color:var(--code); box-shadow:0 0 0 3px rgba(21,101,192,.14)}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#9fb0bf}
+  .qmemo-answer{margin-top:10px; background:#fff; border-left:4px solid var(--emb);
+                border-radius:0 8px 8px 0; padding:10px 14px; font-size:14.5px}
+
+  .quiz{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:22px 0}
+  .quiz .q{font-weight:700; margin-bottom:12px}
+  .opt{display:block; width:100%; text-align:left; background:#f7f9fb; border:1px solid var(--line);
+       border-radius:9px; padding:11px 14px; margin:7px 0; cursor:pointer; font:inherit; font-size:15px;
+       color:var(--ink); transition:background .12s,border-color .12s}
+  .opt:hover:not(:disabled){background:#eef3f8; border-color:#adc0d1}
+  .opt:disabled{cursor:default}
+  .opt.correct{background:#e8f5e9; border-color:#66bb6a}
+  .opt.wrong{background:#fdecea; border-color:#e57373}
+  .fb{margin-top:11px; padding:11px 14px; border-radius:9px; font-size:14.5px; display:none}
+  .fb.show{display:block}
+  .fb.good{background:#e8f5e9; border-left:4px solid #2e7d32}
+  .fb.bad{background:#fdecea; border-left:4px solid #c62828}
+
+  #qmemo-bar{position:fixed; left:0; right:0; bottom:0; background:rgba(15,34,51,.97); color:#dbe9f3;
+             padding:11px 18px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+             box-shadow:0 -3px 16px rgba(0,0,0,.22); z-index:50; font-size:13.5px}
+  #qmemo-save-btn{background:#2e7d9a; color:#fff; border:0; border-radius:8px; padding:9px 17px;
+                  font:inherit; font-weight:700; cursor:pointer}
+  #qmemo-save-btn:hover{background:#3b93b3}
+  #qmemo-saymsg{color:#9fbdd2; word-break:break-all; font-size:12.5px}
+
+  @media (max-width:640px){
+    body{font-size:16px}
+    pre{font-size:12.5px}
+    .cast{flex-direction:column}
+  }
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#e6edf3; --muted:#9bb0c2; --line:#2c3a47; --bg:#0e1620; --card:#152029;
+          --code-bg:#132434; --llm-bg:#2c1e12; --emb-bg:#0f2724; --human-bg:#231832;
+          --warn-bg:#2e1614; --ok-bg:#12261a;
+          --minsu-bg:#0f2b28; --jiyoung-bg:#2e1220; --taeho-bg:#1c1636;}
+    header.hero{background:linear-gradient(160deg,#0a141d,#132835)}
+    th{background:#1c2b36}
+    code{background:#1c2833; color:#cfe0ee}
+    .qmemo{background:#151f28; border-color:#33465a}
+    .qmemo-question{background:#0f1922; border-color:#33465a; color:#e6edf3}
+    .qmemo-answer{background:#0f1922}
+    .opt{background:#152029; color:#e6edf3}
+    .opt:hover:not(:disabled){background:#1c2b36}
+    .opt.correct{background:#14311b}
+    .opt.wrong{background:#331716}
+    .fb.good{background:#14311b}
+    .fb.bad{background:#331716}
+    tr.bad td{background:#291a19}
+    tr.good td{background:#152b1c}
+    .msg .bd{color:#e6edf3}
+    .m-ans .bd{background:#1c2b36}
+    figure{background:#111b24}
+    /* SVG 는 밝은 배경 전제로 그렸다 — 도형 판을 항상 흰색으로 고정한다. */
+    figure svg{background:#fff; border-radius:8px}
+  }
+</style>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>사라진 두 줄<br>— 워드의 Enter 가 fact 를 지우는 자리</h1>
+    <p>규격서에 분명히 적혀 있는 <code>1.1C(4.28V)</code> 와 <code>0.8C(4.55V)</code> 가
+       왜 비교 리포트에 한 번도 등장하지 않는가. 그리고 그것을 어떻게 고칠 것인가.</p>
+    <div class="meta">
+      2026-08-14 · 진단 도구 <code>why_findings.py</code> · <code>inspect_paragraph.py</code><br>
+      설계 <code>docs/superpowers/specs/2026-08-14-word-block-boundary-design.md</code> ·
+      선행 <code>73ad11c</code>(recall top_k 상향)
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<p>규격서 한 줄이 조용히 사라지는 것은 소프트웨어가 저지를 수 있는 가장 고약한 실패에
+속한다. 틀린 답을 내면 사람이 알아채지만, <strong>아예 언급하지 않으면 아무도 모른다.</strong>
+이 글은 그런 사건 하나를 처음부터 끝까지 따라간다 — 무엇이 사라졌는지, 어디서 사라졌는지,
+그리고 왜 “LLM 을 더 잘 시키면 된다”가 답이 아닌지를.</p>
+
+<div class="call">
+  <span class="t">📝 이 페이지의 “질문 메모” 사용법</span>
+  <p>읽다가 막히는 곳마다 <strong>질문 메모</strong> 상자가 놓여 있다. 거기에 바로 타이핑하면
+  브라우저(localStorage)에 자동 저장되고, 페이지 맨 아래 고정 바의 <strong>질문 저장</strong>
+  버튼을 누르면 <em>질문이 박힌 채로</em> 같은 파일명으로 내려받아진다. 그 파일을 원래 경로에
+  덮어쓴 뒤 Claude 에게 “이 문서 질문에 답해줘”라고 하면 답이 채워진다.</p>
+</div>
+
+<h3 style="margin-top:30px">이 글을 함께 읽는 세 사람</h3>
+
+<p>설명이 누구에게 맞춰져야 하는지는 늘 애매하다. 그래서 이 글에는 <strong>배경이 전혀 다른
+세 사람</strong>이 함께 등장한다. 이들이 중간중간 서로에게 묻는다 — 한 사람에게는 당연한 것이
+다른 사람에게는 벽이기 때문이다.</p>
+
+<div class="cast">
+  <div class="c c-minsu">
+    <div class="nm">민수</div>
+    <div class="rl">입사 3개월 · 백엔드</div>
+    <p>파이썬은 쓸 줄 알지만 이 저장소는 처음이다. LLM 파이프라인이라는 말 자체가 아직 낯설다.
+    <strong>“그게 뭔데요?”</strong> 를 부끄러워하지 않는다.</p>
+  </div>
+  <div class="c c-jiyoung">
+    <div class="nm">지영</div>
+    <div class="rl">품질보증 · 규격 문서 담당</div>
+    <p>코드는 모르지만 <strong>이 문서들을 매일 손으로 대조해 온 사람</strong>이다. 도메인은
+    셋 중 가장 잘 안다. “실무에서는 이렇게 씁니다”가 무기.</p>
+  </div>
+  <div class="c c-taeho">
+    <div class="nm">태호</div>
+    <div class="rl">시니어 백엔드 · 10년차</div>
+    <p>캐시·비용·회귀에 예민하다. LLM 을 반쯤 믿는다. <strong>“그거 고치면 뭐가 깨지죠?”</strong>
+    를 반드시 묻는 사람.</p>
+  </div>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">배경 — 이 시스템이 무엇을 하는가</a>
+      <div class="sub">1.1 깊은 배경(아는 분은 건너뛰기) · 1.2 fact 엔진의 여섯 칸 · 1.3 워드는 문단을 어떻게 저장하나</div></li>
+    <li><a href="#case">사건 — 무엇이 사라졌나</a></li>
+    <li><a href="#cause">원인 추적 — 껍질이 두 겹이었다</a>
+      <div class="sub">3.1 첫 겹: 후보에서 잘림 · 3.2 둘째 겹: 블록 경계 · 3.3 정보가 죽는 자리 · 3.4 반전</div></li>
+    <li><a href="#intuition">직관 — 왜 코드가 판별하면 안 되는가</a></li>
+    <li><a href="#fix">수정 방법 — 네 개의 변경</a></li>
+    <li><a href="#walk">코드·데이터 흐름 워크스루</a></li>
+    <li><a href="#quiz">퀴즈 5문항</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================= -->
+<h2 id="bg"><span class="num">1</span>배경 — 이 시스템이 무엇을 하는가</h2>
+
+<h3>1.1 깊은 배경 <span style="font-size:15px;color:#5c6b7a;font-weight:400">(익숙하면 1.2 로 건너뛰세요)</span></h3>
+
+<p>ContentCompare 가 푸는 문제는 한 문장이다. <strong>엑셀에 정리된 “정답 규격표”가 있고,
+그 내용이 워드·PPT 로 흩어진 문서들에 제대로 반영됐는지 확인하고 싶다.</strong> 사람이 하면
+한 줄씩 눈으로 대조해야 하는 일이다.</p>
+
+<p>이 저장소에는 그 일을 하는 엔진이 둘 있는데, 오늘의 사건은 전적으로
+<strong><code>fact</code> 엔진</strong>에서 벌어진다. 이 엔진의 발상은 이렇다 — 문서를 먼저
+<strong>fact 카드</strong>로 바꿔 둔 다음, 카드끼리 비교한다.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th style="width:30%">fact 카드의 칸</th><th>내용</th></tr>
+  <tr><td><code>entity_name</code></td><td>무엇에 대한 사실인가 — “충전온도범위”</td></tr>
+  <tr><td><code>attributes</code></td><td><code>{이름: {값, 단위}}</code> — <code>{lower_limit: {15, ℃}}</code></td></tr>
+  <tr><td><code>evidence_text</code></td><td>원문 인용. <strong>사람이 할루시네이션을 검수하는 자리</strong></td></tr>
+  <tr><td><code>source</code></td><td>어느 블록에서 나왔나 — <code>w_b245</code></td></tr>
+</table>
+</div>
+
+<p>카드로 바꿔 두면 좋은 점이 있다. <strong>숫자와 단위가 구조화되면 LLM 없이 코드가
+결정적으로 비교할 수 있다.</strong> <code>15</code> 와 <code>15</code> 가 같은지는 기계가
+판단하면 되지, 언어 모델에게 물어볼 일이 아니다.</p>
+
+<p>그런데 여기 대가가 있다. <strong>카드로 바꾸는 순간, 카드에 안 담긴 내용은 영영 사라진다.</strong>
+이 문장이 오늘 이야기의 전부다.</p>
+
+<div class="dlg">
+  <div class="hd">첫 질문</div>
+  <div class="msg m-minsu"><div class="av">민</div><div class="bd">
+    <span class="nm">민수</span>
+    <p>잠깐요. 왜 문서를 그냥 통째로 LLM 한테 던지고 “다른 데 있나 봐줘”라고 안 해요?
+    그게 제일 간단하잖아요.</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>두 가지 때문입니다. 첫째, <strong>규격서는 길다</strong> — 수백 항목이 든 문서 둘을
+    통째로 넣으면 컨텍스트에 안 들어가고, 들어가도 모델이 중간을 흘립니다.</p>
+    <p>둘째가 더 중요한데요, <strong>대조할 원본이 남지 않습니다.</strong> LLM 이 “이 값은
+    같습니다”라고 했을 때, 그게 진짜인지 확인하려면 “어느 문장을 보고 그렇게 말했는가”가
+    있어야 합니다. 그래서 이 프로젝트는 문서를 먼저 <em>해석 없이</em> 관찰 가능한 정보로
+    옮겨 두고(<code>raw/</code> 계층), 그 위에서만 LLM 을 씁니다. 그래야 나중에 헛소리를
+    했을 때 <strong>맞대볼 원본</strong>이 있습니다.</p>
+  </div></div>
+  <div class="msg m-taeho"><div class="av">태</div><div class="bd">
+    <span class="nm">태호</span>
+    <p>그럼 “카드에 안 담긴 건 사라진다”는 건, 결국 <strong>추출 단계가 유일한 병목</strong>이라는
+    뜻이네요. 뒤에서 아무리 잘해도 앞에서 놓치면 끝인.</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>정확합니다. 그리고 오늘 사건이 바로 그 병목에서 일어납니다.</p>
+  </div></div>
+</div>
+
+<h3>1.2 fact 엔진의 여섯 칸</h3>
+
+<p>문서 하나는 아래 순서로 흘러간다. 칸 아래 배지는 <strong>누가 그 일을 하는가</strong>다.
+이 색 규약은 프로젝트의 다른 화면·문서에서도 그대로 쓰이므로 눈에 익혀 두면 좋다.</p>
+
+<p style="text-align:center">
+  <span class="actor a-code">⚙️ 코드</span>
+  <span class="actor a-llm">🤖 LLM</span>
+  <span class="actor a-emb">🔢 임베딩</span>
+  <span class="actor a-human">👤 사람</span>
+</p>
+
+<figure>
+<div class="scrollx">
+<svg viewBox="0 0 980 250" role="img" aria-label="fact 엔진 여섯 단계">
+  <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 z" fill="#7a8a99"/></marker></defs>
+  <g font-family="sans-serif">
+    <rect x="14" y="60" width="140" height="76" rx="10" fill="#e8f1fb" stroke="#1565c0" stroke-width="1.6"/>
+    <text x="84" y="84" text-anchor="middle" font-size="13.5" font-weight="700" fill="#0d3f73">F0 · raw</text>
+    <text x="84" y="103" text-anchor="middle" font-size="11.5" fill="#31536f">문서를 그대로 옮김</text>
+    <text x="84" y="121" text-anchor="middle" font-size="11.5" fill="#1565c0" font-weight="700">⚙️ 코드</text>
+
+    <rect x="180" y="60" width="140" height="76" rx="10" fill="#e8f1fb" stroke="#1565c0" stroke-width="1.6"/>
+    <text x="250" y="84" text-anchor="middle" font-size="13.5" font-weight="700" fill="#0d3f73">F0 · compact</text>
+    <text x="250" y="103" text-anchor="middle" font-size="11.5" fill="#31536f">LLM 입력용 축약</text>
+    <text x="250" y="121" text-anchor="middle" font-size="11.5" fill="#1565c0" font-weight="700">⚙️ 코드</text>
+
+    <rect x="346" y="60" width="140" height="76" rx="10" fill="#fdf0e3" stroke="#e65100" stroke-width="1.6"/>
+    <text x="416" y="84" text-anchor="middle" font-size="13.5" font-weight="700" fill="#8a3b00">F3 · facts</text>
+    <text x="416" y="103" text-anchor="middle" font-size="11.5" fill="#7a4a20">카드로 만들기</text>
+    <text x="416" y="121" text-anchor="middle" font-size="11.5" fill="#e65100" font-weight="700">🤖 LLM</text>
+
+    <rect x="512" y="60" width="160" height="76" rx="10" fill="#fdf0e3" stroke="#e65100" stroke-width="1.6"/>
+    <text x="592" y="80" text-anchor="middle" font-size="13.5" font-weight="700" fill="#8a3b00">F7 · 개념 그래프</text>
+    <text x="592" y="98" text-anchor="middle" font-size="11.5" fill="#7a4a20">“비교해도 되나?”</text>
+    <text x="592" y="119" text-anchor="middle" font-size="11" fill="#7a4a20">
+      <tspan fill="#00796b" font-weight="700">🔢</tspan> 후보 ·
+      <tspan fill="#e65100" font-weight="700">🤖</tspan> 연결 ·
+      <tspan fill="#1565c0" font-weight="700">⚙️</tspan> 차단</text>
+
+    <rect x="698" y="60" width="140" height="76" rx="10" fill="#e8f1fb" stroke="#1565c0" stroke-width="1.6"/>
+    <text x="768" y="84" text-anchor="middle" font-size="13.5" font-weight="700" fill="#0d3f73">F5 · 값 대조</text>
+    <text x="768" y="103" text-anchor="middle" font-size="11.5" fill="#31536f">“같은가 다른가”</text>
+    <text x="768" y="121" text-anchor="middle" font-size="11.5" fill="#1565c0" font-weight="700">⚙️ 코드 (+🤖)</text>
+
+    <rect x="864" y="60" width="102" height="76" rx="10" fill="#eef3f7" stroke="#7a8a99" stroke-width="1.6"/>
+    <text x="915" y="92" text-anchor="middle" font-size="13" font-weight="700" fill="#33475a">리포트</text>
+    <text x="915" y="111" text-anchor="middle" font-size="11.5" fill="#5c6b7a">사람이 검수</text>
+
+    <line x1="156" y1="98" x2="176" y2="98" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="322" y1="98" x2="342" y2="98" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="488" y1="98" x2="508" y2="98" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="674" y1="98" x2="694" y2="98" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="840" y1="98" x2="860" y2="98" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar)"/>
+
+    <line x1="333" y1="30" x2="333" y2="180" stroke="#c62828" stroke-width="2.4" stroke-dasharray="7 5"/>
+    <text x="333" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">LLM 은 이 오른쪽만 본다</text>
+    <text x="333" y="200" text-anchor="middle" font-size="12" fill="#c62828">왼쪽에서 버린 것은 되찾을 수 없다</text>
+    <text x="14" y="232" font-size="12" fill="#5c6b7a">※ 오늘의 사건은 빨간 점선 <tspan font-weight="700">왼쪽</tspan>에서 벌어진다. 그런데 증상은 맨 오른쪽 리포트에서 나타난다.</text>
+  </g>
+</svg>
+</div>
+<figcaption>fact 엔진의 여섯 칸. 이 그림은 뒤에서 계속 다시 나온다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="bg-pipeline" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">파이프라인 그림에서 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>1.3 워드는 문단을 어떻게 저장하나 — 이 글의 핵심 지식</h3>
+
+<p><code>.docx</code> 파일은 사실 zip 으로 압축된 XML 묶음이다. 그 안의
+<code>word/document.xml</code> 을 열면 본문이 태그로 적혀 있는데, 오늘 필요한 것은 셋뿐이다.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th style="width:22%">태그</th><th style="width:24%">사람이 하는 동작</th><th>의미</th></tr>
+  <tr><td><code>&lt;w:p&gt;</code></td><td>Enter ⏎</td>
+      <td><strong>문단</strong>의 시작과 끝. 워드가 생각하는 “한 덩어리”의 단위</td></tr>
+  <tr><td><code>&lt;w:br/&gt;</code></td><td>Shift + Enter ⇧⏎</td>
+      <td><strong>줄바꿈</strong>. 화면에서는 줄이 바뀌지만 <em>문단은 끝나지 않는다</em></td></tr>
+  <tr><td><code>&lt;w:ind&gt;</code></td><td>Tab 또는 들여쓰기 설정</td>
+      <td><strong>문단 들여쓰기</strong>. 문단 전체를 오른쪽으로 민다</td></tr>
+</table>
+</div>
+
+<p>그리고 우리 파서(<code>raw/word_raw.py</code>)가 하는 일은 놀랄 만큼 단순하다.</p>
+
+<p class="filepath">contentcompare/raw/word_raw.py:190 — parse_word_xml()</p>
+<pre>for el in list(body):
+    <span class="hl2">if el.tag == _w("p"):        # &lt;w:p&gt; 하나 = 블록 하나</span>
+        probes.append(_parse_paragraph(el))
+    elif el.tag == _w("tbl"):    # &lt;w:tbl&gt; 하나 = 표 하나
+        probes.append(TableProbe(rows=_parse_table(el)))</pre>
+
+<p><strong>문단 하나가 들어오면 블록 하나가 나간다.</strong> 판단도, 추론도 없다. 그리고 바로
+여기에 이 글 전체를 관통하는 문제가 숨어 있다.</p>
+
+<div class="call key">
+  <span class="t">🔑 오늘의 핵심 문장</span>
+  <p><strong>블록 경계는 의미의 경계가 아니라, 작성자가 Enter 를 눌렀는지 Shift+Enter 를
+  눌렀는지의 기록이다.</strong></p>
+  <p style="margin-bottom:0">같은 표를 두 사람이 쓰면 한 사람은 문단 하나에 줄바꿈으로,
+  다른 사람은 문단 여러 개로 만든다. 내용은 같은데 우리 눈에는 전혀 다른 구조로 보인다.</p>
+</div>
+
+<div class="dlg">
+  <div class="hd">여기서 지영이 끼어든다</div>
+  <div class="msg m-jiyoung"><div class="av">지</div><div class="bd">
+    <span class="nm">지영</span>
+    <p>그 말씀이… 실무 감각으로는 너무 당연한데요? 저희 규격서 쓸 때 표 안 만들고
+    <strong>탭이랑 줄바꿈으로 표 흉내</strong> 내는 분들 진짜 많아요. 그게 빠르니까요.
+    그러면 그 문서들은 다 이 문제를 겪는 건가요?</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>네. 그리고 그게 이 문제를 “잘못 쓴 문서 탓”으로 넘길 수 없는 이유입니다.
+    <strong>실무에서 흔한 쓰기 방식이면, 그건 문서의 결함이 아니라 우리 도구의 결함입니다.</strong></p>
+  </div></div>
+  <div class="msg m-minsu"><div class="av">민</div><div class="bd">
+    <span class="nm">민수</span>
+    <p>근데 저 <code>&lt;w:p&gt;</code>, <code>&lt;w:br/&gt;</code> 구분이 왜 중요한지 아직
+    잘… 어차피 화면에는 똑같이 줄이 바뀌어 보이는 거잖아요?</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p><strong>사람 눈에는 똑같고, 코드 눈에는 완전히 다릅니다.</strong> 위 반복문이
+    <code>&lt;w:body&gt;</code> 의 <em>직계 자식</em>만 훑는데, <code>&lt;w:br/&gt;</code> 는
+    <code>&lt;w:p&gt;</code> <em>안쪽</em>에 있어서 이 반복문 눈에는 아예 안 보입니다.</p>
+    <p>그래서 같은 네 줄이라도 —</p>
+    <p>· Shift+Enter 로 썼으면 → <strong>블록 1개</strong>(안에 줄 4개)<br>
+       · Enter 로 썼으면 → <strong>블록 4개</strong></p>
+    <p>이 차이가 뒤의 모든 단계를 바꿉니다.</p>
+  </div></div>
+</div>
+
+<div class="qmemo" data-qid="bg-word-tags" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">워드 태그 · 파서 동작에서 막히는 부분을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="case"><span class="num">2</span>사건 — 무엇이 사라졌나</h2>
+
+<p>사용자 규격서(워드)에 이렇게 적혀 있었다. 온도 구간마다 충전 전류와 전압이 다른,
+아주 평범한 조건표다.</p>
+
+<figure>
+<div class="scrollx">
+<svg viewBox="0 0 900 250" role="img" aria-label="원본 문서의 네 줄과 그중 두 줄이 레이블을 생략한 모습">
+  <g font-family="sans-serif">
+    <rect x="24" y="26" width="852" height="150" rx="12" fill="#fdf7ee" stroke="#e65100" stroke-width="2"/>
+    <text x="40" y="18" font-size="12.5" font-weight="700" fill="#8a3b00">원본 문서(사람이 보는 화면)</text>
+    <g font-family="monospace" font-size="15">
+      <text x="48" y="58" fill="#16202a">12~15도씨,  0.7C(4.55V)</text>
+      <text x="48" y="88" fill="#16202a">15~45도씨,  1.2C(4.20V)</text>
+      <text x="212" y="118" fill="#16202a">1.1C(4.28V)</text>
+      <text x="212" y="148" fill="#16202a">0.8C(4.55V)</text>
+    </g>
+    <path d="M186,84 C176,84 176,114 200,114" stroke="#c62828" stroke-width="1.8" fill="none"/>
+    <path d="M186,84 C168,84 168,144 200,144" stroke="#c62828" stroke-width="1.8" fill="none"/>
+    <text x="470" y="118" font-size="13" fill="#c62828" font-weight="700">← 이 두 줄은 "15~45도씨" 를 생략했다</text>
+    <text x="470" y="140" font-size="12.5" fill="#c62828">   (같은 온도 구간, 다른 전류/전압)</text>
+
+    <text x="24" y="205" font-size="13" fill="#33475a">사람은 <tspan font-weight="700">가로 정렬</tspan>만 보고 "아, 위와 같은 온도구간이구나" 를 즉시 안다.</text>
+    <text x="24" y="228" font-size="13" fill="#33475a">이 정보는 글자에 없다 — <tspan font-weight="700">빈칸의 위치</tspan>에 있다.</text>
+  </g>
+</svg>
+</div>
+<figcaption>세 번째·네 번째 줄은 온도 구간을 적지 않았다. 사람은 정렬로 읽지만, 그 정렬은
+<strong>텍스트가 아니라 공백</strong>이다.</figcaption>
+</figure>
+
+<p>그런데 우리 파이프라인의 첫 산출물 <code>physical_raw.json</code> 은 이렇게 나왔다.</p>
+
+<pre>{ "block_id": <span class="hl2">"w_b245"</span>,
+  "text": "12~15도씨, 0.7C(4.55V) 15~45도씨, 1.2C (4.20V)" }
+
+{ "block_id": <span class="hl2">"w_b246"</span>,
+  "text": <span class="hl">"1.1C(4.28V) 0.8C (4.55V)"</span> }   <span class="c">// ← 주어가 없다</span></pre>
+
+<p>블록이 <strong>둘로 갈라졌다.</strong> 작성자가 두 번째 줄 끝에서 Enter 를 눌렀기
+때문이다. 그리고 <code>w_b246</code> 에는 <strong>“무엇에 대한 값인지”가 한 글자도 없다.</strong></p>
+
+<p>결과적으로 fact 카드는 이렇게 만들어졌다.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th style="width:26%">원문 줄</th><th style="width:20%">fact 가 됐나</th><th>결과</th></tr>
+  <tr class="good"><td>12~15도씨, 0.7C</td><td>✅ 됨</td><td>정상 비교</td></tr>
+  <tr class="good"><td>15~45도씨, 1.2C</td><td>✅ 됨</td><td>정상 비교</td></tr>
+  <tr class="bad"><td>(15~45도씨,) 1.1C</td><td>❌ 안 됨</td><td><strong>리포트에 존재하지 않음</strong></td></tr>
+  <tr class="bad"><td>(15~45도씨,) 0.8C</td><td>❌ 안 됨</td><td><strong>리포트에 존재하지 않음</strong></td></tr>
+</table>
+</div>
+
+<div class="dlg">
+  <div class="hd">지영의 실무 감각</div>
+  <div class="msg m-jiyoung"><div class="av">지</div><div class="bd">
+    <span class="nm">지영</span>
+    <p>이거… 생각보다 심각한데요. 저 <code>1.1C(4.28V)</code> 라인은 <strong>실제 양산에서
+    쓰는 조건</strong>이에요. 같은 온도 구간이라도 전압을 어디까지 올리느냐에 따라 전류를
+    낮춰야 하거든요. 그게 빠지면 “규격서와 일치함”이라고 보고서가 나가는데
+    <strong>정작 검증 안 된 조건이 하나 숨어 있는</strong> 상태가 되는 거죠.</p>
+  </div></div>
+  <div class="msg m-taeho"><div class="av">태</div><div class="bd">
+    <span class="nm">태호</span>
+    <p>그러니까 <span class="v v-mismatch">❌ 불일치</span> 로 나오는 것보다 나쁘네요.
+    불일치는 사람이 보고 확인하는데, <strong>아예 없으면 볼 일 자체가 안 생기니까.</strong></p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>그렇습니다. 이 프로젝트가 <span class="v v-unknown">❓ 판단보류</span> 를 1급 상태로
+    두는 이유도 같습니다 — <strong>모르면 모른다고 말하는 게, 조용히 빠뜨리는 것보다 낫다</strong>는
+    원칙이죠. 이번 건은 그 원칙이 적용될 기회조차 없었던 경우입니다.</p>
+  </div></div>
+</div>
+
+<div class="qmemo" data-qid="case-what-vanished" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">사건 자체에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="cause"><span class="num">3</span>원인 추적 — 껍질이 두 겹이었다</h2>
+
+<p>처음 보고된 증상은 사실 <em>두 개</em>였다. 그리고 둘은 완전히 다른 층에 있었다.
+추적 과정을 그대로 따라가 보자 — 결론보다 <strong>어떻게 좁혀 갔는지</strong>가 더 쓸모 있다.</p>
+
+<h3>3.1 첫 겹 — 후보 목록에서 잘려 나갔다</h3>
+
+<p>다른 항목 하나(<code>fact-word-53</code>)가 비교 리포트의 “후보별 내역”에 없었다.
+질문은 이랬다. <strong>누가 뺐는가?</strong></p>
+
+<p>이 프로젝트는 판정마다 <strong>누가 판단했는지</strong>를 남긴다. 그게 첫 단서가 됐다.</p>
+
+<pre>{ "entity_name": "충전환경온도",
+  <span class="hl">"candidate_count": 4,</span>     <span class="c">// ← 비교 단계가 받은 후보 수</span>
+  "findings": [ ...4건... ],
+  "dropped_findings": 0 }      <span class="c">// ← 버려진 내역 없음</span></pre>
+
+<p><strong>후보가 애초에 4건이었다.</strong> 즉 53번은 비교 단계에 도착조차 못 했다.
+그러면 범인은 그 앞 — 개념 그래프(F7)다. 그런데 F7 은 한 칸이 아니라 <strong>셋</strong>이다.</p>
+
+<figure>
+<div class="scrollx">
+<svg viewBox="0 0 920 220" role="img" aria-label="F7 세 관문과 각 관문의 행위자">
+  <defs><marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+    <path d="M0,0 L7,3.2 L0,6.4 z" fill="#7a8a99"/></marker></defs>
+  <g font-family="sans-serif">
+    <rect x="16" y="40" width="270" height="100" rx="10" fill="#e2f2f0" stroke="#00796b" stroke-width="1.8"/>
+    <text x="30" y="64" font-size="13.5" font-weight="700" fill="#00594e">① 후보 좁히기 <tspan font-size="11.5">🔢 임베딩</tspan></text>
+    <text x="30" y="86" font-size="12" fill="#0f5f56">상위 top_k 건만 다음 칸으로</text>
+    <text x="30" y="106" font-size="12" fill="#0f5f56">탈락하면 candidate_pairs.json 에</text>
+    <text x="30" y="126" font-size="12" fill="#0f5f56">cut_by = "top_k" / "min_score"</text>
+
+    <rect x="312" y="40" width="270" height="100" rx="10" fill="#fdf0e3" stroke="#e65100" stroke-width="1.8"/>
+    <text x="326" y="64" font-size="13.5" font-weight="700" fill="#8a3b00">② 관계 판정 <tspan font-size="11.5">🤖 LLM</tspan></text>
+    <text x="326" y="86" font-size="12" fill="#7a4a20">"같은 개념인가?" same_as / differs_by</text>
+    <text x="326" y="106" font-size="12" fill="#7a4a20">응답에서 빠지면 unknown 으로 기록</text>
+    <text x="326" y="126" font-size="12" fill="#7a4a20">→ concept_graph.json</text>
+
+    <rect x="608" y="40" width="296" height="100" rx="10" fill="#e8f1fb" stroke="#1565c0" stroke-width="1.8"/>
+    <text x="622" y="64" font-size="13.5" font-weight="700" fill="#0d3f73">③ 검증·병합 <tspan font-size="11.5">⚙️ 코드</tspan></text>
+    <text x="622" y="86" font-size="12" fill="#31536f">인용이 원문에 실재하나(80%)</text>
+    <text x="622" y="106" font-size="12" fill="#31536f">differs_by 를 위반하지 않나</text>
+    <text x="622" y="126" font-size="12" fill="#31536f">→ rejected_by 로 사유 기록</text>
+
+    <line x1="290" y1="90" x2="308" y2="90" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar2)"/>
+    <line x1="586" y1="90" x2="604" y2="90" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar2)"/>
+
+    <text x="16" y="170" font-size="13" font-weight="700" fill="#33475a">세 칸의 조치가 전부 다르다 — 어느 칸인지 모르면 고칠 수 없다</text>
+    <text x="16" y="192" font-size="12.5" fill="#5c6b7a">① 설정값(top_k) · ② 배치 크기·프롬프트 · ③ 근거 인용 품질</text>
+  </g>
+</svg>
+</div>
+<figcaption>F7 의 세 관문. 셋 다 “후보가 안 생겼다”는 같은 증상을 만들지만 원인과 조치는 전혀 다르다.</figcaption>
+</figure>
+
+<p>산출물에 각 칸이 흔적을 남기므로, 추적기를 하나 만들어 돌렸다
+(<code>scripts/why_findings.py --trace-fact</code>). 답은 <strong>①</strong> 이었다.</p>
+
+<pre>① recall — 후보 쌍 생성 (🔢 임베딩)
+   ❌ 탈락 — <span class="hl">cut_by=top_k</span>
+      조치: concept_recall_top_k 를 올리세요.</pre>
+
+<p>기본값이 <code>5</code> 였다. 그런데 이 문서는 <strong>충전 온도 구간만으로 형제 fact 가
+다섯</strong>이다. 거기에 다른 온도 항목들까지 같은 다섯 자리를 두고 경쟁하니, 정답이 6등으로
+밀려 잘렸다. <strong>5는 “형제가 4명 이하”라는 가정이었고, 규격표는 그 가정을 일상적으로
+깬다.</strong></p>
+
+<div class="call ok">
+  <span class="t">✅ 첫 겹은 설정 한 줄로 해결됐다 (커밋 <code>73ad11c</code>)</span>
+  <p style="margin-bottom:0"><code>concept_recall_top_k: 5 → 10</code>. 올려도 위험이 낮은 이유는
+  이 값이 <strong>판정이 아니라 recall</strong> 이기 때문이다 — 후보가 늘어도 연결은 여전히
+  LLM 제안 → 코드 인용 검증 → 차단을 거친다. 그리고 실패 방향이 비대칭이다:
+  작으면 “대상에 없다”는 <strong>확신에 찬 거짓</strong>, 크면 검토 목록에 남는 <strong>시끄러운 정직</strong>.</p>
+</div>
+
+<div class="dlg">
+  <div class="hd">태호의 반사적 의심</div>
+  <div class="msg m-taeho"><div class="av">태</div><div class="bd">
+    <span class="nm">태호</span>
+    <p>잠깐, 그거 그냥 숫자 올린 거잖아요. <strong>그러다 100 으로 올리면 다 해결되나요?</strong>
+    이런 “임계값 튜닝”은 보통 근본 원인을 덮던데.</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>정당한 의심이고, 절반은 맞습니다. 두 가지로 나눠 답하겠습니다.</p>
+    <p><strong>왜 튜닝이 아닌가:</strong> 5라는 값에는 “한 항목의 짝 후보는 5개 이하”라는
+    <em>가정</em>이 박혀 있었습니다. 조건별로 쪼개진 규격표에서는 형제만으로 다섯이 넘습니다.
+    가정이 틀렸으니 값을 고치는 게 맞습니다.</p>
+    <p><strong>왜 그래도 근본이 아닌가:</strong> 53번이 6등으로 밀린 이유가
+    <strong>반쪽짜리 fact 라서일 가능성</strong>이 있습니다. 내용이 부실하면 유사도가 낮게
+    나오죠. 그러면 다음 문서에서는 11등으로 밀립니다. 그래서 이건 <strong>안전망이지
+    수리가 아닙니다.</strong> 진짜 수리는 둘째 겹입니다.</p>
+  </div></div>
+  <div class="msg m-taeho"><div class="av">태</div><div class="bd">
+    <span class="nm">태호</span>
+    <p>비용은요? 후보를 두 배로 보면 LLM 호출도 두 배 아닌가요?</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>맞습니다. 다만 계산 가능합니다 — <code>기준 fact 수 × top_k ÷ 배치크기</code> 입니다.
+    실측으로 공식을 검증했고(24 × 5 ÷ 20 = 6회, 실제 6회), 예산 300 이면
+    <strong>기준 fact 600개까지</strong> 감당합니다. 여유가 큽니다.</p>
+  </div></div>
+</div>
+
+<h3>3.2 둘째 겹 — 블록 경계</h3>
+
+<p>이제 진짜 문제로 돌아온다. <code>w_b246</code> 에서 왜 fact 가 안 나왔나?</p>
+
+<p>답은 <strong>“나올 수 없었다”</strong> 이고, 더 중요한 건 <strong>그게 옳은 동작이었다</strong>는
+점이다. F3 프롬프트가 LLM 에게 이렇게 요구하고 있다.</p>
+
+<p class="filepath">contentcompare/fact/prompts.py — FACT_SYSTEM</p>
+<pre>- evidence_text 는 입력에 실제로 있는 문구만 적습니다(<span class="hl">지어내기 금지</span>).
+- 비교할 사실이 없는 장식/목차/빈 블록은 fact 로 만들지 않습니다.</pre>
+
+<p>LLM 이 본 것은 <code>[w_b246] 1.1C(4.28V) 0.8C (4.55V)</code> 였다. 무엇에 대한 값인지
+알 수 없는 숫자 두 개. <strong>규칙에 충실하게 버린 것이다.</strong></p>
+
+<h3>3.3 정보가 죽는 자리 — 변환 사슬을 따라가기</h3>
+
+<p>그렇다면 “15~45도씨”라는 정보는 어디서 사라졌을까. 실제로 파서에 그 모양을 넣고
+단계마다 값을 찍어 봤다. 결과가 결정적이다.</p>
+
+<figure>
+<div class="scrollx">
+<svg viewBox="0 0 940 340" role="img" aria-label="네 단계 변환에서 들여쓰기 정보가 사라지는 자리">
+  <defs><marker id="ar3" markerWidth="10" markerHeight="10" refX="8" refY="3.4" orient="auto">
+    <path d="M0,0 L8,3.4 L0,6.8 z" fill="#7a8a99"/></marker></defs>
+  <g font-family="sans-serif">
+    <!-- 1 -->
+    <rect x="16" y="30" width="908" height="62" rx="9" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.8"/>
+    <text x="30" y="50" font-size="13" font-weight="700" fill="#1b5e20">① ParaProbe.text — 워드에서 막 꺼낸 날것</text>
+    <text x="30" y="76" font-size="13" font-family="monospace" fill="#1b5e20">'15~45도씨, 1.2C(4.20V)\n<tspan font-weight="700">                       </tspan>1.1C(4.28V)'   ← 공백 23칸이 살아 있다 ✅</text>
+
+    <line x1="470" y1="94" x2="470" y2="112" stroke="#7a8a99" stroke-width="1.8" marker-end="url(#ar3)"/>
+
+    <!-- 2 -->
+    <rect x="16" y="116" width="440" height="76" rx="9" fill="#fdecea" stroke="#c62828" stroke-width="1.8"/>
+    <text x="30" y="136" font-size="13" font-weight="700" fill="#8f1f18">②-A block.text</text>
+    <text x="30" y="156" font-size="11.5" font-family="monospace" fill="#8f1f18">" ".join(text.split())</text>
+    <text x="30" y="178" font-size="12" font-family="monospace" fill="#8f1f18">'... 1.2C(4.20V) 1.1C(4.28V)'  ❌</text>
+
+    <rect x="484" y="116" width="440" height="76" rx="9" fill="#fdecea" stroke="#c62828" stroke-width="1.8"/>
+    <text x="498" y="136" font-size="13" font-weight="700" fill="#8f1f18">②-B lines[].raw_text</text>
+    <text x="498" y="156" font-size="11.5" font-family="monospace" fill="#8f1f18">piece.strip()</text>
+    <text x="498" y="178" font-size="12" font-family="monospace" fill="#8f1f18">'1.1C(4.28V)'  ← 들여쓰기 지워짐 ❌</text>
+
+    <line x1="236" y1="194" x2="236" y2="214" stroke="#7a8a99" stroke-width="1.8" marker-end="url(#ar3)"/>
+
+    <!-- 3 -->
+    <rect x="16" y="218" width="440" height="58" rx="9" fill="#eceff1" stroke="#90a4ae" stroke-width="1.6"/>
+    <text x="30" y="238" font-size="13" font-weight="700" fill="#37474f">③ compact_raw — LLM 입력용 축약</text>
+    <text x="30" y="260" font-size="12" font-family="monospace" fill="#37474f">text 만 옮긴다 (lines 는 안 실린다)</text>
+
+    <line x1="470" y1="247" x2="512" y2="247" stroke="#7a8a99" stroke-width="1.8" marker-end="url(#ar3)"/>
+
+    <rect x="520" y="218" width="404" height="58" rx="9" fill="#fdf0e3" stroke="#e65100" stroke-width="1.8"/>
+    <text x="534" y="238" font-size="13" font-weight="700" fill="#8a3b00">④ F3 프롬프트 — 🤖 LLM 이 실제로 보는 것</text>
+    <text x="534" y="260" font-size="12" font-family="monospace" fill="#8a3b00">[w_b246] 1.1C(4.28V) 0.8C (4.55V)</text>
+
+    <text x="16" y="306" font-size="13.5" font-weight="700" fill="#c62828">정보는 파일에서 나올 때 존재했다. 우리 코드가 두 번 버렸다.</text>
+    <text x="16" y="328" font-size="12.5" fill="#5c6b7a">②-A 는 compact 로 가는 값, ②-B 는 진단용으로 남기는 값. 둘 다 공백을 지운다.</text>
+  </g>
+</svg>
+</div>
+<figcaption>변환 사슬. 초록 = 정보 있음, 빨강 = 정보 소실. <strong>①에서는 살아 있었다</strong>는
+것이 이 그림의 요점이다 — 다시 읽어올 필요도, 새 라이브러리도 필요 없다.</figcaption>
+</figure>
+
+<p>코드로 보면 딱 두 줄이다.</p>
+
+<p class="filepath">contentcompare/raw/word_raw.py:86 · :129</p>
+<pre><span class="c"># build_word_doc() — compact 로 갈 값을 만든다</span>
+<span class="hl">text = " ".join((p.text or "").split())</span>   <span class="c"># 줄바꿈·들여쓰기 → 공백 하나</span>
+
+<span class="c"># _split_lines() — 진단용 줄 목록을 만든다</span>
+<span class="hl">raw = piece.strip()</span>                       <span class="c"># 양끝 공백 제거</span></pre>
+
+<div class="dlg">
+  <div class="hd">민수의 당연한 질문</div>
+  <div class="msg m-minsu"><div class="av">민</div><div class="bd">
+    <span class="nm">민수</span>
+    <p>어… 그럼 그냥 저 두 줄에서 <code>.split()</code> 이랑 <code>.strip()</code> 을
+    빼면 되는 거 아니에요? 왜 이렇게 큰일처럼 다루는지…</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>좋은 질문이고, 답은 “그 두 줄이 <strong>다른 일도 하고 있다</strong>”입니다.</p>
+    <p><code>strip()</code> 을 빼면 <code>raw_text</code> 가 바뀝니다. 그런데 이 값은
+    <strong>근거 인용 검증</strong>에 쓰입니다 — “LLM 이 인용한 문장이 원문에 실재하는가”를
+    문자열 대조로 확인하는데, 여기 규약이 흔들리면 멀쩡한 인용이 검증에 실패하기 시작합니다.</p>
+    <p><code>split()</code> 을 빼면 <code>block.text</code> 가 바뀌고, 이 값은
+    <code>compact_raw</code> 를 타고 LLM 프롬프트로 갑니다. 프롬프트가 바뀌면
+    <strong>모든 문서의 추출 캐시가 무효화</strong>되고요.</p>
+    <p>그래서 “빼면 된다”가 아니라 <strong>“버리지 않고 따로 기록한다”</strong>가 답이 됩니다.
+    §5 에서 그렇게 설계합니다.</p>
+  </div></div>
+  <div class="msg m-taeho"><div class="av">태</div><div class="bd">
+    <span class="nm">태호</span>
+    <p>캐시 얘기 나온 김에 — <strong>캐시 지문이 뭐 기준</strong>이에요?</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p><code>compact_raw</code> 의 JSON 해시 + 프롬프트 버전 문자열입니다.</p>
+    <pre style="margin:8px 0">fp = fingerprint_for(json.dumps(compact), FACT_VERSION)
+data = store.cached_or_compute("facts", compute, fingerprint=fp)</pre>
+    <p>즉 <strong>compact 이 한 글자만 바뀌어도 그 문서는 fact 를 다시 뽑습니다</strong>(=LLM 을
+    다시 부릅니다). 이 사실이 §5 설계 전체를 좌우합니다.</p>
+  </div></div>
+</div>
+
+<h3>3.4 반전 — “한꺼번에 보여주기”는 이미 하고 있었다</h3>
+
+<p>여기서 자연스러운 제안이 나온다. <em>“블록을 하나씩 보여주니까 못 잇는 거 아닌가?
+여러 개를 한꺼번에 주고 LLM 이 알아서 판단하게 하자.”</em></p>
+
+<p>맞는 방향이다. 그런데 <strong>이미 그렇게 하고 있다.</strong> F3 는 블록을 20개씩 묶어
+한 번에 보낸다(<code>fact_batch_blocks: 20</code>). 그러면 245와 246은 같은 묶음에 들어갔을까?
+배치 경계를 계산해 보면 답이 나온다.</p>
+
+<pre><span class="c"># _pack_batches: 블록 1개 = 그룹 1개, 20개씩 순서대로 채운다 (겹침 없음)</span>
+배치 경계:  1–20 │ 21–40 │ … │ <span class="ok">241–260</span> │ 261–280
+
+w_b245 → 241–260 배치
+w_b246 → 241–260 배치   <span class="hl2">← 같은 배치 = 같은 LLM 호출</span></pre>
+
+<div class="call warn">
+  <span class="t">⚠️ 그러므로 원인은 “맥락 부족”이 아니다</span>
+  <p style="margin-bottom:0">LLM 은 <strong>두 블록을 나란히 보고도</strong> 잇지 못했다.
+  그러니 “더 많이 보여주면 된다”로는 안 낫는다. 진짜 원인은 둘이다 —
+  <strong>(가) 프롬프트가 블록을 원자로 못 박고</strong>,
+  <strong>(나) 판단 근거(들여쓰기)를 우리가 먼저 지웠다.</strong></p>
+</div>
+
+<p>(가)를 확인해 보자. <code>FACT_SYSTEM</code> 의 구조 관련 규칙은 <strong>단 한 줄</strong>이고,
+방향이 하나뿐이다.</p>
+
+<pre>- 흩어진 서술(본문+스피커노트, 표+설명)이 같은 대상이면 <span class="hl">하나의 fact 로 병합</span>합니다.</pre>
+
+<p><strong>병합만 있고 분해가 없다.</strong> “한 블록이 여러 fact 일 수 있다”거나 “레이블 없는
+블록이 앞 블록의 레이블을 이어받을 수 있다”는 말은 어디에도 없다. 오히려 첫 문장이
+<em>“각 항목 앞의 [id] 가 붙은 블록을 보고”</em> 라고 블록을 단위로 못 박는다.</p>
+
+<div class="qmemo" data-qid="cause-two-layers" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">원인 추적 과정에서 논리가 건너뛴 것 같은 곳이 있으면 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="intuition"><span class="num">4</span>직관 — 왜 코드가 판별하면 안 되는가</h2>
+
+<p>가장 먼저 떠오르는 해법은 이것이다. <em>“선행 공백이 있으면 앞 줄의 레이블을 복사해
+채우면 되잖아?”</em> 실제로 이 프로젝트는 <strong>표에서 이미 그 일을 하고 있다.</strong></p>
+
+<figure>
+<div class="scrollx">
+<svg viewBox="0 0 900 260" role="img" aria-label="표의 vMerge 는 왜 안전하고 문단 들여쓰기는 왜 위험한가">
+  <g font-family="sans-serif">
+    <!-- left: table -->
+    <rect x="20" y="34" width="400" height="150" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.8"/>
+    <text x="36" y="26" font-size="12.5" font-weight="700" fill="#1b5e20">표 — 안전하다</text>
+    <g font-family="monospace" font-size="12.5">
+      <rect x="44" y="52" width="150" height="34" fill="#fff" stroke="#8bbf90"/>
+      <text x="56" y="74" fill="#16202a">15~45℃</text>
+      <rect x="194" y="52" width="150" height="34" fill="#fff" stroke="#8bbf90"/>
+      <text x="206" y="74" fill="#16202a">1.2C</text>
+      <rect x="44" y="86" width="150" height="34" fill="#f1f8f1" stroke="#8bbf90" stroke-dasharray="3 3"/>
+      <text x="56" y="108" fill="#2e7d32">(vMerge)</text>
+      <rect x="194" y="86" width="150" height="34" fill="#fff" stroke="#8bbf90"/>
+      <text x="206" y="108" fill="#16202a">1.1C</text>
+      <rect x="44" y="120" width="150" height="34" fill="#f1f8f1" stroke="#8bbf90" stroke-dasharray="3 3"/>
+      <text x="56" y="142" fill="#2e7d32">(vMerge)</text>
+      <rect x="194" y="120" width="150" height="34" fill="#fff" stroke="#8bbf90"/>
+      <text x="206" y="142" fill="#16202a">0.8C</text>
+    </g>
+    <text x="36" y="176" font-size="12" fill="#1b5e20">워드가 &lt;w:vMerge/&gt; 로 <tspan font-weight="700">명시</tspan>한다 → 코드가 채워도 안전</text>
+
+    <!-- right: paragraph -->
+    <rect x="450" y="34" width="430" height="150" rx="10" fill="#fdecea" stroke="#c62828" stroke-width="1.8"/>
+    <text x="466" y="26" font-size="12.5" font-weight="700" fill="#8f1f18">문단 — 위험하다</text>
+    <g font-family="monospace" font-size="12.5">
+      <text x="470" y="66" fill="#16202a">15~45℃, 1.2C</text>
+      <text x="546" y="90" fill="#16202a">1.1C</text>
+      <text x="470" y="126" fill="#16202a">※ 위 값은 25℃ 기준임</text>
+      <text x="546" y="150" fill="#16202a">(각주 계속)</text>
+    </g>
+    <text x="466" y="112" font-size="11.5" fill="#c62828">← 연속행? 맞다</text>
+    <text x="466" y="172" font-size="11.5" fill="#c62828">← 연속행? <tspan font-weight="700">아니다 — 각주다</tspan></text>
+
+    <text x="20" y="212" font-size="13" font-weight="700" fill="#33475a">둘 다 "들여쓴 줄"이다. 코드는 이 둘을 구분할 근거가 없다.</text>
+    <text x="20" y="236" font-size="12.5" fill="#5c6b7a">표가 안전한 이유는 우리가 잘 추측해서가 아니라, 워드가 답을 알려주기 때문이다.</text>
+  </g>
+</svg>
+</div>
+<figcaption>같은 “들여쓰기”라도 표에서는 <strong>명시된 사실</strong>이고 문단에서는
+<strong>해석해야 할 신호</strong>다. 이 차이가 접근 방식을 가른다.</figcaption>
+</figure>
+
+<div class="call key">
+  <span class="t">🔑 왜 규칙으로 풀면 안 되는가 — 실패의 비대칭</span>
+  <p>연속행 판별 규칙을 코드에 넣으면 두 종류의 실수가 가능하다.</p>
+  <ul>
+    <li><strong>놓친다</strong>(연속행인데 못 알아봄) → 지금과 같음. 값이 리포트에 안 나온다.</li>
+    <li><strong>잘못 채운다</strong>(각주를 연속행으로 착각) → <strong>없는 규격을 만들어낸다.</strong>
+        게다가 인용 검증도 통과한다 — 그 문자열은 원문에 실재하니까.</li>
+  </ul>
+  <p style="margin-bottom:0">둘째가 훨씬 나쁘다. <strong>누락은 언젠가 발견되지만, 그럴듯한
+  조작은 발견되지 않는다.</strong> 그래서 이 프로젝트는 규칙 기반 추측을 기각했다.</p>
+</div>
+
+<div class="dlg">
+  <div class="hd">세 사람이 한 번에 반응한다</div>
+  <div class="msg m-jiyoung"><div class="av">지</div><div class="bd">
+    <span class="nm">지영</span>
+    <p>각주 예시 진짜 현실적이네요. 저희 규격서에 <strong>“※ 위 값은 25℃ 기준”</strong> 같은
+    주석 엄청 많거든요. 그것도 들여쓰기 해서 씁니다.</p>
+  </div></div>
+  <div class="msg m-minsu"><div class="av">민</div><div class="bd">
+    <span class="nm">민수</span>
+    <p>근데 그럼 <strong>LLM 한테 시키는 건 왜 안 위험해요?</strong> LLM 도 결국 추측하는 거잖아요.
+    오히려 코드보다 못 믿을 것 같은데…</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>날카로운 반문입니다. 셋으로 답하겠습니다.</p>
+    <p><strong>①  LLM 은 내용을 읽습니다.</strong> 코드는 “공백이 있다/없다”만 보지만, LLM 은
+    <code>1.1C(4.28V)</code> 가 바로 위 <code>1.2C(4.20V)</code> 와 <em>같은 모양의 값</em>이고
+    <code>※ … 기준임</code> 은 문장이라는 걸 압니다. <strong>구분에 필요한 정보가 내용에 있으니,
+    내용을 읽는 쪽이 판단해야 맞습니다.</strong></p>
+    <p><strong>② 우리가 “모르겠으면 하지 마라”라고 지시할 수 있습니다.</strong> 규칙은 조건이
+    맞으면 무조건 실행되지만, LLM 에게는 “판단이 안 서면 이어받지 말고 confidence 를 낮춰라”가
+    통합니다.</p>
+    <p><strong>③ 그리고 흔적을 남기게 합니다.</strong> 이어받았으면 <code>inherited_from</code> 에
+    적게 해서, 사람이 <strong>그 fact 들만 골라 전수 검수</strong>할 수 있게 합니다. 규칙 기반은
+    “왜 그렇게 됐는지”가 코드 안에 숨지만, 이 방식은 산출물에 드러납니다.</p>
+  </div></div>
+  <div class="msg m-taeho"><div class="av">태</div><div class="bd">
+    <span class="nm">태호</span>
+    <p>③이 핵심이네요. <strong>추론했다는 사실 자체를 데이터로 남긴다</strong>는 것.
+    그럼 나중에 “이거 왜 이래?” 할 때 되짚을 수 있으니까.</p>
+  </div></div>
+</div>
+
+<div class="qmemo" data-qid="intuition-who-judges" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“판단은 누가 해야 하나”에 대해 다른 생각이 있으면 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="fix"><span class="num">5</span>수정 방법 — 네 개의 변경</h2>
+
+<p>설계의 뼈대는 한 문장이다. <strong>코드는 판단하지 않는다. 다만 판단에 필요한 원문을
+덜 훼손해서 넘긴다.</strong> 그리고 판단은 LLM 이 하되, 판단했다는 사실을 남긴다.</p>
+
+<h3>결정 0 — <code>compact_raw</code> 는 한 글자도 바꾸지 않는다</h3>
+
+<p>초안은 “<code>compact</code> 에 줄 정보를 실어 LLM 에 구조를 보여주자”였다. 조사해 보니
+<strong>틀린 자리였다.</strong></p>
+
+<pre>compact_raw 를 쓰는 곳이 셋이다
+  ├ profiler.py:32        ← F1 문서 프로파일러의 캐시 <span class="hl">+ 프롬프트</span>
+  ├ schema_inducer.py:39  ← 엑셀 전용
+  └ fact_extractor.py:61  ← <span class="hl2">우리가 고치려는 곳</span></pre>
+
+<p>여기 필드를 더하면 <strong>고칠 것은 F3 하나인데 F1 프로파일러의 캐시까지 무효화되고 그
+프롬프트도 부풀어 오른다.</strong> 대신 이미 있는 패턴을 쓴다 — 진단용 함수
+<code>build_facts_by_block()</code> 은 원본 데이터를 <strong>별도 인자</strong>로 받고 있다.</p>
+
+<pre><span class="c"># pipeline.py — 이미 이렇게 쓰고 있다</span>
+build_facts_by_block(compact, facts, stats, <span class="ok">lines_by_block=raw_obj.to_dict()</span>)
+
+<span class="c"># 추출기도 같은 방식으로 받는다 (raw_obj 는 바로 그 스코프에 이미 있다)</span>
+facts = extract_facts(compact, ..., <span class="ok">lines_by_block=raw_obj.to_dict()</span>)</pre>
+
+<div class="call warn">
+  <span class="t">⚠️ 여기 함정이 하나 있다 — 반드시 지문에 반영해야 한다</span>
+  <p style="margin-bottom:0">새 입력이 캐시 지문에 안 들어가면, <strong>같은 compact + 다른
+  줄 정보</strong>인 두 실행이 캐시를 공유해 <strong>옛 결과를 그대로 준다.</strong> 조용히
+  틀리는 종류라 설계서에 못 박아 뒀다 — 지문 계산에 줄 정보의 요약을 섞는다.</p>
+</div>
+
+<h3>변경 ① raw 가 들여쓰기를 버리지 않는다</h3>
+
+<div class="tablewrap">
+<table>
+  <tr><th style="width:30%">무엇</th><th>내용</th></tr>
+  <tr><td><code>RawLine.indent</code> 추가</td><td>그 줄의 선행 공백 칸 수(탭은 4칸 환산)</td></tr>
+  <tr><td><code>RawWordBlock.indent</code> 추가</td><td>문단 자체의 들여쓰기 — <code>&lt;w:ind&gt;</code> 를 읽는다. <strong>지금은 아예 안 읽는다</strong></td></tr>
+  <tr class="good"><td><code>raw_text</code> — <strong>그대로</strong></td><td>계속 strip 한다. 근거 인용 검증의 기준이라 흔들면 안 된다</td></tr>
+  <tr class="good"><td><code>block.text</code> — <strong>그대로</strong></td><td>계속 공백 병합. 이 값이 compact 로 가므로 결정 0 이 성립하려면 불변이어야 한다</td></tr>
+</table>
+</div>
+
+<p><strong>버리는 대신 옆에 적어 둔다.</strong> 기존 값은 하나도 안 건드리므로 회귀 위험이 낮다.</p>
+
+<h3>변경 ② F3 입력을 원문 모양 그대로 렌더한다</h3>
+
+<pre><span class="c">// 지금 — LLM 이 보는 것</span>
+[w_b245] 12~15도씨, 0.7C(4.55V) 15~45도씨, 1.2C (4.20V)
+[w_b246] <span class="hl">1.1C(4.28V) 0.8C (4.55V)</span>          <span class="c">// 주어가 없다</span>
+
+<span class="c">// 바뀐 뒤</span>
+[w_b245] 12~15도씨, 0.7C(4.55V)
+         15~45도씨, 1.2C (4.20V)
+[w_b246] <span class="ok">           1.1C(4.28V)</span>              <span class="c">// 정렬이 보인다</span>
+<span class="ok">                    0.8C (4.55V)</span></pre>
+
+<p>줄이 1개인 블록은 <strong>출력이 안 바뀐다</strong> — 즉 대부분의 블록은 그대로다.
+그리고 다시 강조하면, <strong>코드는 여기서 아무 판단도 하지 않는다.</strong></p>
+
+<h3>변경 ③ 프롬프트에 반대 방향을 넣는다</h3>
+
+<pre>- 블록 경계는 작성자가 Enter 를 눌렀는지 Shift+Enter 를 눌렀는지의 결과일 뿐,
+  <span class="hl">의미 경계가 아닙니다.</span> 한 블록이 여러 fact 일 수 있고, 여러 블록이 한 fact 일
+  수 있습니다.
+- 들여쓴 줄이나 블록이 앞의 레이블을 생략한 것으로 보이면, 그 레이블을 이어받아
+  <span class="ok">독립된 fact</span> 로 만드세요. 이어받았으면 <span class="ok">inherited_from</span> 에 그 [id] 를 적으세요.
+- 이어받을지 판단이 서지 않으면 <span class="hl2">이어받지 말고 confidence 를 낮추세요.</span>
+  틀린 상속은 없는 내용을 만들어내는 것이라 누락보다 나쁩니다.</pre>
+
+<h3>변경 ④ 배치 경계가 의미를 자르지 않게</h3>
+
+<p>이번 건은 운 좋게 안 걸렸지만(245·246 이 같은 배치), <strong>20블록마다 한 번씩 같은
+사고가 난다.</strong> 그래서 각 배치 앞에 <strong>직전 배치의 마지막 3블록을
+<code>[맥락]</code></strong> 으로 덧붙인다.</p>
+
+<pre>아래 [맥락] 블록은 앞에서 이미 처리했습니다 — 앞뒤 관계를 이해하는 데만 쓰고,
+그 블록에 대한 fact 는 만들지 마세요.
+
+<span class="c">[맥락]</span>[w_b245] 12~15도씨, 0.7C(4.55V)
+                  15~45도씨, 1.2C (4.20V)
+[w_b246]                     1.1C(4.28V)      <span class="c">← 이제 앞을 볼 수 있다</span></pre>
+
+<p><strong>중복 fact 는 원천적으로 안 생긴다.</strong> 추출기가 이미 “이 배치의 id 목록”으로
+근거를 검증하는데, 맥락 블록 id 를 그 목록에 넣지 않으면 그 블록만 근거로 한 fact 는
+자동으로 드롭된다. <em>겹쳐 넣고 나중에 중복을 지우는</em> 방식은 안 쓴다 — 중복 판정 기준이
+또 하나의 추측이 되기 때문이다.</p>
+
+<div class="dlg">
+  <div class="hd">태호의 마지막 점검</div>
+  <div class="msg m-taeho"><div class="av">태</div><div class="bd">
+    <span class="nm">태호</span>
+    <p>정리하면 <strong>전 문서 재추출은 어차피 한 번 일어난다</strong>는 거죠? 프롬프트를
+    바꾸면 버전을 올려야 하고, 버전이 바뀌면 캐시가 다 깨지니까.</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>맞습니다. 그래서 네 변경을 <strong>한 릴리스로 묶습니다</strong> — 어차피 한 번 낼 비용,
+    나눠 내면 두 번 냅니다. 다만 결정 0 덕분에 <strong>범위가 F3 로 한정</strong>됩니다.
+    F1 프로파일러와 엑셀 경로의 캐시는 살아 있습니다.</p>
+  </div></div>
+  <div class="msg m-jiyoung"><div class="av">지</div><div class="bd">
+    <span class="nm">지영</span>
+    <p>제가 확인해야 할 건 뭔가요? 저는 코드를 못 보니까…</p>
+  </div></div>
+  <div class="msg m-ans"><div class="av">답</div><div class="bd">
+    <span class="nm">답</span>
+    <p>세 가지입니다. 전부 코드 없이 산출물만 보면 됩니다.</p>
+    <p><strong>① <code>inherited_from</code> 이 붙은 fact</strong> — LLM 이 이어받았다고 표시한
+    것들입니다. <strong>이게 전수 검수 목록</strong>입니다. 여기서 엉뚱한 게 나오면 프롬프트가
+    너무 과감한 겁니다.</p>
+    <p><strong>② <code>units_uncited</code> 숫자</strong> — “어느 fact 의 근거로도 안 쓰인 줄”의
+    수입니다. 이 숫자가 줄어야 재추출 비용이 값을 한 겁니다.</p>
+    <p><strong>③ 리포트에 <code>1.1C</code> 가 등장하는가</strong> — 가장 직접적인 확인입니다.</p>
+  </div></div>
+</div>
+
+<div class="qmemo" data-qid="fix-design" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">설계에서 납득이 안 되거나 위험해 보이는 곳을 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="walk"><span class="num">6</span>코드·데이터 흐름 워크스루</h2>
+
+<p>이제 데이터가 흐르는 순서대로 한 번에 정리한다. 파일 다섯 개면 충분하다.
+<strong>굵게 표시된 곳이 이번에 바뀌는 자리</strong>다.</p>
+
+<figure>
+<div class="scrollx">
+<svg viewBox="0 0 940 420" role="img" aria-label="파일별 데이터 흐름과 변경 지점">
+  <defs><marker id="ar4" markerWidth="10" markerHeight="10" refX="8" refY="3.4" orient="auto">
+    <path d="M0,0 L8,3.4 L0,6.8 z" fill="#7a8a99"/></marker></defs>
+  <g font-family="sans-serif">
+    <rect x="20" y="24" width="200" height="66" rx="9" fill="#e8f1fb" stroke="#1565c0" stroke-width="1.6"/>
+    <text x="34" y="46" font-size="12.5" font-weight="700" fill="#0d3f73">raw/word_raw.py</text>
+    <text x="34" y="64" font-size="11.5" fill="#31536f">XML → ParaProbe</text>
+    <text x="34" y="80" font-size="11" fill="#c62828" font-weight="700">① indent 를 읽고 보존</text>
+
+    <path d="M120,92 L120,116" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar4)"/>
+    <rect x="20" y="120" width="200" height="66" rx="9" fill="#e8f1fb" stroke="#1565c0" stroke-width="1.6"/>
+    <text x="34" y="142" font-size="12.5" font-weight="700" fill="#0d3f73">raw/models.py</text>
+    <text x="34" y="160" font-size="11.5" fill="#31536f">RawLine · RawWordBlock</text>
+    <text x="34" y="176" font-size="11" fill="#c62828" font-weight="700">① indent 필드 추가</text>
+
+    <path d="M224,153 L300,153" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar4)"/>
+    <rect x="306" y="120" width="200" height="66" rx="9" fill="#eceff1" stroke="#90a4ae" stroke-width="1.6"/>
+    <text x="320" y="142" font-size="12.5" font-weight="700" fill="#37474f">raw/compact.py</text>
+    <text x="320" y="160" font-size="11.5" fill="#546e7a">compact_raw 생성</text>
+    <text x="320" y="176" font-size="11" fill="#2e7d32" font-weight="700">✋ 무변경 (결정 0)</text>
+
+    <path d="M406,190 L406,214" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar4)"/>
+    <rect x="306" y="218" width="200" height="82" rx="9" fill="#fdf0e3" stroke="#e65100" stroke-width="1.6"/>
+    <text x="320" y="240" font-size="12.5" font-weight="700" fill="#8a3b00">fact/prompts.py</text>
+    <text x="320" y="258" font-size="11.5" fill="#7a4a20">_render_unit · FACT_SYSTEM</text>
+    <text x="320" y="274" font-size="11" fill="#c62828" font-weight="700">② 줄 단위 렌더</text>
+    <text x="320" y="290" font-size="11" fill="#c62828" font-weight="700">③ 프롬프트 + FACT_VERSION</text>
+
+    <path d="M510,259 L586,259" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar4)"/>
+    <rect x="592" y="218" width="220" height="82" rx="9" fill="#fdf0e3" stroke="#e65100" stroke-width="1.6"/>
+    <text x="606" y="240" font-size="12.5" font-weight="700" fill="#8a3b00">fact/fact_extractor.py</text>
+    <text x="606" y="258" font-size="11.5" fill="#7a4a20">배치 → LLM → Fact</text>
+    <text x="606" y="274" font-size="11" fill="#c62828" font-weight="700">④ 맥락 블록 · 지문 계산</text>
+    <text x="606" y="290" font-size="11" fill="#c62828" font-weight="700">⑤ inherited_from 계측</text>
+
+    <path d="M702,304 L702,328" stroke="#7a8a99" stroke-width="1.6" marker-end="url(#ar4)"/>
+    <rect x="592" y="332" width="220" height="62" rx="9" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.6"/>
+    <text x="606" y="354" font-size="12.5" font-weight="700" fill="#1b5e20">facts.json · run_stats.json</text>
+    <text x="606" y="372" font-size="11.5" fill="#2e5c33">inherited_from · facts_inherited</text>
+    <text x="606" y="388" font-size="11" fill="#2e5c33">👤 사람이 검수하는 자리</text>
+
+    <!-- side: pipeline wiring -->
+    <rect x="20" y="218" width="200" height="82" rx="9" fill="#e8f1fb" stroke="#1565c0" stroke-width="1.6"/>
+    <text x="34" y="240" font-size="12.5" font-weight="700" fill="#0d3f73">fact/pipeline.py</text>
+    <text x="34" y="258" font-size="11.5" fill="#31536f">단계 배선</text>
+    <text x="34" y="274" font-size="11" fill="#c62828" font-weight="700">lines_by_block 인자 추가</text>
+    <text x="34" y="290" font-size="11" fill="#546e7a">(raw_obj 는 이미 이 스코프에)</text>
+    <path d="M224,259 L300,259" stroke="#7a8a99" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#ar4)"/>
+
+    <text x="20" y="412" font-size="12.5" fill="#5c6b7a">빨강 = 이번 변경 · 초록 체크 = 의도적으로 안 건드리는 곳</text>
+  </g>
+</svg>
+</div>
+<figcaption>변경 지점 다섯 곳과, 의도적으로 <strong>안 건드리는</strong> 한 곳(<code>compact.py</code>).</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table>
+  <tr><th style="width:24%">파일</th><th style="width:36%">지금 하는 일</th><th>이번 변경</th></tr>
+  <tr><td><code>raw/word_raw.py</code></td>
+      <td><code>&lt;w:p&gt;</code>→블록, <code>&lt;w:br&gt;</code>→<code>\n</code>, 표의 <code>vMerge</code> 채우기</td>
+      <td><code>&lt;w:ind&gt;</code> 를 읽고, <code>_split_lines()</code> 가 strip 전에 들여쓰기를 센다</td></tr>
+  <tr><td><code>raw/models.py</code></td>
+      <td><code>RawLine</code>(line_id·raw_text·normalized_text)</td>
+      <td><code>indent</code> 필드 추가 — <strong>기존 필드 불변</strong></td></tr>
+  <tr class="good"><td><code>raw/compact.py</code></td>
+      <td>블록에서 <code>id·type·text·style</code> 만 옮김</td>
+      <td><strong>변경 없음.</strong> 이게 F1 캐시를 지킨다</td></tr>
+  <tr><td><code>fact/prompts.py</code></td>
+      <td><code>_render_unit()</code> 이 블록을 <code>[id] text</code> 한 줄로</td>
+      <td>줄 단위 렌더 + <code>FACT_SYSTEM</code> 재작성 + <code>FACT_VERSION</code> 상향</td></tr>
+  <tr><td><code>fact/fact_extractor.py</code></td>
+      <td>20개씩 배치 → LLM 호출 → <code>source_ids</code> 검증</td>
+      <td>맥락 블록 3개 덧붙이기 · 지문에 줄 정보 반영 · <code>inherited_from</code> 계측</td></tr>
+</table>
+</div>
+
+<h3>데이터 한 조각을 끝까지 따라가기</h3>
+
+<p>마지막으로 <code>1.1C(4.28V)</code> 라는 한 조각이 <strong>수정 후</strong> 어떻게 흘러
+리포트까지 도달하는지 따라가 보자.</p>
+
+<pre><span class="c">① word_raw.py — XML 에서 꺼낸다</span>
+   ParaProbe(text='...1.2C (4.20V)\n           1.1C(4.28V)', <span class="ok">indent=0</span>)
+   → RawLine(raw_text='1.1C(4.28V)', <span class="ok">indent=11</span>)
+
+<span class="c">② prompts.py — LLM 에게 보여준다</span>
+   [w_b245] 15~45도씨, 1.2C (4.20V)
+   [w_b246]            1.1C(4.28V)      <span class="ok">← 정렬이 보인다</span>
+
+<span class="c">③ 🤖 LLM 이 판단한다 (여기가 유일한 판단 지점)</span>
+   { "entity_name": "충전온도범위",
+     "attributes": {"lower_limit": {"value": 15, "unit": "℃"},
+                    "charge_rate": {"value": "1.1C", "unit": ""}},
+     "evidence_text": "1.1C(4.28V)",
+     <span class="ok">"inherited_from": ["w_b245"]</span>       <span class="c">← 이어받았다고 표시</span> }
+
+<span class="c">④ F7 개념 그래프 — 기준 엑셀의 행과 이어진다</span>
+   충전온도범위(15~45℃) ←same_as→ 이 fact   <span class="c">(top_k 10 이라 후보에 든다)</span>
+
+<span class="c">⑤ F5 값 대조 — 후보가 2건 이상이므로 LLM 종합 판정</span>
+   findings: [ 1.2C 건 …, <span class="ok">1.1C 건 …</span>, 0.8C 건 … ]
+
+<span class="c">⑥ 리포트</span>
+   기준 1행 = 1줄, 그 아래 "후보별 내역" 3줄
+   <span class="ok">→ 1.1C 가 마침내 사람 눈앞에 놓인다</span></pre>
+
+<div class="call ok">
+  <span class="t">✅ 눈여겨볼 것 — 판단은 딱 한 곳에서만 일어난다</span>
+  <p style="margin-bottom:0">①②는 <span class="actor a-code">⚙️ 코드</span>가 <strong>옮기기만</strong>
+  하고, ④⑤는 기존 장치가 <strong>그대로</strong> 처리한다. 새로 생긴 판단은 ③ 하나뿐이고,
+  그것마저 <code>inherited_from</code> 으로 <strong>추적 가능하게</strong> 남는다.
+  이것이 “코드는 판단하지 않는다”는 설계 원칙의 실제 모습이다.</p>
+</div>
+
+<div class="qmemo" data-qid="walk-dataflow" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">데이터 흐름에서 더 자세히 보고 싶은 단계가 있으면 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="quiz"><span class="num">7</span>퀴즈 5문항</h2>
+
+<p>이해했는지 확인해 보자. 정답을 고르면 바로 해설이 나온다.</p>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q1. <code>w_b246</code>(“1.1C(4.28V) 0.8C (4.55V)”)에서 F3 가 fact 를 만들지
+  못한 것에 대한 가장 정확한 평가는?</div>
+  <button class="opt">LLM 의 성능이 부족해서 생긴 추출 실패다</button>
+  <button class="opt">프롬프트에 “표를 인식하라”는 지시가 없어서 생긴 누락이다</button>
+  <button class="opt">주어가 없는 입력을 받았으므로 <strong>규칙에 충실한 올바른 동작</strong>이었다 — 고칠 곳은 LLM 이 아니라 입력이다</button>
+  <button class="opt">임베딩 모델이 한국어를 잘 못 다뤄서 생긴 문제다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q2. “15~45도씨”라는 정보가 최종적으로 사라지는 지점을 바르게 짚은 것은?</div>
+  <button class="opt">워드가 <code>.docx</code> 로 저장할 때 이미 버린다</button>
+  <button class="opt"><code>build_word_doc()</code> 의 공백 병합과 <code>_split_lines()</code> 의 strip — <strong>우리 코드가 두 번 버린다</strong></button>
+  <button class="opt"><code>compact_word()</code> 가 <code>text</code> 를 잘라내면서 버린다</button>
+  <button class="opt">F7 개념 그래프가 후보를 좁히면서 버린다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. “블록을 여러 개 한꺼번에 LLM 에 주면 해결된다”는 제안이 이 사건에
+  <em>충분하지 않은</em> 이유는?</div>
+  <button class="opt">컨텍스트 길이를 넘겨서 뒷부분이 잘리기 때문</button>
+  <button class="opt">LLM 호출 비용이 배치 크기에 비례해 늘어나기 때문</button>
+  <button class="opt">블록을 한 번에 하나씩만 보내도록 코드가 고정돼 있기 때문</button>
+  <button class="opt">이미 20개씩 배치로 보내고 있고, <code>w_b245</code>·<code>w_b246</code> 은 <strong>같은 배치</strong>였다 — 나란히 보고도 못 이었다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q4. 표의 <code>vMerge</code> 는 코드가 값을 채워도 안전한데, 문단의 들여쓰기는
+  코드가 채우면 위험하다. 그 차이는?</div>
+  <button class="opt">표는 워드가 <code>&lt;w:vMerge/&gt;</code> 로 <strong>병합을 명시</strong>하지만, 문단의 들여쓰기는 각주·인용일 수도 있어 해석이 필요하다</button>
+  <button class="opt">표는 셀 개수가 정해져 있어 오류가 나도 범위가 작기 때문</button>
+  <button class="opt">문단은 텍스트가 길어 문자열 처리 성능 문제가 생기기 때문</button>
+  <button class="opt">표는 LLM 이 이미 이해하고 있어 코드가 손댈 필요가 없기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q5. 설계가 “<code>compact_raw</code> 에 줄 정보를 싣자”는 초안을 버리고
+  별도 인자로 넘기기로 한 이유는?</div>
+  <button class="opt">compact 는 읽기 전용이라 필드를 추가할 수 없기 때문</button>
+  <button class="opt">JSON 크기가 커지면 디스크가 부족해지기 때문</button>
+  <button class="opt"><code>compact</code> 는 <strong>F1 프로파일러도 캐시 지문과 프롬프트로 쓰므로</strong>, 필드를 더하면 고칠 것은 F3 하나인데 F1 까지 흔들린다</button>
+  <button class="opt">별도 인자로 넘기면 캐시가 아예 필요 없어지기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제나 헷갈린 개념이 있으면 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr>
+
+<h2 style="border:0;padding-top:0"><span class="num">8</span>한 문단 요약</h2>
+
+<p>워드 작성자가 조건표를 쓰다가 두 번째 줄 끝에서 <strong>Enter</strong> 를 눌렀다. 그래서
+같은 온도 구간에 딸린 두 조건이 별도 문단이 됐고, 우리 파서는 “문단 = 블록” 규칙에 따라
+그것을 <strong>주어 없는 블록</strong>으로 만들었다. 원문에서 그 주어를 알려 주던 것은
+<strong>글자가 아니라 빈칸의 위치</strong>였는데, 우리 코드가 공백을 병합하고 양끝을 다듬으면서
+<strong>두 번</strong> 지웠다. LLM 은 주어 없는 숫자 두 개를 보고, “지어내지 말라”는 규칙에
+충실하게 버렸다 — <strong>규칙에 따른 올바른 동작이었고, 그래서 값이 조용히 사라졌다.</strong>
+고칠 자리는 LLM 도 임계값도 아니고 <strong>입력</strong>이다. 코드는 들여쓰기를 버리지 않고
+옆에 적어 두었다가 원문 모양 그대로 보여주고, “블록 경계는 손버릇일 뿐 의미 경계가 아니다”를
+프롬프트에 명시하며, 배치가 의미를 자르지 않게 앞 블록을 맥락으로 붙인다. 그리고 LLM 이
+이어받았다면 <code>inherited_from</code> 에 남겨 <strong>사람이 그것만 골라 검수</strong>할 수
+있게 한다. <strong>판단은 내용을 읽는 쪽이 하고, 판단했다는 사실은 데이터로 남는다.</strong></p>
+
+<div class="qmemo" data-qid="final-open" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">전체를 읽고 남은 질문을 자유롭게 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p style="color:#5c6b7a;font-size:14px;margin:34px 0 10px">
+관련 문서 ·
+<a href="2026-08-10-explanation-charge-temperature-merge.html">한 문단, 네 개의 조건</a>(같은 문제의 문단 안 버전) ·
+<a href="2026-08-13-explanation-multi-candidate-1n-comparison.html">F5 1:N 다중 후보 판정</a> ·
+<a href="2026-08-13-explanation-run-stats-anatomy.html">실행 통계 읽는 법</a> ·
+<code>docs/superpowers/specs/2026-08-14-word-block-boundary-design.md</code>(설계 원문)
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg">질문을 적은 뒤 저장하면, 같은 파일명으로 내려받아집니다.</span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-14-explanation-word-block-boundary.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-14-explanation-word-block-boundary.html';
+  });
+})();
+
+(function () {
+  var FEEDBACK = {
+    0: [
+      'LLM 성능 문제가 아닙니다. 입력이 "1.1C(4.28V) 0.8C (4.55V)" 뿐이었고, 무엇에 대한 값인지 알려주는 단서가 0이었습니다. 사람이 그 줄만 봐도 못 맞힙니다.',
+      '프롬프트 문제가 일부 있는 건 맞지만(§3.4 의 "병합만 있고 분해가 없다"), 이 블록에 한해서는 지시를 바꿔도 소용없습니다 — 판단할 근거 자체가 입력에 없기 때문입니다.',
+      '정답입니다. FACT_SYSTEM 은 "evidence_text 는 입력에 실제로 있는 문구만(지어내기 금지)" 을 요구합니다. 주어 없는 숫자로 fact 를 만들었다면 그게 오히려 규칙 위반입니다. 그래서 이 사건의 교훈은 "LLM 을 더 잘 시키자"가 아니라 "볼 수 있게 해주자" 입니다.',
+      '임베딩은 F7 후보 좁히기에서 쓰이고, F3 추출과는 무관합니다. 그리고 이번 손실은 추출 이전 단계에서 일어났습니다.'
+    ],
+    1: [
+      '.docx 는 정보를 그대로 갖고 있습니다. 실제로 파서에 넣어 확인했더니 ParaProbe.text 단계까지 선행 공백 23칸과 탭이 살아 있었습니다.',
+      '정답입니다. 두 곳입니다 — build_word_doc() 의 " ".join(text.split()) 이 줄바꿈·들여쓰기를 공백 하나로 만들고(word_raw.py:86), _split_lines() 의 piece.strip() 이 줄 목록에서도 양끝 공백을 지웁니다(:129). 정보는 파일에서 나올 때 존재했고 우리가 버렸습니다.',
+      'compact_word() 는 block.text 를 그대로 옮기기만 합니다. 이미 뭉개진 값을 받아 옮기는 것이라 여기가 손실 지점은 아닙니다.',
+      'F7 은 fact 가 만들어진 뒤의 단계입니다. 이 사건에서는 그 전에 이미 값이 사라졌습니다.'
+    ],
+    2: [
+      '컨텍스트 초과는 다른 종류의 문제입니다(참고로 Ollama 는 컨텍스트가 모자라면 오류가 아니라 빈 응답을 줍니다). 여기서는 입력이 짧아 해당되지 않습니다.',
+      '비용은 늘지만 그것이 "충분하지 않은 이유"는 아닙니다. 질문은 효과에 대한 것입니다.',
+      '반대입니다. fact_batch_blocks 기본값이 20 이라 이미 여러 블록을 함께 보냅니다.',
+      '정답입니다. _pack_batches 는 블록 1개를 그룹 1개로 보고 20개씩 채우므로 배치 경계는 1-20, 21-40, …, 241-260 입니다. w_b245 와 w_b246 은 같은 배치에 들어갔습니다. 즉 LLM 은 두 블록을 나란히 보고도 못 이었고, 따라서 "더 보여주기"로는 안 낫습니다 — 프롬프트가 블록을 원자로 못 박았고, 들여쓰기라는 판단 근거가 이미 지워져 있었기 때문입니다.'
+    ],
+    3: [
+      '정답입니다. word_raw.py 의 모듈 정책이 "병합된 셀은 병합된 모든 칸에 동일한 값을 채운다"인데, 그게 안전한 이유는 워드가 <w:vMerge/> 로 병합 사실을 명시하기 때문입니다. 코드는 추측하지 않습니다. 반면 문단의 들여쓰기는 연속행일 수도, 각주("※ 위 값은 25℃ 기준")일 수도, 인용일 수도 있어 내용을 읽어야 구분됩니다.',
+      '오류 범위의 크기 문제가 아닙니다. 애초에 표에서는 오류가 나지 않습니다 — 워드가 답을 알려주니까요.',
+      '성능은 이 판단과 무관합니다.',
+      '표도 결국 LLM 이 읽지만, vMerge 채우기는 그 전에 코드가 결정적으로 끝냅니다. 문단에서 같은 일을 하지 못하는 것이 이 문제의 핵심입니다.'
+    ],
+    4: [
+      'compact 는 우리가 만드는 dict 라 필드를 더할 수는 있습니다. 문제는 "할 수 있는가"가 아니라 "그 파급이 어디까지인가"입니다.',
+      '크기 문제가 아닙니다.',
+      '정답입니다. compact_raw 는 profiler.py:32 에서도 캐시 지문이자 프롬프트 입력으로 쓰이고, schema_inducer 도 씁니다. 여기 필드를 더하면 고치려는 것은 F3 하나인데 F1 프로파일러의 캐시까지 무효화되고 그 프롬프트도 부풀어 오릅니다. 그래서 build_facts_by_block 이 이미 쓰는 패턴대로 physical_raw 를 별도 인자로 넘깁니다 — 단, 그 입력을 F3 지문에 반드시 섞어야 같은 compact + 다른 줄 정보가 캐시를 공유하는 사고를 막습니다.',
+      '별도 인자로 넘겨도 캐시는 그대로 필요하고, 오히려 지문 계산을 더 신경 써야 합니다.'
+    ]
+  };
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = Array.prototype.slice.call(quiz.querySelectorAll('.opt'));
+    var fb = quiz.querySelector('.fb');
+    opts.forEach(function (opt, oi) {
+      opt.addEventListener('click', function () {
+        if (opt.disabled) return;
+        opts.forEach(function (o) { o.disabled = true; });
+        opts[answer].classList.add('correct');
+        var ok = oi === answer;
+        if (!ok) opt.classList.add('wrong');
+        fb.className = 'fb show ' + (ok ? 'good' : 'bad');
+        fb.textContent = (ok ? '✅ ' : '❌ ') + ((FEEDBACK[qi] || [])[oi] || '');
+        if (!ok) {
+          fb.textContent += '  |  정답 해설: ' + ((FEEDBACK[qi] || [])[answer] || '');
+        }
+      });
+    });
+  });
+})();
+</script>
