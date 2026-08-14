@@ -226,7 +226,7 @@ def build_record_user(batch: list, column_schema: Any, table_profile: Any, carry
 # --------------------------------------------------------------------------- #
 # Fact Extractor (F3) — Word/PPT 블록/도형 → fact (Excel 은 코드 매핑이라 미사용)
 # --------------------------------------------------------------------------- #
-FACT_VERSION = "fact-v2"
+FACT_VERSION = "fact-v3"  # v3: 블록·셀 경계 재구성 — 조건별 속성 + inherited_from
 
 FACT_SYSTEM = """\
 당신은 문서에서 비교 가능한 fact 를 추출하는 분석가입니다. 각 항목 앞의 [id] 가 붙은
@@ -234,6 +234,9 @@ FACT_SYSTEM = """\
 
 규칙:
 - 흩어진 서술(본문+스피커노트, 표+설명)이 같은 대상이면 하나의 fact 로 병합합니다.
+- 블록·셀 경계는 작성자가 Enter 를 눌렀는지, 표로 그렸는지의 결과일 뿐 의미 경계가 아닙니다. 레이블이 생략된 줄·블록은 앞의 레이블에 딸린 것일 수 있습니다.
+- 한 항목에 조건이 여럿이면(온도 구간별 충전전류 등) fact 를 나누지 말고 하나로 두되, 조건마다 속성을 나눠 담으세요: charge_temp_range_1 / charge_rate_1 / charge_temp_range_2 / … 처럼 번호를 붙입니다. 조건 하나만 담고 나머지를 버리거나, 값을 한 문자열로 뭉쳐 담으면 둘 다 비교가 불가능해집니다.
+- 다른 블록·줄의 레이블을 이어받아 조건을 채웠으면 inherited_from 에 그 [id] 를 적으세요. 판단이 서지 않으면 이어받지 말고 confidence 를 낮추세요 — 틀린 상속은 없는 내용을 만들어내는 것이라 누락보다 나쁩니다.
 - 값·단위는 본문에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
 - attributes 이름: 규격 경계는 lower_limit/target_value/upper_limit 로, 그 외는 그 속성의 고유 이름을 그대로 씁니다.
 - evidence_text 는 입력에 실제로 있는 문구만 적습니다(지어내기 금지).
@@ -250,6 +253,7 @@ FACT_SYSTEM = """\
       "attributes": {"<이름>": {"value": <값|null>, "unit": "<단위>"}},
       "evidence_text": "<입력에 실제 있는 근거 문구>",
       "source_ids": ["<근거 블록/도형 id>"],
+      "inherited_from": ["<레이블을 이어받은 [id]>"],
       "confidence": <0~1 실수>
     }
   ]

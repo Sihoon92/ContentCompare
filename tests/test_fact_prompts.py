@@ -112,3 +112,21 @@ def test_render_unit_table_without_cell_lines_still_row_wise():
         "  행2 | c",
         "      | d",
     ]
+
+
+def test_fact_system_requires_per_condition_attributes():
+    """조건이 여럿이면 fact 를 나누지 말고 속성을 나누라고 지시해야 한다."""
+    from contentcompare.fact.prompts import FACT_SYSTEM
+
+    assert "의미 경계가 아닙니다" in FACT_SYSTEM
+    assert "fact 를 나누지 말고" in FACT_SYSTEM
+    assert "inherited_from" in FACT_SYSTEM
+    # 분해 방향을 넣지 않는다(설계 §1.4-②) — 쪼개면 top_k·동명·과병합을 누른다.
+    assert "독립된 fact" not in FACT_SYSTEM
+
+
+def test_fact_version_bumped():
+    """프롬프트가 바뀌면 버전도 올라야 캐시가 옛 결과를 안 준다."""
+    from contentcompare.fact.prompts import FACT_VERSION
+
+    assert FACT_VERSION == "fact-v3"
