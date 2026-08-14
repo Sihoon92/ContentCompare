@@ -192,7 +192,7 @@ fingerprint_for(payload, FACT_VERSION)
 
 | 파일 | 변경 |
 |---|---|
-| `raw/models.py` | `RawLine.indent: int = 0`<br>`RawWordBlock.indent: int = 0` (문단 들여쓰기)<br>`RawWordBlock.cell_lines` — 표 전용. `{(행,열): [줄, …]}` 을 담는 직렬화 가능한 형태 |
+| `raw/models.py` | `RawLine.indent: int = 0`<br>`RawWordBlock.indent: int = 0` (문단 들여쓰기)<br>`RawWordBlock.cell_lines: list[list[list[str]]]` — 표 전용. **`rows` 와 같은 모양에 한 겹을 더한 것**(행 × 열 × 줄)이라 인덱스로 바로 짝지어진다. 튜플 키 dict 를 쓰지 않는 이유는 JSON 직렬화가 안 되기 때문이다. 줄이 하나뿐인 셀은 `[]` 로 두어(원소 1개짜리 리스트가 아니라) **여러 줄인 셀만 골라내는 판정을 `if cell_lines[r][c]` 한 줄로** 만든다 |
 | `raw/word_raw.py` | `_split_lines()` 가 `strip()` **전에** `indent` 를 센다<br>`_parse_paragraph()` 가 `<w:pPr><w:ind w:left>` 를 읽는다 **(지금은 아예 안 읽음)**<br>`_parse_table()` 이 셀마다 **줄 목록을 함께** 만든다 |
 
 **바꾸지 않는 것 — 이게 이 절의 안전장치다.**
