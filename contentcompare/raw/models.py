@@ -178,6 +178,13 @@ class RawLine:
     normalized_text: str = ""
     """검색용 정규화 텍스트. ``raw_text`` 와 같으면 생략한다."""
 
+    indent: int = 0
+    """이 줄의 선행 공백 칸 수(탭은 4칸 환산). 0 이면 ``to_dict`` 에서 생략한다.
+
+    원문에서 열을 맞춰 앞 줄의 레이블을 생략한 연속행은 **이 값으로만** 구분된다 —
+    ``raw_text`` 는 인용 검증 규약을 지키려고 양끝을 strip 하므로 흔적이 남지 않는다.
+    """
+
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "line_id": self.line_id,
@@ -187,6 +194,8 @@ class RawLine:
         # 같은 값을 두 번 싣지 않는다 — physical_raw 가 두 배로 커진다.
         if self.normalized_text and self.normalized_text != self.raw_text:
             out["normalized_text"] = self.normalized_text
+        if self.indent:
+            out["indent"] = self.indent
         return out
 
 

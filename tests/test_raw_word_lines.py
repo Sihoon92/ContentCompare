@@ -204,3 +204,32 @@ def test_structure_is_kept_out_of_the_llm_input():
     emitted = compact_word(build_word_doc("d.docx", probes))["blocks"][0]
     assert emitted["style"] == {"style_name": "Heading2"}
     assert "structure" not in emitted and "lines" not in emitted
+
+
+# --------------------------------------------------------------------------- #
+# 줄 들여쓰기 (Task 1)
+# --------------------------------------------------------------------------- #
+def test_split_lines_keeps_indent_width():
+    """선행 공백·탭이 indent 로 남고, raw_text 는 여전히 strip 된다."""
+    from contentcompare.raw.word_raw import _split_lines
+
+    text = "15~45도씨, 1.2C(4.20V)\n           1.1C(4.28V)\n\t\t0.8C(4.55V)"
+    lines = _split_lines("w_b010", text)
+
+    assert [l.indent for l in lines] == [0, 11, 8]      # 탭 하나 = 4칸
+    assert [l.raw_text for l in lines] == [
+        "15~45도씨, 1.2C(4.20V)",
+        "1.1C(4.28V)",
+        "0.8C(4.55V)",
+    ]
+
+
+def test_raw_line_to_dict_omits_zero_indent():
+    """0 을 싣지 않는다 — physical_raw 가 줄마다 쓸모없는 키로 커진다."""
+    from contentcompare.raw.models import RawLine
+
+    plain = RawLine(line_id="w_b001:l01", order=1, raw_text="a", indent=0)
+    inset = RawLine(line_id="w_b001:l02", order=2, raw_text="b", indent=7)
+
+    assert "indent" not in plain.to_dict()
+    assert inset.to_dict()["indent"] == 7

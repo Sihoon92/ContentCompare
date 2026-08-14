@@ -134,8 +134,30 @@ def _split_lines(block_id: str, text: str) -> list[RawLine]:
             order=len(out) + 1,
             raw_text=raw,
             normalized_text=" ".join(raw.split()),
+            indent=_indent_width(piece),
         ))
     return out
+
+
+_TAB_WIDTH = 4
+"""탭 하나를 몇 칸으로 셀 것인가.
+
+실제 폭은 문서 설정에 달렸지만 여기서 필요한 것은 절대 폭이 아니라 **줄끼리의 상대
+비교**라 고정값으로 충분하다. 값을 바꾸면 렌더의 들여쓰기 모양만 달라진다.
+"""
+
+
+def _indent_width(text: str) -> int:
+    """줄의 선행 공백 칸 수. 탭은 :data:`_TAB_WIDTH` 칸으로 센다."""
+    n = 0
+    for ch in text:
+        if ch == " ":
+            n += 1
+        elif ch == "\t":
+            n += _TAB_WIDTH
+        else:
+            break
+    return n
 
 
 _HEADING_STYLE = re.compile(r"^heading\s*(\d+)$", re.IGNORECASE)
