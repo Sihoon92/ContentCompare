@@ -236,6 +236,17 @@ class RawWordBlock:
     rows: Optional[list[list[str]]] = None
     """표 셀 텍스트 2D(type=table)."""
 
+    cell_lines: Optional[list[list[list[str]]]] = None
+    """표 셀의 줄 목록(type=table). ``rows``(행×열)에 한 겹 더한 **행 × 열 × 줄**.
+
+    줄이 하나뿐인 셀은 ``[]`` 로 둔다 — 원소 1개짜리 리스트로 채우면 "여러 줄인
+    셀"을 가려내는 판정이 길이 비교가 되어야 하는데, 빈 리스트면 ``if`` 한 줄로
+    끝난다. 전 셀이 1줄이면 필드 자체가 ``None`` 이라 ``physical_raw`` 가 안 커진다.
+
+    ⚠️ ``rows`` 의 셀 문자열은 **여기 있는 줄을 공백으로 이어 붙인 값 그대로** 둔다.
+    그 값이 ``compact_raw`` 로 나가기 때문이다(설계 결정 0).
+    """
+
     lines: list[RawLine] = field(default_factory=list)
     """문단을 줄 단위로 쪼갠 원문(type=paragraph). 표는 행/셀 2D 로 이미 구조가
     보존돼 있어 비워 둔다."""
@@ -253,6 +264,7 @@ class RawWordBlock:
                 "style": self.style,
                 "structure": self.structure,
                 "rows": self.rows,
+                "cell_lines": self.cell_lines,
                 "lines": [l.to_dict() for l in self.lines] or None,
                 "indent": self.indent or None,
             }

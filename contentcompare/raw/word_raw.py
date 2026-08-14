@@ -76,6 +76,8 @@ class TableProbe:
     """표 1개(셀 텍스트 2D, 병합은 이미 채워진 상태)."""
 
     rows: list[list[str]] = field(default_factory=list)
+    cell_lines: list[list[list[str]]] = field(default_factory=list)
+    """``rows`` 와 같은 모양에 한 겹 더한 행 × 열 × 줄."""
 
 
 BlockProbe = Union[ParaProbe, TableProbe]
@@ -111,6 +113,12 @@ def build_word_doc(file_name: str, probes: list[BlockProbe]) -> RawWordDocument:
             rows = [[" ".join((c or "").split()) for c in row] for row in p.rows]
             if not rows or all(not any(r) for r in rows):
                 continue
+            # 줄이 하나뿐인 셀은 빈 리스트로 둔다 — rows 가 이미 같은 내용을 담고
+            # 있어 두 번 실을 이유가 없다. 전 셀이 그러면 필드 자체를 생략한다.
+            cell_lines = [
+                [list(lines) if len(lines) > 1 else [] for lines in row]
+                for row in (p.cell_lines or [])
+            ]
             order += 1
             doc.blocks.append(
                 RawWordBlock(
@@ -118,6 +126,7 @@ def build_word_doc(file_name: str, probes: list[BlockProbe]) -> RawWordDocument:
                     order=order,
                     type="table",
                     rows=rows,
+                    cell_lines=cell_lines if any(any(r) for r in cell_lines) else None,
                 )
             )
     return doc
@@ -221,7 +230,8 @@ def parse_word_xml(xml_str: str) -> list[BlockProbe]:
         if el.tag == _w("p"):
             probes.append(_parse_paragraph(el))
         elif el.tag == _w("tbl"):
-            probes.append(TableProbe(rows=_parse_table(el)))
+            rows, cell_lines = _parse_table(el)
+            probes.append(TableProbe(rows=rows, cell_lines=cell_lines))
     return probes
 
 
@@ -358,18 +368,17 @@ def _size_of(rPr: ET.Element) -> Optional[float]:
 # --------------------------------------------------------------------------- #
 # 표 파싱 (병합 처리의 핵심)
 # --------------------------------------------------------------------------- #
-def _parse_table(tbl: ET.Element) -> list[list[str]]:
-    """``<w:tbl>`` → 셀 텍스트 2D. 가로(gridSpan)/세로(vMerge) 병합을 모두 채운다.
+def _parse_table(tbl: ET.Element) -> tuple[list[list[str]], list[list[list[str]]]]:
+    """``<w:tbl>`` → (셀 텍스트 2D, 셀 줄 3D). 가로/세로 병합을 모두 채운다.
 
     각 행의 ``<w:tc>`` 를 왼쪽부터 순회하며 현재 그리드 컬럼을 ``gridSpan`` 만큼
-    전진시킨다. ``vMerge`` 연속 셀은 같은 컬럼의 시작 셀 값을 상속한다. 모든 그리드
-    위치가 tc 로 표현되므로(연속 셀도 빈 tc 로 존재) 컬럼 추적이 정확하다.
+    전진시킨다. ``vMerge`` 연속 셀은 같은 컬럼의 시작 셀 값을 상속한다 — **줄 목록도
+    똑같이 상속**해야 두 표현이 어긋나지 않는다.
     """
     rows_el = tbl.findall(_w("tr"))
     if not rows_el:
-        return []
+        return [], []
 
-    # 컬럼 수: tblGrid 우선, 없으면 행별 gridSpan 합의 최댓값.
     grid = tbl.find(_w("tblGrid"))
     n_cols = len(grid.findall(_w("gridCol"))) if grid is not None else 0
     if n_cols == 0:
@@ -378,30 +387,37 @@ def _parse_table(tbl: ET.Element) -> list[list[str]]:
             default=0,
         )
     if n_cols == 0:
-        return []
+        return [], []
 
-    vmerge_text: list[Optional[str]] = [None] * n_cols  # 컬럼별 세로 병합 시작 값
+    vmerge_text: list[Optional[str]] = [None] * n_cols
+    vmerge_lines: list[Optional[list[str]]] = [None] * n_cols
     out: list[list[str]] = []
+    out_lines: list[list[list[str]]] = []
     for tr in rows_el:
         row_vals = [""] * n_cols
+        row_lines: list[list[str]] = [[] for _ in range(n_cols)]
         col = 0
         for tc in tr.findall(_w("tc")):
             span = _grid_span(tc)
             vmerge = _vmerge_state(tc)
 
             if vmerge == "continue":
-                text = vmerge_text[col] if col < n_cols else ""
-                text = text or ""
+                text = (vmerge_text[col] if col < n_cols else "") or ""
+                lines = list(vmerge_lines[col] or []) if col < n_cols else []
             else:
                 text = _cell_text(tc)
+                lines = _cell_lines(tc)
                 for k in range(col, min(col + span, n_cols)):
                     vmerge_text[k] = text if vmerge == "restart" else None
+                    vmerge_lines[k] = lines if vmerge == "restart" else None
 
             for k in range(col, min(col + span, n_cols)):
                 row_vals[k] = text
+                row_lines[k] = list(lines)
             col += span
         out.append(row_vals)
-    return out
+        out_lines.append(row_lines)
+    return out, out_lines
 
 
 def _grid_span(tc: ET.Element) -> int:
@@ -438,6 +454,22 @@ def _cell_text(tc: ET.Element) -> str:
         if s:
             parts.append(s)
     return " ".join(" ".join(parts).split())
+
+
+def _cell_lines(tc: ET.Element) -> list[str]:
+    """셀 안 줄 목록. 문단이 여럿이거나 ``<w:br/>`` 이 있으면 여러 줄이 된다.
+
+    :func:`_cell_text` 는 이 줄들을 공백으로 이어 붙인 값을 만드는데, 그 값은
+    ``compact_raw`` 로 나가므로 **바꾸지 않는다**(설계 결정 0). 원문 구조는 여기서
+    따로 남긴다 — 한 셀에 조건표가 통째로 들어간 문서를 위한 것이다.
+    """
+    out: list[str] = []
+    for p in tc.findall(_w("p")):
+        for piece in _runs_text(p).splitlines():
+            s = piece.strip()
+            if s:
+                out.append(s)
+    return out
 
 
 # --------------------------------------------------------------------------- #

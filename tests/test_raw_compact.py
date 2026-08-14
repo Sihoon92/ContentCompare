@@ -159,3 +159,23 @@ def test_ppt_position_dropped_in_compact():
 def test_ppt_korean_preserved():
     text = compact_to_json(_ppt_doc())
     assert "충전환경온도" in text
+
+
+# --------------------------------------------------------------------------- #
+# 표 셀 줄 보존 (Task 3)
+# --------------------------------------------------------------------------- #
+def test_compact_word_ignores_cell_lines():
+    """cell_lines 가 있어도 compact 출력은 그대로다(결정 0)."""
+    from contentcompare.raw.compact import compact_word
+    from contentcompare.raw.models import RawWordBlock, RawWordDocument
+
+    doc = RawWordDocument(file_name="t.docx")
+    doc.blocks.append(RawWordBlock(
+        block_id="w_b001", order=1, type="table",
+        rows=[["a", "b c"]],
+        cell_lines=[[[], ["b", "c"]]],
+    ))
+
+    assert compact_word(doc)["blocks"] == [
+        {"id": "w_b001", "type": "table", "rows": [["a", "b c"]]}
+    ]
