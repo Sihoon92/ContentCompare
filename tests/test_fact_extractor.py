@@ -409,3 +409,80 @@ def test_context_blocks_cannot_be_fact_sources():
 
     assert out.facts == []
     assert drops["dropped_no_valid_source_id"] == 1
+
+
+_RAW_WITH_LINES = {"blocks": [{
+    "block_id": "w_b001", "type": "paragraph", "text": "a b",
+    "indent": 3,
+    "lines": [{"raw_text": "a", "indent": 0}, {"raw_text": "b", "indent": 11}],
+}]}
+
+
+def test_units_carry_line_structure():
+    """physical_raw 를 주면 unit 에 줄 구조가 실린다."""
+    from contentcompare.fact.fact_extractor import _units_by_group
+
+    compact = {"doc_type": "word",
+               "blocks": [{"id": "w_b001", "type": "paragraph", "text": "a b"}]}
+    groups, _ = _units_by_group(compact, lines_by_block=_RAW_WITH_LINES)
+    unit = groups[0][0]
+
+    assert unit["indent"] == 3
+    assert [l["raw_text"] for l in unit["lines"]] == ["a", "b"]
+    assert unit["lines"][1]["indent"] == 11
+
+
+def test_units_unchanged_without_lines():
+    """안 주면 예전 그대로 — PPT·Excel·옛 산출물 경로가 무변경이다."""
+    from contentcompare.fact.fact_extractor import _units_by_group
+
+    compact = {"doc_type": "word",
+               "blocks": [{"id": "w_b001", "type": "paragraph", "text": "a b"}]}
+    groups, _ = _units_by_group(compact)
+
+    assert "lines" not in groups[0][0]
+    assert "indent" not in groups[0][0]
+
+
+def test_lines_index_ignores_single_line_blocks():
+    """줄이 1개인 블록은 지문에 넣지 않는다 — 무관한 변경으로 캐시가 깨진다."""
+    from contentcompare.fact.fact_extractor import _lines_index
+
+    raw = {"blocks": [{"block_id": "w_b001", "type": "paragraph",
+                       "lines": [{"raw_text": "only", "indent": 0}]}]}
+
+    assert _lines_index(raw) == {}
+
+
+def test_fingerprint_changes_with_line_structure(tmp_path):
+    """같은 compact + 다른 줄 정보 → 다른 지문(안 그러면 옛 결과를 준다)."""
+    from contentcompare.fact.artifacts import ArtifactStore
+    from contentcompare.fact.fact_extractor import extract_facts
+
+    compact = {"doc_type": "word",
+               "blocks": [{"id": "w_b001", "type": "paragraph", "text": "a b"}]}
+
+    class _Runner:
+        def __init__(self):
+            self.calls = 0
+
+        def complete_json(self, system, user):
+            self.calls += 1
+            return {"facts": [{"entity_name": f"호출{self.calls}",
+                               "source_ids": ["w_b001"]}]}
+
+    runner = _Runner()
+    store = ArtifactStore(str(tmp_path), "t.docx")
+    extract_facts(compact, runner=runner, store=store, lines_by_block=_RAW_WITH_LINES)
+    assert runner.calls == 1
+
+    # 같은 입력 → 캐시 히트
+    extract_facts(compact, runner=runner, store=store, lines_by_block=_RAW_WITH_LINES)
+    assert runner.calls == 1
+
+    # 줄 정보만 바뀜 → 재계산
+    changed = {"blocks": [{"block_id": "w_b001", "type": "paragraph",
+                           "lines": [{"raw_text": "a", "indent": 0},
+                                     {"raw_text": "b", "indent": 20}]}]}
+    extract_facts(compact, runner=runner, store=store, lines_by_block=changed)
+    assert runner.calls == 2

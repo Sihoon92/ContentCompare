@@ -29,6 +29,7 @@ def extract_facts(
     store: Any = None,
     batch_blocks: int = 20,
     stats: Optional[dict] = None,
+    lines_by_block: Optional[dict] = None,
 ) -> FactSet:
     """compact(+records) → ``FactSet``. doc_type 으로 Excel(코드)/Word·PPT(LLM) 분기.
 
@@ -37,6 +38,10 @@ def extract_facts(
     ``stats`` 를 주면 계측값을 채운다(out-param, F3.5). Word/PPT 경로는 근거 없는
     fact 를 조용히 버리는데(§ ``_facts_from_blocks``), 이 드롭은 곧 대상 문서의
     fact 누락 → F5 의 ``missing`` 오판으로 이어지므로 **사유별로 센다**.
+
+    ``lines_by_block`` 은 ``physical_raw`` 다(Word 전용). ``build_facts_by_block`` 이
+    쓰는 것과 같은 인자이며, **캐시 지문에 반드시 섞는다** — 안 섞으면 같은 compact +
+    다른 줄 정보인 두 실행이 캐시를 공유해 옛 결과를 준다.
     """
     doc_type = compact.get("doc_type")
     computed = {"ran": False}
@@ -54,14 +59,15 @@ def extract_facts(
         def compute() -> dict:
             computed["ran"] = True
             return _facts_from_blocks(
-                compact, profile, runner, batch_blocks, drops
+                compact, profile, runner, batch_blocks, drops,
+                lines_by_block=lines_by_block,
             ).to_dict()
 
-        fp = (
-            fingerprint_for(json.dumps(compact, ensure_ascii=False), FACT_VERSION)
-            if store
-            else None
-        )
+        lines_payload = _lines_index(lines_by_block)
+        payload = json.dumps(compact, ensure_ascii=False)
+        if lines_payload:
+            payload += json.dumps(lines_payload, ensure_ascii=False, sort_keys=True)
+        fp = fingerprint_for(payload, FACT_VERSION) if store else None
 
     if store is not None:
         data = store.cached_or_compute("facts", compute, fingerprint=fp)
@@ -152,9 +158,11 @@ def _facts_from_blocks(
     runner: Any,
     batch_blocks: int,
     drops: Optional[dict] = None,
+    *,
+    lines_by_block: Optional[dict] = None,
 ) -> FactSet:
     doc_type = compact.get("doc_type")
-    groups, unit_index = _units_by_group(compact)
+    groups, unit_index = _units_by_group(compact, lines_by_block=lines_by_block)
     facts: list[Fact] = []
     seq = 0
     seen = 0
@@ -203,17 +211,54 @@ def _facts_from_blocks(
     return FactSet(location=str(compact.get("file_name", "")), facts=facts)
 
 
-def _units_by_group(compact: dict) -> tuple[list[list[dict]], dict[str, dict]]:
+def _lines_index(raw: Optional[dict]) -> dict[str, dict]:
+    """``physical_raw`` → ``{block_id: {lines, indent, cell_lines}}``.
+
+    **F3 렌더가 실제로 쓰는 것만 추린다.** 이 값이 캐시 지문에 들어가므로, 렌더에
+    안 쓰는 필드까지 넣으면 무관한 변경에도 전 문서가 재추출된다.
+
+    줄이 1개뿐인 블록은 아예 담지 않는다 — 렌더가 그때는 기존 한 줄 형태를 쓰므로
+    지문에 넣을 이유가 없다.
+    """
+    out: dict[str, dict] = {}
+    for b in (raw or {}).get("blocks") or []:
+        bid = str(b.get("block_id") or "")
+        if not bid:
+            continue
+        entry: dict[str, Any] = {}
+        lines = [
+            {"raw_text": str(l.get("raw_text") or ""), "indent": int(l.get("indent") or 0)}
+            for l in (b.get("lines") or [])
+        ]
+        if len(lines) > 1:
+            entry["lines"] = lines
+        if b.get("indent"):
+            entry["indent"] = int(b["indent"])
+        if b.get("cell_lines"):
+            entry["cell_lines"] = b["cell_lines"]
+        if entry:
+            out[bid] = entry
+    return out
+
+
+def _units_by_group(
+    compact: dict, lines_by_block: Optional[dict] = None
+) -> tuple[list[list[dict]], dict[str, dict]]:
     """compact → (그룹 목록, id→unit 인덱스).
 
     같은 배치에 묶여야 하는 단위를 그룹으로 만든다: Word 는 블록 1개=1그룹, PPT 는
     슬라이드(도형+스피커노트) 1개=1그룹(본문+주석 병합 유도). unit id 는 source_ids
     검증·복원용 식별자다.
+
+    ``lines_by_block`` 에 ``physical_raw`` 를 주면 Word unit 에 줄 구조를 얹는다
+    (``lines``/``indent``/``cell_lines``). 안 주면 예전 그대로다 — PPT·Excel·옛
+    산출물 경로가 무변경이어야 한다.
     """
     doc_type = compact.get("doc_type")
     groups: list[list[dict]] = []
     index: dict[str, dict] = {}
     if doc_type == "word":
+        index_lines = _lines_index(lines_by_block)
         for b in compact.get("blocks") or []:
             u = {
                 "id": b.get("id"),
@@ -221,6 +266,7 @@ def _units_by_group(compact: dict) -> tuple[list[list[dict]], dict[str, dict]]:
                 "text": b.get("text"),
                 "rows": b.get("rows"),
             }
+            u.update(index_lines.get(str(b.get("id") or ""), {}))
             groups.append([u])
             index[u["id"]] = u
     else:  # ppt
