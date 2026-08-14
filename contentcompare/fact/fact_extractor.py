@@ -166,6 +166,7 @@ def _facts_from_blocks(
     facts: list[Fact] = []
     seq = 0
     seen = 0
+    inherited = 0
     dropped: dict[str, int] = {"not_dict": 0, "no_valid_source_id": 0}
     samples: list[str] = []  # 드롭된 fact 의 entity_name 예시(원인 진단용)
     cited: set[str] = set()  # 실제로 근거로 쓰인 블록 id(커버리지 계측)
@@ -193,6 +194,7 @@ def _facts_from_blocks(
             fact.search_text = _build_search_text(
                 fact.entity_name, fact.entity_path, fact.attributes
             )
+            inherited += 1 if fact.inherited_from else 0
             facts.append(fact)
     if drops is not None:
         # 커버리지: 입력 블록 중 **어떤 fact 의 근거로도 인용되지 않은** 블록.
@@ -207,6 +209,7 @@ def _facts_from_blocks(
             "blocks_in": len(unit_index),
             "blocks_cited": len(cited),
             "blocks_uncited_samples": uncited[:5],
+            "facts_inherited": inherited,
         })
     return FactSet(location=str(compact.get("file_name", "")), facts=facts)
 
@@ -422,8 +425,9 @@ def build_facts_by_block(
     }
     measured = [r for r in rows if "units_in" in r]
     if measured:
-        # 줄이 있는 블록만 분모에 넣는다 — 표·Excel 행은 이미 블록 자체가 최소
-        # 단위라 섞으면 "줄 커버리지"라는 비율의 뜻이 흐려진다.
+        # 줄이 있는 블록과 표(cell_lines)를 분모에 넣는다. 한 셀에 조건표가 통째로
+        # 들어간 문서가 "표는 블록이 이미 최소 단위"라는 가정을 반박했다(설계 §8.2).
+        # Excel 행은 줄이 없어 분모에 들어가지 않는다.
         summary["units_in"] = sum(r["units_in"] for r in measured)
         summary["units_linked"] = sum(r["units_linked"] for r in measured)
         summary["units_uncited"] = sum(r["units_uncited"] for r in measured)
@@ -440,12 +444,29 @@ def _norm(text: Any) -> str:
 
 
 def _lines_of(raw: Optional[dict]) -> dict[str, list[dict]]:
-    """``physical_raw`` → ``{block_id: [line, ...]}``. 줄이 없는 블록은 담지 않는다."""
+    """``physical_raw`` → ``{block_id: [{line_id, raw_text}, …]}``.
+
+    문단은 ``lines``, 표는 ``cell_lines`` 를 편다. 표를 분모에서 빼던 예전 근거는
+    *"표는 블록이 이미 최소 단위"* 였는데, **한 셀에 조건표가 통째로 들어간 문서가
+    그 가정을 반박했다**(설계 §8.2). 줄이 하나뿐인 셀은 담지 않는다.
+    """
     out: dict[str, list[dict]] = {}
     for b in (raw or {}).get("blocks") or []:
+        bid = str(b.get("block_id") or "")
+        if not bid:
+            continue
         lines = b.get("lines")
         if lines:
-            out[str(b.get("block_id") or "")] = lines
+            out[bid] = list(lines)
+            continue
+        units: list[dict] = []
+        for r, row in enumerate(b.get("cell_lines") or [], start=1):
+            for c, cell in enumerate(row or [], start=1):
+                for i, text in enumerate(cell or [], start=1):
+                    units.append({"line_id": f"{bid}:r{r:02d}c{c:02d}l{i:02d}",
+                                  "raw_text": text})
+        if units:
+            out[bid] = units
     return out
 
 

@@ -486,3 +486,26 @@ def test_fingerprint_changes_with_line_structure(tmp_path):
                                      {"raw_text": "b", "indent": 20}]}]}
     extract_facts(compact, runner=runner, store=store, lines_by_block=changed)
     assert runner.calls == 2
+
+
+def test_facts_inherited_is_counted():
+    """상속이 얼마나 일어났는지 세지 않으면 과한지 알 수 없다."""
+    from contentcompare.fact.fact_extractor import _facts_from_blocks
+
+    compact = {"doc_type": "word", "blocks": [
+        {"id": "w_b001", "type": "paragraph", "text": "a"},
+        {"id": "w_b002", "type": "paragraph", "text": "b"},
+    ]}
+
+    class _Runner:
+        def complete_json(self, system, user):
+            return {"facts": [
+                {"entity_name": "이어받음", "source_ids": ["w_b002"],
+                 "inherited_from": ["w_b001"]},
+                {"entity_name": "보통", "source_ids": ["w_b001"]},
+            ]}
+
+    drops = {}
+    _facts_from_blocks(compact, None, _Runner(), 20, drops)
+
+    assert drops["facts_inherited"] == 1

@@ -175,3 +175,25 @@ def test_extract_stats_are_merged_into_summary():
 def test_unknown_doc_type_does_not_raise():
     out = build_facts_by_block({"doc_type": "pdf"}, FactSet())
     assert out["blocks"] == [] and out["summary"]["blocks_in"] == 0
+
+
+def test_table_cells_join_line_coverage():
+    """표도 줄 커버리지 분모에 들어간다 — '표는 이미 최소 단위'가 아니었다."""
+    compact = {"doc_type": "word", "blocks": [
+        {"id": "w_b001", "type": "table", "rows": [["항목", "-5~5도씨 5~12도씨"]]},
+    ]}
+    raw = {"blocks": [{
+        "block_id": "w_b001", "type": "table",
+        "cell_lines": [[[], ["-5~5도씨", "5~12도씨"]]],
+    }]}
+    facts = FactSet(facts=[Fact(
+        fact_id="f1", entity_name="온도", evidence_text="-5~5도씨",
+        source={"doc_type": "word", "block_ids": ["w_b001"]},
+    )])
+
+    out = build_facts_by_block(compact, facts, {}, lines_by_block=raw)
+    block = out["blocks"][0]
+
+    assert block["units_in"] == 2
+    assert block["units_linked"] == 1
+    assert block["units_uncited"] == 1
