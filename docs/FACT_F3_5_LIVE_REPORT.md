@@ -598,3 +598,56 @@ LLM 의 사유가 **이름/번역**에 대한 주장이다. 즉 LLM 은 값이 �
 하한을 없애고 "인용이 항목명을 포함하는가"를 **필수 조건**으로 바꾸는 것인데, 그러면
 값만 인용하는 정상 경로가 깨지므로 **개념 판정 프롬프트가 값 인용을 요구하지 않도록**
 먼저 바꿔야 한다(설계 §2.3 의 주석 참고). 관측된 오판이 나오면 착수한다.
+
+## 13. Word 블록·셀 경계 재구성 — 코드는 들어갔고, 실측은 아직이다 (2026-08-15)
+
+설계 `docs/superpowers/specs/2026-08-14-word-block-boundary-design.md`, 계획
+`docs/superpowers/plans/2026-08-14-word-block-boundary.md` 의 Task 1~10 이 구현됐다.
+줄 구조 보존(raw) → 원문 모양 렌더(F3) → 조건별 속성 요구(프롬프트) → 배치 맥락 →
+계측(`numeric_coverage`·`inherited_from`·표 줄 커버리지)까지다.
+
+### 13.1 이 절이 비어 있는 이유
+
+**LLM 재실행과 골든 대조를 수행하지 못했다.** 사내 엔드포인트가 없는 환경에서
+구현했고, 그 두 단계는 실제 호출이 필요하다. 계획 Task 11 Step 3 도 이 경우를
+"사람이 수행" 으로 명시해 두었다.
+
+숫자를 지어내지 않고 비워 둔다. **`FACT_VERSION` 이 `fact-v3` 로 올랐으므로 다음
+실행은 전 Word/PPT 문서를 재추출한다** — 그 실행이 곧 이 절을 채울 실측이다.
+
+### 13.2 코드로 확인된 것 (LLM 불필요)
+
+| 확인 | 결과 |
+|---|---|
+| 전체 테스트 | 860 passed (변경 전 828 + 신규 32) |
+| **결정 0** — `compact_raw` 바이트 불변 | `samples/*.docx` 4개 전부 변경 전 해시와 동일 ✅ |
+| 지문 — 줄 정보 없을 때 payload 바이트 동일 | 코드 검증(`_lines_index(None)` → `{}` → 기존 표현식 그대로) |
+| 지문 — 같은 compact + 다른 줄 정보 | 다른 지문(재계산) — `test_fingerprint_changes_with_line_structure` |
+| PPT 경로 무간섭 | `RawPptDocument.to_dict()` 에 `blocks` 키가 없어 `_lines_index` 가 항상 `{}` |
+
+### 13.3 재실행할 때 확인할 것
+
+```bash
+contentcompare --config config/config.yaml --engine fact \
+  --reference samples/자표준문서.xlsx --targets <대상.docx> --out out/regression.md
+python scripts/compare_engines.py
+```
+
+- `golden/` 대비 match/mismatch/missing 분포가 **나빠지지 않았는가** — 표 렌더가
+  파이썬 리스트 repr 에서 행 단위로 바뀌었으므로 **지금 잘 나오던 표가 회귀의
+  최전선**이다(설계 §9). 이번 변경에서 가장 큰 위험이다.
+- `facts_by_block` 의 `units_uncited` 가 **줄었는가** — 이 변경의 목적이다.
+  ⚠️ 분모 정의가 바뀌었다(표 셀이 들어왔다). 절대 수가 아니라 비율로 비교할 것.
+- `run_stats` 의 `facts_inherited` 가 비정상적으로 크지 않은가 — 크면 프롬프트가
+  과하게 이어받기를 유도한다는 신호이고, 틀린 상속은 없는 내용을 만들어내는 것이라
+  누락보다 나쁘다.
+- `validation_report` 의 `numeric_coverage` 경고가 **어디에** 붙었는가 — 형태 B(한
+  셀 조건표)에 붙어야 정상이고, 서술형 fact 에 무더기로 붙으면 가드(숫자 4개)가
+  느슨한 것이다.
+- 프롬프트 토큰 증가(줄 렌더 + 맥락 3블록 + 표 행 렌더). ⚠️ Ollama 는 컨텍스트가
+  모자라면 오류가 아니라 **빈 응답**을 준다 — `llm.ollama.num_ctx` 를 먼저 확인할 것.
+
+**수치가 나아지지 않았다면 그 사실을 그대로 적을 것.** 재추출 비용을 치르고도 효과가
+없었다는 것은 설계 가정이 틀렸다는 뜻이고, 숨기면 다음 사람이 같은 비용을 다시 낸다.
+롤백은 `FACT_VERSION` 을 `fact-v2` 로 되돌리면 된다 — `raw/` 의 새 필드는 additive 라
+남아 있어도 무해하다.
