@@ -178,6 +178,13 @@ class RawLine:
     normalized_text: str = ""
     """검색용 정규화 텍스트. ``raw_text`` 와 같으면 생략한다."""
 
+    indent: int = 0
+    """이 줄의 선행 공백 칸 수(탭은 4칸 환산). 0 이면 ``to_dict`` 에서 생략한다.
+
+    원문에서 열을 맞춰 앞 줄의 레이블을 생략한 연속행은 **이 값으로만** 구분된다 —
+    ``raw_text`` 는 인용 검증 규약을 지키려고 양끝을 strip 하므로 흔적이 남지 않는다.
+    """
+
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "line_id": self.line_id,
@@ -187,6 +194,8 @@ class RawLine:
         # 같은 값을 두 번 싣지 않는다 — physical_raw 가 두 배로 커진다.
         if self.normalized_text and self.normalized_text != self.raw_text:
             out["normalized_text"] = self.normalized_text
+        if self.indent:
+            out["indent"] = self.indent
         return out
 
 
@@ -227,9 +236,23 @@ class RawWordBlock:
     rows: Optional[list[list[str]]] = None
     """표 셀 텍스트 2D(type=table)."""
 
+    cell_lines: Optional[list[list[list[str]]]] = None
+    """표 셀의 줄 목록(type=table). ``rows``(행×열)에 한 겹 더한 **행 × 열 × 줄**.
+
+    줄이 하나뿐인 셀은 ``[]`` 로 둔다 — 원소 1개짜리 리스트로 채우면 "여러 줄인
+    셀"을 가려내는 판정이 길이 비교가 되어야 하는데, 빈 리스트면 ``if`` 한 줄로
+    끝난다. 전 셀이 1줄이면 필드 자체가 ``None`` 이라 ``physical_raw`` 가 안 커진다.
+
+    ⚠️ ``rows`` 의 셀 문자열은 **여기 있는 줄을 공백으로 이어 붙인 값 그대로** 둔다.
+    그 값이 ``compact_raw`` 로 나가기 때문이다(설계 결정 0).
+    """
+
     lines: list[RawLine] = field(default_factory=list)
     """문단을 줄 단위로 쪼갠 원문(type=paragraph). 표는 행/셀 2D 로 이미 구조가
     보존돼 있어 비워 둔다."""
+
+    indent: int = 0
+    """문단 자체의 들여쓰기 칸 수(type=paragraph). 0 이면 ``to_dict`` 에서 생략한다."""
 
     def to_dict(self) -> dict[str, Any]:
         return _drop_none(
@@ -241,7 +264,9 @@ class RawWordBlock:
                 "style": self.style,
                 "structure": self.structure,
                 "rows": self.rows,
+                "cell_lines": self.cell_lines,
                 "lines": [l.to_dict() for l in self.lines] or None,
+                "indent": self.indent or None,
             }
         )
 

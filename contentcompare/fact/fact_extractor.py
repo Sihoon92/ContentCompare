@@ -29,6 +29,7 @@ def extract_facts(
     store: Any = None,
     batch_blocks: int = 20,
     stats: Optional[dict] = None,
+    lines_by_block: Optional[dict] = None,
 ) -> FactSet:
     """compact(+records) → ``FactSet``. doc_type 으로 Excel(코드)/Word·PPT(LLM) 분기.
 
@@ -37,6 +38,10 @@ def extract_facts(
     ``stats`` 를 주면 계측값을 채운다(out-param, F3.5). Word/PPT 경로는 근거 없는
     fact 를 조용히 버리는데(§ ``_facts_from_blocks``), 이 드롭은 곧 대상 문서의
     fact 누락 → F5 의 ``missing`` 오판으로 이어지므로 **사유별로 센다**.
+
+    ``lines_by_block`` 은 ``physical_raw`` 다(Word 전용). ``build_facts_by_block`` 이
+    쓰는 것과 같은 인자이며, **캐시 지문에 반드시 섞는다** — 안 섞으면 같은 compact +
+    다른 줄 정보인 두 실행이 캐시를 공유해 옛 결과를 준다.
     """
     doc_type = compact.get("doc_type")
     computed = {"ran": False}
@@ -54,14 +59,15 @@ def extract_facts(
         def compute() -> dict:
             computed["ran"] = True
             return _facts_from_blocks(
-                compact, profile, runner, batch_blocks, drops
+                compact, profile, runner, batch_blocks, drops,
+                lines_by_block=lines_by_block,
             ).to_dict()
 
-        fp = (
-            fingerprint_for(json.dumps(compact, ensure_ascii=False), FACT_VERSION)
-            if store
-            else None
-        )
+        lines_payload = _lines_index(lines_by_block)
+        payload = json.dumps(compact, ensure_ascii=False)
+        if lines_payload:
+            payload += json.dumps(lines_payload, ensure_ascii=False, sort_keys=True)
+        fp = fingerprint_for(payload, FACT_VERSION) if store else None
 
     if store is not None:
         data = store.cached_or_compute("facts", compute, fingerprint=fp)
@@ -152,17 +158,21 @@ def _facts_from_blocks(
     runner: Any,
     batch_blocks: int,
     drops: Optional[dict] = None,
+    *,
+    lines_by_block: Optional[dict] = None,
 ) -> FactSet:
     doc_type = compact.get("doc_type")
-    groups, unit_index = _units_by_group(compact)
+    groups, unit_index = _units_by_group(compact, lines_by_block=lines_by_block)
     facts: list[Fact] = []
     seq = 0
     seen = 0
+    inherited = 0
     dropped: dict[str, int] = {"not_dict": 0, "no_valid_source_id": 0}
     samples: list[str] = []  # 드롭된 fact 의 entity_name 예시(원인 진단용)
     cited: set[str] = set()  # 실제로 근거로 쓰인 블록 id(커버리지 계측)
-    for batch in _pack_batches(groups, batch_blocks):
-        batch_ids = {u["id"] for u in batch}
+    for batch in _with_context(_pack_batches(groups, batch_blocks)):
+        # 맥락 블록은 근거 id 로 인정하지 않는다 — 중복 fact 를 원천 차단한다.
+        batch_ids = {u["id"] for u in batch if not u.get("context")}
         obj = runner.complete_json(FACT_SYSTEM, build_fact_user(batch, doc_type, profile))
         for raw in obj.get("facts") or []:
             seen += 1
@@ -184,6 +194,7 @@ def _facts_from_blocks(
             fact.search_text = _build_search_text(
                 fact.entity_name, fact.entity_path, fact.attributes
             )
+            inherited += 1 if fact.inherited_from else 0
             facts.append(fact)
     if drops is not None:
         # 커버리지: 입력 블록 중 **어떤 fact 의 근거로도 인용되지 않은** 블록.
@@ -198,21 +209,59 @@ def _facts_from_blocks(
             "blocks_in": len(unit_index),
             "blocks_cited": len(cited),
             "blocks_uncited_samples": uncited[:5],
+            "facts_inherited": inherited,
         })
     return FactSet(location=str(compact.get("file_name", "")), facts=facts)
 
 
-def _units_by_group(compact: dict) -> tuple[list[list[dict]], dict[str, dict]]:
+def _lines_index(raw: Optional[dict]) -> dict[str, dict]:
+    """``physical_raw`` → ``{block_id: {lines, indent, cell_lines}}``.
+
+    **F3 렌더가 실제로 쓰는 것만 추린다.** 이 값이 캐시 지문에 들어가므로, 렌더에
+    안 쓰는 필드까지 넣으면 무관한 변경에도 전 문서가 재추출된다.
+
+    줄이 1개뿐인 블록은 아예 담지 않는다 — 렌더가 그때는 기존 한 줄 형태를 쓰므로
+    지문에 넣을 이유가 없다.
+    """
+    out: dict[str, dict] = {}
+    for b in (raw or {}).get("blocks") or []:
+        bid = str(b.get("block_id") or "")
+        if not bid:
+            continue
+        entry: dict[str, Any] = {}
+        lines = [
+            {"raw_text": str(l.get("raw_text") or ""), "indent": int(l.get("indent") or 0)}
+            for l in (b.get("lines") or [])
+        ]
+        if len(lines) > 1:
+            entry["lines"] = lines
+        if b.get("indent"):
+            entry["indent"] = int(b["indent"])
+        if b.get("cell_lines"):
+            entry["cell_lines"] = b["cell_lines"]
+        if entry:
+            out[bid] = entry
+    return out
+
+
+def _units_by_group(
+    compact: dict, lines_by_block: Optional[dict] = None
+) -> tuple[list[list[dict]], dict[str, dict]]:
     """compact → (그룹 목록, id→unit 인덱스).
 
     같은 배치에 묶여야 하는 단위를 그룹으로 만든다: Word 는 블록 1개=1그룹, PPT 는
     슬라이드(도형+스피커노트) 1개=1그룹(본문+주석 병합 유도). unit id 는 source_ids
     검증·복원용 식별자다.
+
+    ``lines_by_block`` 에 ``physical_raw`` 를 주면 Word unit 에 줄 구조를 얹는다
+    (``lines``/``indent``/``cell_lines``). 안 주면 예전 그대로다 — PPT·Excel·옛
+    산출물 경로가 무변경이어야 한다.
     """
     doc_type = compact.get("doc_type")
     groups: list[list[dict]] = []
     index: dict[str, dict] = {}
     if doc_type == "word":
+        index_lines = _lines_index(lines_by_block)
         for b in compact.get("blocks") or []:
             u = {
                 "id": b.get("id"),
@@ -220,6 +269,7 @@ def _units_by_group(compact: dict) -> tuple[list[list[dict]], dict[str, dict]]:
                 "text": b.get("text"),
                 "rows": b.get("rows"),
             }
+            u.update(index_lines.get(str(b.get("id") or ""), {}))
             groups.append([u])
             index[u["id"]] = u
     else:  # ppt
@@ -268,6 +318,46 @@ def _pack_batches(groups: list[list[dict]], batch_blocks: int) -> list[list[dict
     if cur:
         batches.append(cur)
     return batches
+
+
+_CONTEXT_BLOCKS = 3
+"""배치 앞에 붙일 직전 배치의 꼬리 블록 수.
+
+배치가 20개씩 겹침 없이 잘리므로 **20블록마다 한 번씩** 의미가 경계에서 갈린다.
+겹쳐 넣고 사후에 중복을 지우는 방식은 쓰지 않는다 — 중복 판정 기준이 또 하나의
+추측이 되기 때문이다. 대신 맥락 블록을 ``batch_ids`` 에서 빼서 원천적으로 막는다.
+"""
+
+_CONTEXT_TABLE_ROWS = 2
+"""맥락으로 실을 표의 최대 행 수. 표 하나가 배치 토큰을 통째로 삼키는 것을 막는다."""
+
+
+def _with_context(batches: list[list[dict]]) -> list[list[dict]]:
+    """각 배치 앞에 직전 배치의 꼬리 블록을 ``context`` 표시로 덧붙인다.
+
+    원본 unit dict 를 건드리지 않고 **얕은 복사**를 붙인다 — 원본에 표시를 찍으면
+    그 블록이 자기 배치에서도 맥락으로 렌더돼 fact 가 통째로 사라진다.
+    """
+    out: list[list[dict]] = []
+    for i, batch in enumerate(batches):
+        if i == 0:
+            out.append(list(batch))
+            continue
+        tail = batches[i - 1][-_CONTEXT_BLOCKS:]
+        out.append([_as_context(u) for u in tail] + list(batch))
+    return out
+
+
+def _as_context(u: dict) -> dict:
+    """맥락용 사본. 표는 앞 몇 행만 남긴다."""
+    ctx = dict(u)
+    ctx["context"] = True
+    if ctx.get("type") == "table":
+        if ctx.get("rows"):
+            ctx["rows"] = ctx["rows"][:_CONTEXT_TABLE_ROWS]
+        if ctx.get("cell_lines"):
+            ctx["cell_lines"] = ctx["cell_lines"][:_CONTEXT_TABLE_ROWS]
+    return ctx
 
 
 # --------------------------------------------------------------------------- #
@@ -335,8 +425,9 @@ def build_facts_by_block(
     }
     measured = [r for r in rows if "units_in" in r]
     if measured:
-        # 줄이 있는 블록만 분모에 넣는다 — 표·Excel 행은 이미 블록 자체가 최소
-        # 단위라 섞으면 "줄 커버리지"라는 비율의 뜻이 흐려진다.
+        # 줄이 있는 블록과 표(cell_lines)를 분모에 넣는다. 한 셀에 조건표가 통째로
+        # 들어간 문서가 "표는 블록이 이미 최소 단위"라는 가정을 반박했다(설계 §8.2).
+        # Excel 행은 줄이 없어 분모에 들어가지 않는다.
         summary["units_in"] = sum(r["units_in"] for r in measured)
         summary["units_linked"] = sum(r["units_linked"] for r in measured)
         summary["units_uncited"] = sum(r["units_uncited"] for r in measured)
@@ -353,12 +444,29 @@ def _norm(text: Any) -> str:
 
 
 def _lines_of(raw: Optional[dict]) -> dict[str, list[dict]]:
-    """``physical_raw`` → ``{block_id: [line, ...]}``. 줄이 없는 블록은 담지 않는다."""
+    """``physical_raw`` → ``{block_id: [{line_id, raw_text}, …]}``.
+
+    문단은 ``lines``, 표는 ``cell_lines`` 를 편다. 표를 분모에서 빼던 예전 근거는
+    *"표는 블록이 이미 최소 단위"* 였는데, **한 셀에 조건표가 통째로 들어간 문서가
+    그 가정을 반박했다**(설계 §8.2). 줄이 하나뿐인 셀은 담지 않는다.
+    """
     out: dict[str, list[dict]] = {}
     for b in (raw or {}).get("blocks") or []:
+        bid = str(b.get("block_id") or "")
+        if not bid:
+            continue
         lines = b.get("lines")
         if lines:
-            out[str(b.get("block_id") or "")] = lines
+            out[bid] = list(lines)
+            continue
+        units: list[dict] = []
+        for r, row in enumerate(b.get("cell_lines") or [], start=1):
+            for c, cell in enumerate(row or [], start=1):
+                for i, text in enumerate(cell or [], start=1):
+                    units.append({"line_id": f"{bid}:r{r:02d}c{c:02d}l{i:02d}",
+                                  "raw_text": text})
+        if units:
+            out[bid] = units
     return out
 
 

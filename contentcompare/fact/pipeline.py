@@ -402,6 +402,7 @@ class FactPipeline:
                         compact, profile=profile, runner=runner,
                         store=store, batch_blocks=self.fact.fact_batch_blocks,
                         stats=fact_stats,
+                        lines_by_block=raw_obj.to_dict(),
                     )
             stages.append("facts")
 

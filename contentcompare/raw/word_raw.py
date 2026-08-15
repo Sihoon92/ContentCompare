@@ -63,12 +63,21 @@ class ParaProbe:
     list_item: bool = False
     """``<w:numPr>`` 가 있는 목록 문단인가."""
 
+    indent: int = 0
+    """문단 자체의 들여쓰기 칸 수(``<w:pPr><w:ind w:left>``).
+
+    문단이 통째로 밀려 있으면 그 텍스트 안에는 공백이 없어 :func:`_indent_width` 로는
+    잡히지 않는다. 별도 문단으로 갈라진 연속행이 이 경로로만 드러난다.
+    """
+
 
 @dataclass
 class TableProbe:
     """표 1개(셀 텍스트 2D, 병합은 이미 채워진 상태)."""
 
     rows: list[list[str]] = field(default_factory=list)
+    cell_lines: list[list[list[str]]] = field(default_factory=list)
+    """``rows`` 와 같은 모양에 한 겹 더한 행 × 열 × 줄."""
 
 
 BlockProbe = Union[ParaProbe, TableProbe]
@@ -97,12 +106,19 @@ def build_word_doc(file_name: str, probes: list[BlockProbe]) -> RawWordDocument:
                     style=_style_dict(p),
                     structure=_structure_dict(p),
                     lines=_split_lines(block_id, p.text or ""),
+                    indent=p.indent,
                 )
             )
         elif isinstance(p, TableProbe):
             rows = [[" ".join((c or "").split()) for c in row] for row in p.rows]
             if not rows or all(not any(r) for r in rows):
                 continue
+            # 줄이 하나뿐인 셀은 빈 리스트로 둔다 — rows 가 이미 같은 내용을 담고
+            # 있어 두 번 실을 이유가 없다. 전 셀이 그러면 필드 자체를 생략한다.
+            cell_lines = [
+                [list(lines) if len(lines) > 1 else [] for lines in row]
+                for row in (p.cell_lines or [])
+            ]
             order += 1
             doc.blocks.append(
                 RawWordBlock(
@@ -110,6 +126,7 @@ def build_word_doc(file_name: str, probes: list[BlockProbe]) -> RawWordDocument:
                     order=order,
                     type="table",
                     rows=rows,
+                    cell_lines=cell_lines if any(any(r) for r in cell_lines) else None,
                 )
             )
     return doc
@@ -134,8 +151,30 @@ def _split_lines(block_id: str, text: str) -> list[RawLine]:
             order=len(out) + 1,
             raw_text=raw,
             normalized_text=" ".join(raw.split()),
+            indent=_indent_width(piece),
         ))
     return out
+
+
+_TAB_WIDTH = 4
+"""탭 하나를 몇 칸으로 셀 것인가.
+
+실제 폭은 문서 설정에 달렸지만 여기서 필요한 것은 절대 폭이 아니라 **줄끼리의 상대
+비교**라 고정값으로 충분하다. 값을 바꾸면 렌더의 들여쓰기 모양만 달라진다.
+"""
+
+
+def _indent_width(text: str) -> int:
+    """줄의 선행 공백 칸 수. 탭은 :data:`_TAB_WIDTH` 칸으로 센다."""
+    n = 0
+    for ch in text:
+        if ch == " ":
+            n += 1
+        elif ch == "\t":
+            n += _TAB_WIDTH
+        else:
+            break
+    return n
 
 
 _HEADING_STYLE = re.compile(r"^heading\s*(\d+)$", re.IGNORECASE)
@@ -191,7 +230,8 @@ def parse_word_xml(xml_str: str) -> list[BlockProbe]:
         if el.tag == _w("p"):
             probes.append(_parse_paragraph(el))
         elif el.tag == _w("tbl"):
-            probes.append(TableProbe(rows=_parse_table(el)))
+            rows, cell_lines = _parse_table(el)
+            probes.append(TableProbe(rows=rows, cell_lines=cell_lines))
     return probes
 
 
@@ -225,22 +265,45 @@ def _find_body(xml_str: str) -> Optional[ET.Element]:
     return root.find(f".//{_w('body')}")
 
 
+_TWIPS_PER_COL = 120
+"""twips(1/1440인치) → 칸 환산 계수. 720 twips(0.5인치) ≈ 6칸.
+
+절대 정확도는 필요 없다 — 렌더에서 **다른 줄과의 상대 비교**에만 쓰이기 때문이다.
+"""
+
+
+def _twips_to_cols(value: Optional[str]) -> int:
+    """``<w:ind>`` 속성값(twips 문자열) → 칸 수. 못 읽으면 0(추측하지 않는다)."""
+    if not value:
+        return 0
+    try:
+        return max(0, round(int(value) / _TWIPS_PER_COL))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _parse_paragraph(p: ET.Element) -> ParaProbe:
-    """``<w:p>`` → :class:`ParaProbe` (텍스트 + 스타일/굵게/크기)."""
+    """``<w:p>`` → :class:`ParaProbe` (텍스트 + 스타일/굵게/크기/들여쓰기)."""
     text = _runs_text(p)
 
     style_name = None
     list_item = False
+    indent = 0
     pPr = p.find(_w("pPr"))
     if pPr is not None:
         pStyle = pPr.find(_w("pStyle"))
         if pStyle is not None:
             style_name = pStyle.get(_w("val"))
         list_item = pPr.find(_w("numPr")) is not None
+        ind = pPr.find(_w("ind"))
+        if ind is not None:
+            # w:start 는 w:left 의 신형 이름 — 둘 다 나타난다.
+            indent = _twips_to_cols(ind.get(_w("left")) or ind.get(_w("start")))
 
     bold, size = _first_run_format(p)
     return ParaProbe(
-        text=text, style_name=style_name, bold=bold, font_size=size, list_item=list_item
+        text=text, style_name=style_name, bold=bold, font_size=size,
+        list_item=list_item, indent=indent,
     )
 
 
@@ -305,18 +368,17 @@ def _size_of(rPr: ET.Element) -> Optional[float]:
 # --------------------------------------------------------------------------- #
 # 표 파싱 (병합 처리의 핵심)
 # --------------------------------------------------------------------------- #
-def _parse_table(tbl: ET.Element) -> list[list[str]]:
-    """``<w:tbl>`` → 셀 텍스트 2D. 가로(gridSpan)/세로(vMerge) 병합을 모두 채운다.
+def _parse_table(tbl: ET.Element) -> tuple[list[list[str]], list[list[list[str]]]]:
+    """``<w:tbl>`` → (셀 텍스트 2D, 셀 줄 3D). 가로/세로 병합을 모두 채운다.
 
     각 행의 ``<w:tc>`` 를 왼쪽부터 순회하며 현재 그리드 컬럼을 ``gridSpan`` 만큼
-    전진시킨다. ``vMerge`` 연속 셀은 같은 컬럼의 시작 셀 값을 상속한다. 모든 그리드
-    위치가 tc 로 표현되므로(연속 셀도 빈 tc 로 존재) 컬럼 추적이 정확하다.
+    전진시킨다. ``vMerge`` 연속 셀은 같은 컬럼의 시작 셀 값을 상속한다 — **줄 목록도
+    똑같이 상속**해야 두 표현이 어긋나지 않는다.
     """
     rows_el = tbl.findall(_w("tr"))
     if not rows_el:
-        return []
+        return [], []
 
-    # 컬럼 수: tblGrid 우선, 없으면 행별 gridSpan 합의 최댓값.
     grid = tbl.find(_w("tblGrid"))
     n_cols = len(grid.findall(_w("gridCol"))) if grid is not None else 0
     if n_cols == 0:
@@ -325,30 +387,37 @@ def _parse_table(tbl: ET.Element) -> list[list[str]]:
             default=0,
         )
     if n_cols == 0:
-        return []
+        return [], []
 
-    vmerge_text: list[Optional[str]] = [None] * n_cols  # 컬럼별 세로 병합 시작 값
+    vmerge_text: list[Optional[str]] = [None] * n_cols
+    vmerge_lines: list[Optional[list[str]]] = [None] * n_cols
     out: list[list[str]] = []
+    out_lines: list[list[list[str]]] = []
     for tr in rows_el:
         row_vals = [""] * n_cols
+        row_lines: list[list[str]] = [[] for _ in range(n_cols)]
         col = 0
         for tc in tr.findall(_w("tc")):
             span = _grid_span(tc)
             vmerge = _vmerge_state(tc)
 
             if vmerge == "continue":
-                text = vmerge_text[col] if col < n_cols else ""
-                text = text or ""
+                text = (vmerge_text[col] if col < n_cols else "") or ""
+                lines = list(vmerge_lines[col] or []) if col < n_cols else []
             else:
                 text = _cell_text(tc)
+                lines = _cell_lines(tc)
                 for k in range(col, min(col + span, n_cols)):
                     vmerge_text[k] = text if vmerge == "restart" else None
+                    vmerge_lines[k] = lines if vmerge == "restart" else None
 
             for k in range(col, min(col + span, n_cols)):
                 row_vals[k] = text
+                row_lines[k] = list(lines)
             col += span
         out.append(row_vals)
-    return out
+        out_lines.append(row_lines)
+    return out, out_lines
 
 
 def _grid_span(tc: ET.Element) -> int:
@@ -385,6 +454,22 @@ def _cell_text(tc: ET.Element) -> str:
         if s:
             parts.append(s)
     return " ".join(" ".join(parts).split())
+
+
+def _cell_lines(tc: ET.Element) -> list[str]:
+    """셀 안 줄 목록. 문단이 여럿이거나 ``<w:br/>`` 이 있으면 여러 줄이 된다.
+
+    :func:`_cell_text` 는 이 줄들을 공백으로 이어 붙인 값을 만드는데, 그 값은
+    ``compact_raw`` 로 나가므로 **바꾸지 않는다**(설계 결정 0). 원문 구조는 여기서
+    따로 남긴다 — 한 셀에 조건표가 통째로 들어간 문서를 위한 것이다.
+    """
+    out: list[str] = []
+    for p in tc.findall(_w("p")):
+        for piece in _runs_text(p).splitlines():
+            s = piece.strip()
+            if s:
+                out.append(s)
+    return out
 
 
 # --------------------------------------------------------------------------- #

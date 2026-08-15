@@ -226,7 +226,7 @@ def build_record_user(batch: list, column_schema: Any, table_profile: Any, carry
 # --------------------------------------------------------------------------- #
 # Fact Extractor (F3) — Word/PPT 블록/도형 → fact (Excel 은 코드 매핑이라 미사용)
 # --------------------------------------------------------------------------- #
-FACT_VERSION = "fact-v2"
+FACT_VERSION = "fact-v3"  # v3: 블록·셀 경계 재구성 — 조건별 속성 + inherited_from
 
 FACT_SYSTEM = """\
 당신은 문서에서 비교 가능한 fact 를 추출하는 분석가입니다. 각 항목 앞의 [id] 가 붙은
@@ -234,6 +234,9 @@ FACT_SYSTEM = """\
 
 규칙:
 - 흩어진 서술(본문+스피커노트, 표+설명)이 같은 대상이면 하나의 fact 로 병합합니다.
+- 블록·셀 경계는 작성자가 Enter 를 눌렀는지, 표로 그렸는지의 결과일 뿐 의미 경계가 아닙니다. 레이블이 생략된 줄·블록은 앞의 레이블에 딸린 것일 수 있습니다.
+- 한 항목에 조건이 여럿이면(온도 구간별 충전전류 등) fact 를 나누지 말고 하나로 두되, 조건마다 속성을 나눠 담으세요: charge_temp_range_1 / charge_rate_1 / charge_temp_range_2 / … 처럼 번호를 붙입니다. 조건 하나만 담고 나머지를 버리거나, 값을 한 문자열로 뭉쳐 담으면 둘 다 비교가 불가능해집니다.
+- 다른 블록·줄의 레이블을 이어받아 조건을 채웠으면 inherited_from 에 그 [id] 를 적으세요. 판단이 서지 않으면 이어받지 말고 confidence 를 낮추세요 — 틀린 상속은 없는 내용을 만들어내는 것이라 누락보다 나쁩니다.
 - 값·단위는 본문에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
 - attributes 이름: 규격 경계는 lower_limit/target_value/upper_limit 로, 그 외는 그 속성의 고유 이름을 그대로 씁니다.
 - evidence_text 는 입력에 실제로 있는 문구만 적습니다(지어내기 금지).
@@ -250,6 +253,7 @@ FACT_SYSTEM = """\
       "attributes": {"<이름>": {"value": <값|null>, "unit": "<단위>"}},
       "evidence_text": "<입력에 실제 있는 근거 문구>",
       "source_ids": ["<근거 블록/도형 id>"],
+      "inherited_from": ["<레이블을 이어받은 [id]>"],
       "confidence": <0~1 실수>
     }
   ]
@@ -264,15 +268,72 @@ def _profile_purpose(profile: Any) -> str:
     return _as_str(getattr(profile, "main_purpose", ""))
 
 
+_RENDER_INDENT_CAP = 40
+"""렌더에서 허용할 최대 들여쓰기 칸 수.
+
+원문에 비정상적으로 큰 들여쓰기가 있으면 한 줄이 화면을 넘어가 LLM 이 구조를 오히려
+더 못 읽는다. 자르는 것이 정보 손실이지만, 여기서 필요한 것은 **줄끼리의 상대 위치**라
+상한을 둬도 그 신호는 남는다.
+"""
+
+
 def _render_unit(u: dict) -> str:
+    """블록/도형 하나를 프롬프트 한 덩어리로. 여러 줄이면 개행이 들어간다.
+
+    **코드는 여기서 아무 판단도 하지 않는다** — 원문 구조를 덜 훼손해 옮길 뿐이고,
+    "저 줄들이 앞 레이블에 딸린 것인가"는 LLM 이 본다(설계 §5).
+    """
     uid = u.get("id")
     loc = f" slide={u['slide_no']}" if u.get("slide_no") else ""
     note = " (스피커노트)" if u.get("is_note") else ""
+    tag = "[맥락]" if u.get("context") else ""
+    head = f"{tag}[{uid}]{loc}{note}"
+
     if u.get("type") == "table":
-        content = f"표 {u.get('rows')}"
-    else:
-        content = _as_str(u.get("text"))
-    return f"[{uid}]{loc}{note} {content}"
+        return f"{head} {_render_table(u)}"
+
+    lines = u.get("lines") or []
+    if len(lines) < 2:
+        return f"{head} {_as_str(u.get('text'))}"
+
+    block_ind = int(u.get("indent") or 0)
+    pad = " " * (len(head) + 1)
+    out = []
+    for i, ln in enumerate(lines):
+        ind = " " * min(block_ind + int(ln.get("indent") or 0), _RENDER_INDENT_CAP)
+        out.append((f"{head} " if i == 0 else pad) + ind + _as_str(ln.get("raw_text")))
+    return "\n".join(out)
+
+
+def _render_table(u: dict) -> str:
+    """표를 행 단위로. 여러 줄인 셀은 줄을 살린다.
+
+    예전에는 ``표 [['a','b'], …]`` 라는 파이썬 리스트 repr 이었다. 그 모양은 마지막
+    칸이 아무리 길어도 **하나의 값**처럼 보여서, 한 셀에 조건표가 들어간 문서에서
+    속성이 한 개만 나왔다(설계 §1.2).
+    """
+    rows = u.get("rows") or []
+    cell_lines = u.get("cell_lines") or []
+    n_cols = len(rows[0]) if rows else 0
+    out = [f"표 ({len(rows)}행 × {n_cols}열)"]
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            prefix = f"  행{r + 1} | " if c == 0 else "      | "
+            lines = _cell_lines_at(cell_lines, r, c)
+            if len(lines) < 2:
+                out.append(prefix + _as_str(cell))
+                continue
+            out.append(prefix + lines[0])
+            out.extend("        " + s for s in lines[1:])
+    return "\n".join(out)
+
+
+def _cell_lines_at(cell_lines: Any, r: int, c: int) -> list[str]:
+    """``cell_lines[r][c]`` 를 안전하게 꺼낸다. 모양이 어긋나면 빈 리스트."""
+    try:
+        return list(cell_lines[r][c] or [])
+    except (IndexError, KeyError, TypeError):
+        return []
 
 
 def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
@@ -280,6 +341,11 @@ def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
         f"다음은 {doc_type} 문서의 블록/도형입니다. 각 항목 앞의 [id] 는 "
         "source_ids 에 넣을 식별자입니다."
     )
+    if any(u.get("context") for u in units):
+        header += (
+            "\n[맥락] 표시가 붙은 블록은 앞에서 이미 처리했습니다 — 앞뒤 관계를 "
+            "이해하는 데만 쓰고, 그 블록에 대한 fact 는 만들지 마세요."
+        )
     purpose = _profile_purpose(profile)
     if purpose:
         header += f"\n문서 맥락: {purpose}"

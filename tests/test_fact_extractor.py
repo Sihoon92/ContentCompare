@@ -343,3 +343,169 @@ def test_word_cache_hit_skips_llm(tmp_path):
     fs2 = extract_facts(_WORD, runner=runner2, store=store)
     assert runner2.calls == 0
     assert [f.entity_name for f in fs2.facts] == ["A"]
+
+
+def test_with_context_prefixes_previous_tail():
+    """두 번째 배치부터 직전 배치의 꼬리 3블록이 맥락으로 붙는다."""
+    from contentcompare.fact.fact_extractor import _with_context
+
+    batches = [
+        [{"id": f"w_b{i:03d}", "type": "text", "text": "x"} for i in range(1, 6)],
+        [{"id": "w_b006", "type": "text", "text": "y"}],
+    ]
+    out = _with_context(batches)
+
+    assert [u["id"] for u in out[0]] == ["w_b001", "w_b002", "w_b003", "w_b004", "w_b005"]
+    assert [u["id"] for u in out[1]] == ["w_b003", "w_b004", "w_b005", "w_b006"]
+    assert [u.get("context") for u in out[1]] == [True, True, True, None]
+
+
+def test_with_context_does_not_mutate_input():
+    """원본 unit dict 에 context 를 찍으면 앞 배치의 렌더까지 오염된다."""
+    from contentcompare.fact.fact_extractor import _with_context
+
+    first = [{"id": "w_b001", "type": "text", "text": "x"}]
+    _with_context([first, [{"id": "w_b002", "type": "text", "text": "y"}]])
+
+    assert "context" not in first[0]
+
+
+def test_context_table_is_truncated():
+    """표를 통째로 맥락에 실으면 배치 토큰을 삼킨다 — 앞 2행만."""
+    from contentcompare.fact.fact_extractor import _with_context
+
+    tbl = {"id": "w_b001", "type": "table",
+           "rows": [["a"], ["b"], ["c"], ["d"]],
+           "cell_lines": [[[]], [[]], [[]], [[]]]}
+    out = _with_context([[tbl], [{"id": "w_b002", "type": "text", "text": "y"}]])
+
+    assert out[1][0]["rows"] == [["a"], ["b"]]
+    assert len(out[1][0]["cell_lines"]) == 2
+    assert tbl["rows"] == [["a"], ["b"], ["c"], ["d"]]      # 원본 불변
+
+
+def test_context_blocks_cannot_be_fact_sources():
+    """맥락 블록만 근거로 든 fact 는 기존 batch_ids 검증이 드롭한다."""
+    from contentcompare.fact.fact_extractor import _facts_from_blocks
+
+    compact = {"doc_type": "word", "blocks": [
+        {"id": f"w_b{i:03d}", "type": "paragraph", "text": f"내용 {i}"}
+        for i in range(1, 4)
+    ]}
+
+    class _Runner:
+        def __init__(self):
+            self.calls = 0
+
+        def complete_json(self, system, user):
+            self.calls += 1
+            # 두 번째 배치에서 앞 배치(맥락) 블록만 근거로 든 fact 를 낸다.
+            if self.calls == 2:
+                return {"facts": [{"entity_name": "유령", "source_ids": ["w_b001"]}]}
+            return {"facts": []}
+
+    drops = {}
+    out = _facts_from_blocks(compact, None, _Runner(), 2, drops)
+
+    assert out.facts == []
+    assert drops["dropped_no_valid_source_id"] == 1
+
+
+_RAW_WITH_LINES = {"blocks": [{
+    "block_id": "w_b001", "type": "paragraph", "text": "a b",
+    "indent": 3,
+    "lines": [{"raw_text": "a", "indent": 0}, {"raw_text": "b", "indent": 11}],
+}]}
+
+
+def test_units_carry_line_structure():
+    """physical_raw 를 주면 unit 에 줄 구조가 실린다."""
+    from contentcompare.fact.fact_extractor import _units_by_group
+
+    compact = {"doc_type": "word",
+               "blocks": [{"id": "w_b001", "type": "paragraph", "text": "a b"}]}
+    groups, _ = _units_by_group(compact, lines_by_block=_RAW_WITH_LINES)
+    unit = groups[0][0]
+
+    assert unit["indent"] == 3
+    assert [l["raw_text"] for l in unit["lines"]] == ["a", "b"]
+    assert unit["lines"][1]["indent"] == 11
+
+
+def test_units_unchanged_without_lines():
+    """안 주면 예전 그대로 — PPT·Excel·옛 산출물 경로가 무변경이다."""
+    from contentcompare.fact.fact_extractor import _units_by_group
+
+    compact = {"doc_type": "word",
+               "blocks": [{"id": "w_b001", "type": "paragraph", "text": "a b"}]}
+    groups, _ = _units_by_group(compact)
+
+    assert "lines" not in groups[0][0]
+    assert "indent" not in groups[0][0]
+
+
+def test_lines_index_ignores_single_line_blocks():
+    """줄이 1개인 블록은 지문에 넣지 않는다 — 무관한 변경으로 캐시가 깨진다."""
+    from contentcompare.fact.fact_extractor import _lines_index
+
+    raw = {"blocks": [{"block_id": "w_b001", "type": "paragraph",
+                       "lines": [{"raw_text": "only", "indent": 0}]}]}
+
+    assert _lines_index(raw) == {}
+
+
+def test_fingerprint_changes_with_line_structure(tmp_path):
+    """같은 compact + 다른 줄 정보 → 다른 지문(안 그러면 옛 결과를 준다)."""
+    from contentcompare.fact.artifacts import ArtifactStore
+    from contentcompare.fact.fact_extractor import extract_facts
+
+    compact = {"doc_type": "word",
+               "blocks": [{"id": "w_b001", "type": "paragraph", "text": "a b"}]}
+
+    class _Runner:
+        def __init__(self):
+            self.calls = 0
+
+        def complete_json(self, system, user):
+            self.calls += 1
+            return {"facts": [{"entity_name": f"호출{self.calls}",
+                               "source_ids": ["w_b001"]}]}
+
+    runner = _Runner()
+    store = ArtifactStore(str(tmp_path), "t.docx")
+    extract_facts(compact, runner=runner, store=store, lines_by_block=_RAW_WITH_LINES)
+    assert runner.calls == 1
+
+    # 같은 입력 → 캐시 히트
+    extract_facts(compact, runner=runner, store=store, lines_by_block=_RAW_WITH_LINES)
+    assert runner.calls == 1
+
+    # 줄 정보만 바뀜 → 재계산
+    changed = {"blocks": [{"block_id": "w_b001", "type": "paragraph",
+                           "lines": [{"raw_text": "a", "indent": 0},
+                                     {"raw_text": "b", "indent": 20}]}]}
+    extract_facts(compact, runner=runner, store=store, lines_by_block=changed)
+    assert runner.calls == 2
+
+
+def test_facts_inherited_is_counted():
+    """상속이 얼마나 일어났는지 세지 않으면 과한지 알 수 없다."""
+    from contentcompare.fact.fact_extractor import _facts_from_blocks
+
+    compact = {"doc_type": "word", "blocks": [
+        {"id": "w_b001", "type": "paragraph", "text": "a"},
+        {"id": "w_b002", "type": "paragraph", "text": "b"},
+    ]}
+
+    class _Runner:
+        def complete_json(self, system, user):
+            return {"facts": [
+                {"entity_name": "이어받음", "source_ids": ["w_b002"],
+                 "inherited_from": ["w_b001"]},
+                {"entity_name": "보통", "source_ids": ["w_b001"]},
+            ]}
+
+    drops = {}
+    _facts_from_blocks(compact, None, _Runner(), 20, drops)
+
+    assert drops["facts_inherited"] == 1

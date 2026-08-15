@@ -230,3 +230,108 @@ def test_build_word_doc_filters_empty_table():
     probes = [TableProbe(rows=[["", ""], ["", ""]]), ParaProbe(text="x")]
     blocks = build_word_doc("d.docx", probes).to_dict()["blocks"]
     assert len(blocks) == 1 and blocks[0]["text"] == "x"
+
+
+# --------------------------------------------------------------------------- #
+# 문단 들여쓰기 (Task 2)
+# --------------------------------------------------------------------------- #
+def _doc_xml(body: str) -> str:
+    return (
+        '<?xml version="1.0"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{body}</w:body></w:document>"
+    )
+
+
+def test_paragraph_indent_from_w_ind():
+    """<w:ind w:left> 를 칸 수로 환산해 담는다(720 twips = 0.5인치 ≈ 6칸)."""
+    from contentcompare.raw.word_raw import parse_word_xml
+
+    xml = _doc_xml(
+        '<w:p><w:pPr><w:ind w:left="720"/></w:pPr><w:r><w:t>들여쓴 문단</w:t></w:r></w:p>'
+        "<w:p><w:r><w:t>보통 문단</w:t></w:r></w:p>"
+    )
+    probes = parse_word_xml(xml)
+
+    assert probes[0].indent == 6
+    assert probes[1].indent == 0
+
+
+def test_paragraph_indent_accepts_w_start_alias():
+    """w:start 는 w:left 의 신형 이름이다 — 둘 다 읽어야 한다."""
+    from contentcompare.raw.word_raw import parse_word_xml
+
+    xml = _doc_xml(
+        '<w:p><w:pPr><w:ind w:start="360"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>'
+    )
+    assert parse_word_xml(xml)[0].indent == 3
+
+
+def test_block_indent_reaches_physical_raw():
+    """문단 들여쓰기가 블록까지 흐르고, 0 이면 키가 없다."""
+    from contentcompare.raw.word_raw import build_word_doc, parse_word_xml
+
+    xml = _doc_xml(
+        '<w:p><w:pPr><w:ind w:left="720"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>'
+        "<w:p><w:r><w:t>b</w:t></w:r></w:p>"
+    )
+    blocks = build_word_doc("t.docx", parse_word_xml(xml)).to_dict()["blocks"]
+
+    assert blocks[0]["indent"] == 6
+    assert "indent" not in blocks[1]
+
+
+# --------------------------------------------------------------------------- #
+# 표 셀 줄 보존 (Task 3)
+# --------------------------------------------------------------------------- #
+_TBL_MULTILINE = """
+<w:tbl><w:tblGrid><w:gridCol/><w:gridCol/></w:tblGrid>
+  <w:tr>
+    <w:tc><w:p><w:r><w:t>충전 프로토콜</w:t></w:r></w:p></w:tc>
+    <w:tc>
+      <w:p><w:r><w:t>-5~5도씨, 0.1C</w:t><w:br/><w:t>5~12도씨, 0.3C</w:t></w:r></w:p>
+      <w:p><w:r><w:t>12~15도씨, 0.8C</w:t></w:r></w:p>
+    </w:tc>
+  </w:tr>
+</w:tbl>
+"""
+
+
+def test_table_cell_lines_are_preserved():
+    """셀 안 <w:br/> 과 여러 <w:p> 가 줄 목록으로 남는다."""
+    from contentcompare.raw.word_raw import build_word_doc, parse_word_xml
+
+    doc = build_word_doc("t.docx", parse_word_xml(_doc_xml(_TBL_MULTILINE)))
+    block = doc.blocks[0]
+
+    assert block.type == "table"
+    assert block.cell_lines[0][0] == []          # 1줄뿐인 셀은 빈 리스트
+    assert block.cell_lines[0][1] == [
+        "-5~5도씨, 0.1C", "5~12도씨, 0.3C", "12~15도씨, 0.8C",
+    ]
+
+
+def test_table_rows_stay_flattened():
+    """rows 는 compact 로 나가므로 절대 바뀌면 안 된다(결정 0 회귀 테스트)."""
+    from contentcompare.raw.word_raw import build_word_doc, parse_word_xml
+
+    doc = build_word_doc("t.docx", parse_word_xml(_doc_xml(_TBL_MULTILINE)))
+
+    assert doc.blocks[0].rows == [[
+        "충전 프로토콜",
+        "-5~5도씨, 0.1C 5~12도씨, 0.3C 12~15도씨, 0.8C",
+    ]]
+
+
+def test_table_without_multiline_cells_has_no_cell_lines():
+    """모든 셀이 1줄이면 필드를 아예 싣지 않는다 — physical_raw 를 부풀리지 않는다."""
+    from contentcompare.raw.word_raw import build_word_doc, parse_word_xml
+
+    xml = _doc_xml(
+        "<w:tbl><w:tblGrid><w:gridCol/></w:tblGrid>"
+        "<w:tr><w:tc><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+    )
+    block = build_word_doc("t.docx", parse_word_xml(xml)).blocks[0]
+
+    assert block.cell_lines is None
+    assert "cell_lines" not in block.to_dict()
