@@ -119,6 +119,37 @@
 </style>
 </head>
 <body>
+<!-- uh-nav:top:start -->
+<style>
+.uh-nav{max-width:920px;margin:0 auto;padding:10px 20px;font-size:.86rem;line-height:1.7;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+  color:#5b6570;border-bottom:1px solid #e3e8ee}
+.uh-nav a{color:#1565c0;text-decoration:none}
+.uh-nav a:hover{text-decoration:underline}
+.uh-sep{opacity:.45;margin:0 6px}
+.uh-cur{color:#1a1a1a;font-weight:600}
+.uh-bottom{border-bottom:0;border-top:1px solid #e3e8ee;margin-top:44px;padding-top:16px;padding-bottom:26px}
+.uh-row{margin:5px 0}
+.uh-pn{display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+.uh-pn a{display:inline-block;max-width:46%}
+.uh-banner{max-width:920px;margin:14px auto 0;padding:11px 16px;border-radius:8px;font-size:.9rem;
+  line-height:1.65;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif}
+.uh-banner a{color:inherit;font-weight:600}
+.uh-legacy{background:#fff6e5;border-left:4px solid #b26a00;color:#4a3520}
+.uh-implemented{background:#e8f5e9;border-left:4px solid #2e7d32;color:#1b3a20}
+.uh-revised{background:#e8f1fb;border-left:4px solid #1565c0;color:#12324f}
+@media (prefers-color-scheme:dark){
+  .uh-nav{color:#9aa8b6;border-color:#2a3441}
+  .uh-nav a{color:#6ea8fe}
+  .uh-cur{color:#e6edf3}
+  .uh-legacy{background:#3a2f18;color:#f0e2c8}
+  .uh-implemented{background:#1c3423;color:#d6ecd9}
+  .uh-revised{background:#17293d;color:#d6e6f7}
+}
+@media (max-width:640px){ .uh-pn a{max-width:100%} }
+</style>
+<div class="uh-nav uh-top"><a href="index.html">📚 understanding</a><span class="uh-sep">›</span><a href="index.html#strategy">7. 전략</a><span class="uh-sep">›</span><span class="uh-cur">이 파이프라인을 AI 에이전트로 만들 수 있는가</span></div>
+<!-- uh-nav:top:end -->
 <div class="wrap">
 
 <header class="top">
@@ -1246,6 +1277,9 @@ Acceptance Gate <code>enforce</code> 를 검토했을 때, 지표(<code>unsafe_m
 
 </div>
 
+<!-- uh-nav:bottom:start -->
+<div class="uh-nav uh-bottom"><div class="uh-row"><a href="index.html">← 전체 목차로</a></div><div class="uh-row uh-pn"><a href="2026-08-13-explanation-run-stats-anatomy-followup.html">◀ 이전 · missing 76건은 정상인가</a></div><div class="uh-row uh-rel">관련 · <a href="2026-08-14-explanation-missing-and-same-as.html">⚪ 대상에 없음 은 어떻게 정해지는가</a> · <a href="2026-08-13-explanation-run-stats-anatomy.html">실행 통계 읽는 법</a></div></div>
+<!-- uh-nav:bottom:end -->
 <div id="qmemo-bar">
   <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
   <span id="qmemo-saymsg"></span>
