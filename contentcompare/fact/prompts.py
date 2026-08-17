@@ -226,7 +226,7 @@ def build_record_user(batch: list, column_schema: Any, table_profile: Any, carry
 # --------------------------------------------------------------------------- #
 # Fact Extractor (F3) — Word/PPT 블록/도형 → fact (Excel 은 코드 매핑이라 미사용)
 # --------------------------------------------------------------------------- #
-FACT_VERSION = "fact-v2"
+FACT_VERSION = "fact-v3"  # v3: 블록·셀 경계 재구성 — 조건별 속성 + inherited_from
 
 FACT_SYSTEM = """\
 당신은 문서에서 비교 가능한 fact 를 추출하는 분석가입니다. 각 항목 앞의 [id] 가 붙은
@@ -234,6 +234,9 @@ FACT_SYSTEM = """\
 
 규칙:
 - 흩어진 서술(본문+스피커노트, 표+설명)이 같은 대상이면 하나의 fact 로 병합합니다.
+- 블록·셀 경계는 작성자가 Enter 를 눌렀는지, 표로 그렸는지의 결과일 뿐 의미 경계가 아닙니다. 레이블이 생략된 줄·블록은 앞의 레이블에 딸린 것일 수 있습니다.
+- 한 항목에 조건이 여럿이면(온도 구간별 충전전류 등) fact 를 나누지 말고 하나로 두되, 조건마다 속성을 나눠 담으세요: charge_temp_range_1 / charge_rate_1 / charge_temp_range_2 / … 처럼 번호를 붙입니다. 조건 하나만 담고 나머지를 버리거나, 값을 한 문자열로 뭉쳐 담으면 둘 다 비교가 불가능해집니다.
+- 다른 블록·줄의 레이블을 이어받아 조건을 채웠으면 inherited_from 에 그 [id] 를 적으세요. 판단이 서지 않으면 이어받지 말고 confidence 를 낮추세요 — 틀린 상속은 없는 내용을 만들어내는 것이라 누락보다 나쁩니다.
 - 값·단위는 본문에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
 - attributes 이름: 규격 경계는 lower_limit/target_value/upper_limit 로, 그 외는 그 속성의 고유 이름을 그대로 씁니다.
 - evidence_text 는 입력에 실제로 있는 문구만 적습니다(지어내기 금지).
@@ -250,6 +253,7 @@ FACT_SYSTEM = """\
       "attributes": {"<이름>": {"value": <값|null>, "unit": "<단위>"}},
       "evidence_text": "<입력에 실제 있는 근거 문구>",
       "source_ids": ["<근거 블록/도형 id>"],
+      "inherited_from": ["<레이블을 이어받은 [id]>"],
       "confidence": <0~1 실수>
     }
   ]
@@ -264,15 +268,72 @@ def _profile_purpose(profile: Any) -> str:
     return _as_str(getattr(profile, "main_purpose", ""))
 
 
+_RENDER_INDENT_CAP = 40
+"""렌더에서 허용할 최대 들여쓰기 칸 수.
+
+원문에 비정상적으로 큰 들여쓰기가 있으면 한 줄이 화면을 넘어가 LLM 이 구조를 오히려
+더 못 읽는다. 자르는 것이 정보 손실이지만, 여기서 필요한 것은 **줄끼리의 상대 위치**라
+상한을 둬도 그 신호는 남는다.
+"""
+
+
 def _render_unit(u: dict) -> str:
+    """블록/도형 하나를 프롬프트 한 덩어리로. 여러 줄이면 개행이 들어간다.
+
+    **코드는 여기서 아무 판단도 하지 않는다** — 원문 구조를 덜 훼손해 옮길 뿐이고,
+    "저 줄들이 앞 레이블에 딸린 것인가"는 LLM 이 본다(설계 §5).
+    """
     uid = u.get("id")
     loc = f" slide={u['slide_no']}" if u.get("slide_no") else ""
     note = " (스피커노트)" if u.get("is_note") else ""
+    tag = "[맥락]" if u.get("context") else ""
+    head = f"{tag}[{uid}]{loc}{note}"
+
     if u.get("type") == "table":
-        content = f"표 {u.get('rows')}"
-    else:
-        content = _as_str(u.get("text"))
-    return f"[{uid}]{loc}{note} {content}"
+        return f"{head} {_render_table(u)}"
+
+    lines = u.get("lines") or []
+    if len(lines) < 2:
+        return f"{head} {_as_str(u.get('text'))}"
+
+    block_ind = int(u.get("indent") or 0)
+    pad = " " * (len(head) + 1)
+    out = []
+    for i, ln in enumerate(lines):
+        ind = " " * min(block_ind + int(ln.get("indent") or 0), _RENDER_INDENT_CAP)
+        out.append((f"{head} " if i == 0 else pad) + ind + _as_str(ln.get("raw_text")))
+    return "\n".join(out)
+
+
+def _render_table(u: dict) -> str:
+    """표를 행 단위로. 여러 줄인 셀은 줄을 살린다.
+
+    예전에는 ``표 [['a','b'], …]`` 라는 파이썬 리스트 repr 이었다. 그 모양은 마지막
+    칸이 아무리 길어도 **하나의 값**처럼 보여서, 한 셀에 조건표가 들어간 문서에서
+    속성이 한 개만 나왔다(설계 §1.2).
+    """
+    rows = u.get("rows") or []
+    cell_lines = u.get("cell_lines") or []
+    n_cols = len(rows[0]) if rows else 0
+    out = [f"표 ({len(rows)}행 × {n_cols}열)"]
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            prefix = f"  행{r + 1} | " if c == 0 else "      | "
+            lines = _cell_lines_at(cell_lines, r, c)
+            if len(lines) < 2:
+                out.append(prefix + _as_str(cell))
+                continue
+            out.append(prefix + lines[0])
+            out.extend("        " + s for s in lines[1:])
+    return "\n".join(out)
+
+
+def _cell_lines_at(cell_lines: Any, r: int, c: int) -> list[str]:
+    """``cell_lines[r][c]`` 를 안전하게 꺼낸다. 모양이 어긋나면 빈 리스트."""
+    try:
+        return list(cell_lines[r][c] or [])
+    except (IndexError, KeyError, TypeError):
+        return []
 
 
 def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
@@ -280,6 +341,11 @@ def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
         f"다음은 {doc_type} 문서의 블록/도형입니다. 각 항목 앞의 [id] 는 "
         "source_ids 에 넣을 식별자입니다."
     )
+    if any(u.get("context") for u in units):
+        header += (
+            "\n[맥락] 표시가 붙은 블록은 앞에서 이미 처리했습니다 — 앞뒤 관계를 "
+            "이해하는 데만 쓰고, 그 블록에 대한 fact 는 만들지 마세요."
+        )
     purpose = _profile_purpose(profile)
     if purpose:
         header += f"\n문서 맥락: {purpose}"
@@ -294,7 +360,7 @@ def build_fact_user(units: list, doc_type: str, profile: Any = None) -> str:
 # --------------------------------------------------------------------------- #
 # F5 Fact Comparator — 코드가 단정하지 못한 건만 LLM 에 넘긴다
 # --------------------------------------------------------------------------- #
-COMPARE_VERSION = "compare-v1"
+COMPARE_VERSION = "compare-v2"  # v2: 1:N 종합 판정(findings) — target_fact_id 제거
 
 COMPARE_SYSTEM = """\
 당신은 두 문서의 사실(fact)이 서로 일치하는지 판정하는 검토자입니다. 기준 fact 하나와
@@ -313,14 +379,27 @@ COMPARE_SYSTEM = """\
 2. 후보에 실제로 적혀 있지 않은 내용을 지어내지 마세요. 근거가 없으면 missing/unknown.
 3. 기준의 단위가 비어 있으면 대상 단위를 근거로 단위를 **추측하지 마세요**. 값이 같으면
    match, 값이 배수 관계라 단위에 따라 달라진다면 unknown 입니다.
-4. target_fact_id 는 후보로 제시된 id 중 하나만 쓰세요.
+4. 후보가 여러 건이면 **그것들이 함께 하나의 규격을 이룰 수 있습니다**(예: 조건 구간별로
+   나뉜 값). 후보를 각각 기준과 대조해 findings 에 적고, 그 전체를 종합해 result 하나를
+   내세요. 하나라도 다르면 종합은 mismatch 입니다.
+5. findings 의 fact_id 는 후보로 제시된 id 여야 하고, quote 는 그 후보의 근거 원문을
+   **그대로** 옮겨야 합니다. 지어낸 인용은 코드가 검증해 걸러냅니다.
 
-반드시 아래 JSON 만 출력하세요(설명·마크다운 금지):
+반드시 아래 JSON 만 출력하세요(설명·마크다운 금지). 후보가 1건이어도 findings 는 1건
+넣으세요 — 형식은 후보 수와 무관하게 항상 같습니다:
 {
   "result": "match|mismatch|missing|unknown",
-  "target_fact_id": "<가장 대응하는 후보 id 또는 빈 문자열>",
   "mismatch_attributes": ["<어긋난 속성 이름>"],
-  "reason": "<한국어로 판단 근거 한두 문장>"
+  "findings": [
+    {
+      "fact_id": "<후보로 제시된 id>",
+      "result": "match|mismatch|unknown",
+      "mismatch_attributes": ["<어긋난 속성 이름>"],
+      "quote": "<이 후보의 근거 원문 인용>",
+      "reason": "<한국어 한 문장>"
+    }
+  ],
+  "reason": "<종합 판단 근거 한두 문장>"
 }"""
 
 
@@ -364,15 +443,26 @@ CONCEPT_SYSTEM = """\
 
 판정 값:
 - "same_as": 두 항목이 같은 대상에 대한 같은 주장이다. 표기·언어·단위가 달라도 됩니다.
-- "differs_by": 서로 다른 항목이다. **무엇이 달라서 다른지 축(axis) 이름을 직접 지어**
-  쓰세요(예: 측정조건, 기간, 물리량, 산정방식, 연결범위). 정해진 목록은 없습니다 —
-  이 문서의 분야에 맞는 이름을 지으세요.
+- "differs_by": 서로 다른 항목이다. axis 는 아래 **네 가지 중 하나로 시작**하고,
+  그 축 위에서 왼쪽과 오른쪽이 각각 무엇인지 이어서 적으세요.
+    대상 — 무엇을 재는가   (예: "대상: 충전온도 vs 방전온도")
+    조건 — 어떤 상태에서   (예: "조건: 상온 vs 고온 45℃")
+    기간 — 얼마 동안       (예: "기간: 2개월 vs 6개월")
+    방식 — 어떻게 재는가   (예: "방식: 1.0C 방전 vs 0.2C 방전")
+  네 축 어디에도 **양쪽 값을 적을 수 없으면 differs_by 가 아니라 "unknown"** 입니다.
 - "unknown": 판단이 서지 않는다.
 
 원칙:
 1. **값이 다른 것은 differs_by 의 근거가 아닙니다.** "21~29 와 -10~80 은 값이 다르니
    다른 항목"이라고 추론하지 마세요. 값의 차이는 우리가 찾으려는 결과이지 판단 재료가
    아닙니다. 항목이 **무엇에 대한 것인지**만 보세요.
+1-1. **표기 방식의 차이도 differs_by 의 근거가 아닙니다.** 문서마다 같은 것을 다르게
+   적습니다. 아래는 전부 같은 개념이며 차단 사유가 될 수 없습니다:
+   - 단일값 ↔ 범위(min/typ/max), 대표값 ↔ 상·하한
+   - 속성 이름이 다른 것(target_value ↔ center_value), 단위 표기 차이
+   - 한쪽이 더 자세한 것 — **정보량 차이는 개념 차이가 아닙니다**
+   "왼쪽은 중량이고 오른쪽은 무게 **범위**라 서로 다른 물리량이다" 같은 판정은 이
+   규칙 위반입니다. 그것은 같은 항목을 두 문서가 다르게 적은 것뿐입니다.
 2. "same_as" 를 쓰려면 양쪽에서 **원문을 그대로 인용**해야 합니다(left_text/right_text).
    인용할 원문이 없으면 same_as 를 쓸 수 없습니다.
 3. 확신이 없으면 "unknown" 을 쓰세요. 틀린 연결은 사람을 잘못된 수정으로 유도하지만,
@@ -386,7 +476,7 @@ CONCEPT_SYSTEM = """\
       "left_fact_id": "<주어진 id>",
       "right_fact_id": "<주어진 id>",
       "relation": "same_as|differs_by|unknown",
-      "axis": "<differs_by 일 때 무엇이 다른지>",
+      "axis": "<differs_by 일 때 '대상|조건|기간|방식: 왼쪽값 vs 오른쪽값'>",
       "left_text": "<same_as 일 때 왼쪽 원문 인용>",
       "right_text": "<same_as 일 때 오른쪽 원문 인용>",
       "reason": "<한국어 한 문장>"

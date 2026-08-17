@@ -36,6 +36,13 @@ class Fact:
     source: dict[str, Any] = field(default_factory=dict)  # doc_type 별 locator(§4.3)
     evidence_text: str = ""
     confidence: float = 0.0
+    inherited_from: list[str] = field(default_factory=list)
+    """다른 블록·줄의 레이블을 이어받아 조건을 채웠으면 그 ``[id]`` 들.
+
+    ``decided_by``·``quote_verified`` 와 같은 원리다 — **추론한 것은 추론했다고
+    남긴다.** 사람이 이 목록이 붙은 fact 만 골라 전수 검수할 수 있어야, LLM 에게
+    상속을 허용한 대가를 관리할 수 있다.
+    """
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +55,7 @@ class Fact:
             "source": self.source,
             "evidence_text": self.evidence_text,
             "confidence": self.confidence,
+            "inherited_from": self.inherited_from,
         }
 
     @classmethod
@@ -65,6 +73,9 @@ class Fact:
             source=src if isinstance(src, dict) else {},
             evidence_text=_as_str(d.get("evidence_text")),
             confidence=_as_float(d.get("confidence")),
+            inherited_from=[
+                _as_str(i) for i in (d.get("inherited_from") or []) if _as_str(i)
+            ],
         )
 
     @classmethod

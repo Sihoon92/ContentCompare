@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>왜 AI는 “틀렸는지” 말할 수 있어야 하는가 — why_missing.py와 판단 설명 가능성</title>
+<style>
+:root{
+  --ink:#17212b;--muted:#5f6b76;--paper:#f5f7f8;--card:#fff;--line:#d9e0e5;
+  --navy:#173b57;--code:#1565c0;--code-bg:#eaf3ff;--llm:#8e24aa;--llm-bg:#f6eafa;
+  --embed:#00897b;--embed-bg:#e5f6f3;--human:#e66a18;--human-bg:#fff0e5;
+  --graph:#546e7a;--graph-bg:#edf2f4;--good:#26734d;--good-bg:#e9f6ef;
+  --bad:#b3261e;--bad-bg:#fdecea;--warn:#9a6500;--warn-bg:#fff6dc;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;line-height:1.72}
+main{max-width:1040px;margin:0 auto;padding:0 24px 110px}
+header{margin:0 calc(50% - 50vw) 30px;padding:58px max(24px,calc((100vw - 992px)/2)) 46px;background:linear-gradient(135deg,#102f46,#1f6072);color:#fff}
+header .eyebrow{font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:800}
+h1{font-size:clamp(2rem,5vw,3.6rem);line-height:1.13;margin:.35em 0 .4em;max-width:900px;word-break:keep-all}
+header p{max-width:820px;font-size:1.08rem;color:#dcebf0;margin:0}
+.hero-answer{margin-top:24px;padding:16px 18px;border-left:4px solid #82d8ca;background:#ffffff12;border-radius:0 12px 12px 0;font-size:1.03rem}
+h2{font-size:1.75rem;line-height:1.3;color:var(--navy);margin:64px 0 14px;scroll-margin-top:18px}
+h3{font-size:1.18rem;color:#24485d;margin:32px 0 8px}
+p{margin:10px 0 16px}
+a{color:#0b66a3;text-underline-offset:3px}
+code{font-family:"Cascadia Code",Consolas,monospace;background:#edf1f4;border-radius:4px;padding:.1em .35em;font-size:.9em}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101a22;color:#e8f1f5;border-radius:12px;padding:18px 20px;overflow:auto;font:14px/1.65 "Cascadia Code",Consolas,monospace;box-shadow:0 8px 24px #132c3a18}
+.toc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;box-shadow:0 8px 30px #1b40520a}
+.toc strong{color:var(--navy)}
+.toc ol{columns:2;column-gap:34px;margin:12px 0 0;padding-left:22px}
+.toc li{break-inside:avoid;margin:5px 0}
+.memo-guide{margin:16px 0 28px;background:#edf7f5;border:1px solid #b7ddd5;border-radius:12px;padding:13px 16px;color:#315b54}
+.callout{margin:20px 0;padding:17px 20px;border-radius:12px;border-left:5px solid var(--code);background:var(--code-bg)}
+.callout.warn{border-color:var(--warn);background:var(--warn-bg)}
+.callout.good{border-color:var(--good);background:var(--good-bg)}
+.callout.bad{border-color:var(--bad);background:var(--bad-bg)}
+.callout .label{display:block;font-size:.78rem;font-weight:850;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+.qmemo{margin:15px 0 24px;padding:13px 15px;border:2px dashed #aebbc4;border-radius:12px;background:#f0f3f5}
+.qmemo[data-status="answered"]{border-style:solid;border-color:#2e7d65;background:#edf8f4}
+.qmemo-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+.qmemo-label{font-size:.79rem;font-weight:850;color:#46606f}
+.qmemo-hint{font-size:.76rem;color:#73818a}
+.qmemo-question{min-height:38px;padding:8px 10px;background:#fff;border:1px solid #cbd5db;border-radius:8px;outline:none}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:#a0aab1}
+.qmemo-question:focus{border-color:#4389a4;box-shadow:0 0 0 3px #4389a422}
+.qmemo-answer{margin-top:10px;padding:10px 12px;border-radius:8px;background:#fff;border-left:4px solid #2e7d65}
+#qmemo-bar{position:fixed;z-index:50;left:0;right:0;bottom:0;display:flex;align-items:center;gap:14px;padding:12px max(18px,calc((100vw - 1000px)/2));background:#142833ee;color:#fff;backdrop-filter:blur(8px);box-shadow:0 -4px 18px #0002}
+#qmemo-save-btn{border:0;border-radius:9px;background:#d4fff6;color:#123d37;font-weight:850;padding:10px 15px;cursor:pointer;white-space:nowrap}
+#qmemo-save-btn:hover{background:#fff}
+#qmemo-saymsg{font-size:.78rem;color:#dce8ec;overflow-wrap:anywhere}
+.figure{margin:24px 0;padding:18px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 30px #1b40520a}
+.figure svg{display:block;width:100%;height:auto}
+figcaption{font-size:.82rem;color:var(--muted);margin-top:10px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+.card h3{margin:0 0 8px}
+.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.72rem;font-weight:800;margin-right:5px}
+.b-code{color:var(--code);background:var(--code-bg)}.b-llm{color:var(--llm);background:var(--llm-bg)}
+.b-embed{color:var(--embed);background:var(--embed-bg)}.b-human{color:var(--human);background:var(--human-bg)}
+.b-graph{color:var(--graph);background:var(--graph-bg)}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:stretch;margin:20px 0}
+.step{position:relative;border-radius:12px;padding:15px 12px;background:#fff;border:1px solid var(--line);min-height:116px}
+.step:after{content:"→";position:absolute;right:-10px;top:42%;z-index:2;color:#7c8a93;font-weight:900}
+.step:last-child:after{display:none}.step small{display:block;color:var(--muted);margin-top:5px}.step.fail{border:2px solid var(--bad);background:var(--bad-bg)}
+.cause-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0}
+.cause-btn{font:inherit;text-align:left;cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:12px;padding:13px;transition:.15s}
+.cause-btn:hover,.cause-btn.active{transform:translateY(-1px);border-color:#3f7e99;box-shadow:0 6px 16px #21445918}
+.cause-btn b{display:block;color:var(--navy)}
+#cause-detail{min-height:94px;margin-top:12px;padding:15px 18px;border-radius:12px;background:#eef5f8;border-left:5px solid #3f7e99}
+.actual{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center;margin:20px 0}
+.fact{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;min-height:154px}
+.fact .name{font-size:1.15rem;font-weight:850;color:var(--navy)}
+.equals{font-size:2rem;color:var(--good);font-weight:900}
+table{width:100%;border-collapse:collapse;margin:18px 0;background:#fff;border:1px solid var(--line);font-size:.91rem}
+th,td{text-align:left;vertical-align:top;padding:11px 12px;border-bottom:1px solid var(--line)}
+th{background:#eaf0f3;color:#23485c}.table-wrap{overflow-x:auto}
+.timeline{border-left:3px solid #b8c7cf;margin:20px 0 20px 18px;padding-left:24px}
+.time{position:relative;margin:0 0 22px}
+.time:before{content:"";position:absolute;left:-32px;top:8px;width:13px;height:13px;border-radius:50%;background:#fff;border:3px solid var(--code)}
+.time h3{margin:0 0 4px}.time p{margin:0}
+.quote{font-size:1.25rem;line-height:1.55;color:#23485c;margin:26px 0;padding:0 20px;border-left:4px solid #60a99c}
+.small{font-size:.82rem;color:var(--muted)}
+.quiz{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}
+.quiz .question{font-weight:850;color:var(--navy);margin-bottom:10px}
+.options{display:grid;gap:8px}.option{font:inherit;text-align:left;border:1px solid #cfd8dd;background:#f9fbfc;border-radius:9px;padding:10px 12px;cursor:pointer}
+.option:hover{border-color:#4c88a0}.option.correct{background:var(--good-bg);border-color:var(--good)}.option.wrong{background:var(--bad-bg);border-color:var(--bad)}
+.feedback{display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#eef3f5}.feedback.show{display:block}
+.footer-note{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:.84rem}
+@media(max-width:760px){main{padding-left:15px;padding-right:15px}.toc ol{columns:1}.grid,.cause-grid{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.step{min-height:auto}.step:after{content:"↓";right:50%;top:auto;bottom:-18px}.actual{grid-template-columns:1fr}.equals{text-align:center;transform:rotate(90deg)}#qmemo-bar{align-items:flex-start;flex-direction:column;gap:5px}h2{font-size:1.48rem}}
+</style>
+</head>
+<body>
+<!-- uh-nav:top:start -->
+<style>
+.uh-nav{max-width:900px;margin:0 auto;padding:10px 20px;font-size:.86rem;line-height:1.7;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+  color:#5b6570;border-bottom:1px solid #e3e8ee}
+.uh-nav a{color:#1565c0;text-decoration:none}
+.uh-nav a:hover{text-decoration:underline}
+.uh-sep{opacity:.45;margin:0 6px}
+.uh-cur{color:#1a1a1a;font-weight:600}
+.uh-bottom{border-bottom:0;border-top:1px solid #e3e8ee;margin-top:44px;padding-top:16px;padding-bottom:26px}
+.uh-row{margin:5px 0}
+.uh-pn{display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+.uh-pn a{display:inline-block;max-width:46%}
+.uh-banner{max-width:900px;margin:14px auto 0;padding:11px 16px;border-radius:8px;font-size:.9rem;
+  line-height:1.65;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif}
+.uh-banner a{color:inherit;font-weight:600}
+.uh-legacy{background:#fff6e5;border-left:4px solid #b26a00;color:#4a3520}
+.uh-implemented{background:#e8f5e9;border-left:4px solid #2e7d32;color:#1b3a20}
+.uh-revised{background:#e8f1fb;border-left:4px solid #1565c0;color:#12324f}
+@media (prefers-color-scheme:dark){
+  .uh-nav{color:#9aa8b6;border-color:#2a3441}
+  .uh-nav a{color:#6ea8fe}
+  .uh-cur{color:#e6edf3}
+  .uh-legacy{background:#3a2f18;color:#f0e2c8}
+  .uh-implemented{background:#1c3423;color:#d6ecd9}
+  .uh-revised{background:#17293d;color:#d6e6f7}
+}
+@media (max-width:640px){ .uh-pn a{max-width:100%} }
+</style>
+<div class="uh-nav uh-top"><a href="index.html">📚 understanding</a><span class="uh-sep">›</span><a href="index.html#ops">6. 운영·진단</a><span class="uh-sep">›</span><span class="uh-cur">왜 AI는 ‘틀렸는지’ 말할 수 있어야 하는가</span></div>
+<!-- uh-nav:top:end -->
+<header>
+  <div class="eyebrow">ContentCompare · AI 판단 설명 가능성</div>
+  <h1>왜 AI는 “틀렸는지”<br>말할 수 있어야 하는가</h1>
+  <p><code>python scripts/why_missing.py 공칭용량</code>이 하는 일을 출발점으로, 좋은 AI 시스템이 결과뿐 아니라 원인·증거·다음 행동까지 남겨야 하는 이유를 설명한다.</p>
+  <div class="hero-answer"><strong>한 문장 답:</strong> 이 기능은 AI가 사후에 그럴듯한 변명을 쓰게 하는 기능이 아니다. 실행 중 남긴 증거를 다시 읽어, 어느 단계에서 정보가 끊겼는지 코드로 분류하는 <strong>판단 블랙박스 판독기</strong>다.</div>
+</header>
+<main>
+
+<div class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#background">배경 — 왜 결과만으로는 부족한가</a></li>
+    <li><a href="#system">ContentCompare 안의 자리</a></li>
+    <li><a href="#intuition">핵심 직관 — 블랙박스 판독기</a></li>
+    <li><a href="#case">실제 사례 — 공칭용량</a></li>
+    <li><a href="#implementation">코드와 구성요소</a></li>
+    <li><a href="#importance">잘 설계해야 하는 이유</a></li>
+    <li><a href="#usage">지금 어떻게 활용하는가</a></li>
+    <li><a href="#future">앞으로 어디까지 갈 수 있는가</a></li>
+    <li><a href="#principles">좋은 설명 기능의 설계 원칙</a></li>
+    <li><a href="#limits">현재 경계와 다음 과제</a></li>
+    <li><a href="#quiz">이해도 퀴즈</a></li>
+  </ol>
+</div>
+<div class="memo-guide">각 장의 <strong>질문 메모</strong>에 궁금한 점을 적으면 이 브라우저에 자동 저장됩니다. 맨 아래 고정 바의 <strong>질문 저장</strong>을 누르면 질문이 포함된 같은 이름의 HTML이 다운로드됩니다. 안내된 경로에 덮어쓴 뒤 다시 설명을 요청하면 답변을 문서 안에 채울 수 있습니다.</div>
+
+<h2 id="background">1. 배경 — AI의 결과와 AI 시스템의 원인은 다르다</h2>
+<div class="qmemo" data-qid="background-result-vs-cause" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">결과와 원인의 차이에서 궁금한 점을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<p>문서 비교 결과가 <code>missing</code>, 즉 “대상에 없음”이라고 하자. 사용자에게는 하나의 결과지만, 시스템 안에서는 전혀 다른 사건들이 같은 결과로 합쳐질 수 있다. 원문에서 항목을 못 뽑았을 수도 있고, 검색이 올바른 후보를 놓쳤을 수도 있고, LLM이 같은 개념이라고 판단했지만 안전 검사가 그 연결을 거부했을 수도 있다.</p>
+<p>이 차이는 병원에서 “열이 난다”와 “왜 열이 나는가”의 차이와 같다. 증상은 하나지만 원인에 따라 처방이 달라진다. 검색 실패에 프롬프트를 고쳐도 소용없고, LLM 호출 예산이 바닥난 문제에 임베딩 임계값을 낮춰도 소용없다.</p>
+
+<div class="callout"><span class="label">정의</span><strong>판단 설명 가능성</strong>은 자연어로 이유 한 문장을 붙이는 일이 아니다. 입력, 중간 판단, 거부 규칙, 최종 결과 사이의 인과 경로를 사람이 검증 가능한 증거와 함께 복원하는 능력이다.</div>
+
+<p>특히 LLM 시스템에서는 “결과를 낸 모델에게 결과의 이유도 써 달라”고 요청하는 방식이 위험하다. 모델은 실제 내부 실행 경로를 보지 못한 채 그럴듯한 이야기를 만들 수 있다. 그래서 설명은 결과 생성 후의 수사가 아니라, 실행 중 축적한 관측 자료에서 나와야 한다.</p>
+
+<h2 id="system">2. 지금 구현에서 이 기능은 어디에 있는가</h2>
+<div class="qmemo" data-qid="system-place-in-pipeline" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">메인 파이프라인과 진단 계층의 관계를 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<p><code>why_missing.py</code>는 문서를 비교하는 주 경로 안에서 판정을 만드는 모듈이 아니다. 비교가 끝난 뒤, 주 경로가 남긴 JSON 산출물을 읽는 <strong>운영·진단 계층</strong>에 있다. 이 분리가 중요하다. 진단 때문에 판정 로직을 다시 실행하지 않고, 과거 실행도 같은 방식으로 조사할 수 있기 때문이다.</p>
+
+<figure class="figure">
+<svg viewBox="0 0 940 330" role="img" aria-labelledby="sys-title sys-desc">
+  <title id="sys-title">ContentCompare의 주 실행 경로와 진단 경로</title>
+  <desc id="sys-desc">문서에서 fact를 추출하고 개념을 연결해 값을 비교한 뒤 산출물을 저장한다. why_missing은 저장된 산출물을 읽어 원인과 조치를 만든다.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#738995"/></marker></defs>
+  <rect x="18" y="35" width="145" height="74" rx="14" fill="#fff" stroke="#cbd8de"/><text x="90" y="66" text-anchor="middle" font-weight="700" fill="#173b57">원본 문서</text><text x="90" y="90" text-anchor="middle" font-size="13" fill="#5f6b76">Excel · Word · PPT</text>
+  <rect x="205" y="35" width="145" height="74" rx="14" fill="#f6eafa" stroke="#b982c5"/><text x="277" y="66" text-anchor="middle" font-weight="700" fill="#7b1fa2">F3 추출</text><text x="277" y="90" text-anchor="middle" font-size="13" fill="#5f6b76">문장 → fact</text>
+  <rect x="392" y="35" width="145" height="74" rx="14" fill="#e5f6f3" stroke="#6ebaae"/><text x="464" y="66" text-anchor="middle" font-weight="700" fill="#00796b">F7 개념</text><text x="464" y="90" text-anchor="middle" font-size="13" fill="#5f6b76">후보 → same_as?</text>
+  <rect x="579" y="35" width="145" height="74" rx="14" fill="#eaf3ff" stroke="#79a8d9"/><text x="651" y="66" text-anchor="middle" font-weight="700" fill="#1565c0">F5 값 대조</text><text x="651" y="90" text-anchor="middle" font-size="13" fill="#5f6b76">값 · 단위 → 판정</text>
+  <rect x="766" y="35" width="155" height="74" rx="14" fill="#fff" stroke="#cbd8de"/><text x="843" y="66" text-anchor="middle" font-weight="700" fill="#173b57">리포트</text><text x="843" y="90" text-anchor="middle" font-size="13" fill="#5f6b76">match · missing …</text>
+  <g stroke="#738995" stroke-width="2" marker-end="url(#arrow)"><line x1="163" y1="72" x2="198" y2="72"/><line x1="350" y1="72" x2="385" y2="72"/><line x1="537" y1="72" x2="572" y2="72"/><line x1="724" y1="72" x2="759" y2="72"/></g>
+  <rect x="214" y="158" width="510" height="62" rx="14" fill="#edf2f4" stroke="#9caeb7"/><text x="469" y="184" text-anchor="middle" font-weight="700" fill="#455a64">지속 산출물 — 실행의 블랙박스 기록</text><text x="469" y="205" text-anchor="middle" font-size="13" fill="#5f6b76">facts.json · candidate_pairs.json · concept_graph.json · comparison_result.json</text>
+  <g stroke="#9caeb7" stroke-width="2"><line x1="277" y1="109" x2="277" y2="158"/><line x1="464" y1="109" x2="464" y2="158"/><line x1="651" y1="109" x2="651" y2="158"/></g>
+  <rect x="298" y="254" width="342" height="58" rx="14" fill="#fff0e5" stroke="#e59a64"/><text x="469" y="279" text-anchor="middle" font-weight="800" fill="#b85212">why_missing.py + missing_trace.py</text><text x="469" y="300" text-anchor="middle" font-size="13" fill="#5f6b76">원인 6분류 · 흔적 · 증거 포인터 · 다음 조치</text>
+  <line x1="469" y1="220" x2="469" y2="247" stroke="#738995" stroke-width="2" marker-end="url(#arrow)"/>
+</svg>
+<figcaption>주 실행 경로는 판정을 만들고, 진단 경로는 그 판정이 만들어진 흔적을 읽는다. <code>why_missing.py</code>는 비교 엔진의 부품이라기보다 비교 엔진을 관측하는 “제어실”의 부품이다.</figcaption>
+</figure>
+<div class="qmemo" data-qid="system-data-plane-diagram" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">이 구조도에서 더 자세히 보고 싶은 연결을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="예: concept_graph.json에는 어떤 정보가 저장되나요?"></div><div class="qmemo-answer" hidden></div></div>
+
+<div class="grid">
+  <div class="card"><h3>사용자가 보는 입구</h3><p><code>scripts/why_missing.py</code>가 실행 선택, 항목명·대상 문서 필터, 전체 요약, 실행 간 판정 diff를 맡는다.</p></div>
+  <div class="card"><h3>실제로 원인을 가르는 두뇌</h3><p><code>contentcompare/fact/missing_trace.py</code>가 산출물들을 대조해 원인, 확신도, 단계별 흔적, 조치, 증거 좌표를 만든다.</p></div>
+  <div class="card"><h3>실행을 복원하는 기억</h3><p><code>artifact_reader.py</code>의 <code>RunSnapshot</code>이 기준 문서, 대상 문서, 비교 결과, 개념 그래프, 후보 기록을 한 덩어리로 묶는다.</p></div>
+  <div class="card"><h3>같은 두뇌를 쓰는 화면</h3><p><code>ui/micro_world.py</code>의 디버깅 모드도 <code>trace_all_missing()</code>을 호출한다. CLI와 UI가 서로 다른 설명을 만들지 않는다.</p></div>
+</div>
+
+<h2 id="intuition">3. 핵심 직관 — 로그 검색기가 아니라 인과 경로 압축기</h2>
+<div class="qmemo" data-qid="intuition-causal-compression" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">“인과 경로 압축”이라는 표현이 낯설다면 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<p>수천 줄의 로그를 사람이 읽는 대신, 이 기능은 파이프라인을 몇 개의 결정 관문으로 본다. 각 관문에 “통과했는가?”, “누가 판단했는가?”, “무슨 증거가 남았는가?”를 묻고, 처음으로 의미 있게 실패한 지점을 원인으로 삼는다.</p>
+
+<div class="cause-grid" aria-label="누락 원인 여섯 가지">
+  <button class="cause-btn active" data-cause="recall"><b>① recall 실패</b>후보 쌍이 만들어지지 않음</button>
+  <button class="cause-btn" data-cause="undecided"><b>② LLM 미판정</b>후보는 있으나 관계 결정 실패</button>
+  <button class="cause-btn" data-cause="evidence"><b>③ 근거 게이트 강등</b>same_as 제안이 검증에서 거부</button>
+  <button class="cause-btn" data-cause="extract"><b>④ F3 추출 누락</b>대상 원문에서 fact 자체가 안 나옴</button>
+  <button class="cause-btn" data-cause="blocked"><b>⑤ 다른 개념 차단</b>differs_by가 의도대로 막음</button>
+  <button class="cause-btn" data-cause="f5"><b>⑥ F5 LLM missing</b>후보는 갔지만 값 판정이 없다고 답함</button>
+</div>
+<div id="cause-detail"><strong>① recall 실패</strong><br>조사할 곳: <code>candidate_pairs.json</code>. 조치 후보: 임계값·top_k·교차언어 임베딩·온톨로지 별칭을 검토한다.</div>
+
+<div class="qmemo" data-qid="intuition-six-causes" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">위 원인 중 경계가 헷갈리는 둘을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="예: ① recall 실패와 ④ 추출 누락은 어떻게 구분하나요?"></div><div class="qmemo-answer" hidden></div></div>
+
+<p>중요한 것은 여섯 개라는 숫자가 아니라 <strong>원인마다 다음 행동이 다르다</strong>는 점이다. 이 매핑이 바로 에이전트 공학에서 말하는 <em>credit assignment</em>다. 실패의 책임을 올바른 단계에 배분해야 다음 시도가 이전과 달라진다.</p>
+<div class="callout good"><span class="label">좋은 설명의 판별법</span>설명을 읽은 사람이 “그래서 어디를 확인하고 무엇을 바꿔야 하는가?”에 답할 수 있으면 진단이다. “AI가 확신하지 못했습니다”에서 끝나면 사유 문구일 뿐이다.</div>
+
+<h2 id="case">4. 실제 사례 — <code>공칭용량</code>은 어디에서 사라졌는가</h2>
+<div class="qmemo" data-qid="case-nominal-capacity" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">실제 공칭용량 추적 결과에서 궁금한 점을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<p>2026-08-17에 저장소의 최신 산출물을 실제로 읽어 명령을 실행했다. 기준 Excel에는 <code>공칭용량 = 1150</code>, 영어 Word에는 <code>Nominal capacity = 1150 mAh</code>가 있다. 골든 정답도 <code>match</code>다. 그런데 최신 비교 결과는 <code>missing</code>이었다.</p>
+
+<div class="actual">
+  <div class="fact"><span class="badge b-code">기준 Excel</span><div class="name">공칭용량</div><p><code>fact-row-4</code></p><strong>quantitative_lower_bound = 1150</strong><p class="small">근거: B4:O4 · evidence_text “공칭용량”</p></div>
+  <div class="equals">↔</div>
+  <div class="fact"><span class="badge b-llm">대상 Word</span><div class="name">Nominal Capacity</div><p><code>fact-word-7</code></p><strong>nominal_capacity = 1150 mAh</strong><p class="small">근거: w_b012 · “Nominal capacity 1150 mAh”</p></div>
+</div>
+
+<pre>$ python -X utf8 scripts/why_missing.py 공칭용량
+
+⚪ 공칭용량 — spec_en.docx
+   ③ 근거 게이트 강등 — 연결이 거부됨  [확정]
+   LLM 이 같은 개념이라 했지만 코드가 연결을 거부했습니다 — 근거 인용이 원문에 없음.
+   흔적: ✔ F7 recall(유사도 0.6197)
+       → ✔ F7 LLM 판정(same_as 제안)
+       → ✖ 근거 검문소(근거 인용이 원문에 없음)
+       → ✖ F5 값 대조(후보 0건 → missing)
+   📄 concept_graph.json · edges[10] — 강등된 연결</pre>
+
+<div class="flow">
+  <div class="step"><span class="badge b-embed">임베딩</span><strong>후보 발견</strong><small>Nominal Capacity<br>score 0.6197</small></div>
+  <div class="step"><span class="badge b-llm">LLM</span><strong>same_as 제안</strong><small>비교 가능한 같은 개념이라고 판단</small></div>
+  <div class="step fail"><span class="badge b-code">코드</span><strong>인용 검증 실패</strong><small>생성한 인용 중 적어도 하나가 원문 근거와 맞지 않음</small></div>
+  <div class="step"><span class="badge b-graph">그래프</span><strong>연결 없음</strong><small>unknown으로 강등되어 같은 노드에 못 들어감</small></div>
+  <div class="step"><span class="badge b-code">F5</span><strong>후보 0건</strong><small>값을 비교하지 못하고 missing</small></div>
+</div>
+
+<div class="qmemo" data-qid="case-failure-trail" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">다섯 단계 중 더 깊게 추적하고 싶은 곳을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="예: LLM이 만든 인용문은 정확히 어디에 저장되나요?"></div><div class="qmemo-answer" hidden></div></div>
+
+<p>이 설명 덕분에 “영어라서 임베딩이 못 찾았다”는 가설은 즉시 탈락한다. 임베딩은 올바른 후보를 1위로 찾았고, LLM도 같은 개념이라고 제안했다. 병목은 그 다음 안전 장치였다. 즉 고쳐야 할 곳은 검색 파라미터가 아니라 <strong>LLM이 반환하는 인용 형식과 근거 검증의 접점</strong>이다.</p>
+<div class="callout warn"><span class="label">중요한 해석</span>근거 게이트가 틀렸다고 단정하는 것도 성급하다. 게이트는 원문에 없는 인용으로 개념을 연결하는 일을 막아 실제 할루시네이션을 방어한다. 이 사례가 말해 주는 것은 “게이트를 끄자”가 아니라 “올바른 연결이 검증 가능한 인용과 함께 통과하도록 인터페이스를 다듬자”다.</div>
+
+<h2 id="implementation">5. 코드/구현 — 작은 CLI 뒤에 있는 다섯 구성요소</h2>
+<div class="qmemo" data-qid="implementation-components" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">구현 구성요소 중 코드로 더 보고 싶은 부분을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>구성요소</th><th>하는 일</th><th>왜 따로 두었나</th></tr></thead>
+<tbody>
+<tr><td><code>fact/pipeline.py</code></td><td>F3·F7·F5를 실행하고 비교 결과와 계측 산출물을 저장한다.</td><td>설명에 필요한 사실은 실행 시점에 남겨야 한다. 나중에 추측으로 복원할 수 없다.</td></tr>
+<tr><td><code>fact/artifact_reader.py</code></td><td>여러 폴더의 JSON을 <code>RunSnapshot</code> 하나로 묶고 그래프 조회 인덱스를 만든다.</td><td>CLI, UI, 테스트가 같은 실행 해석을 공유한다. 파일이 일부 없어도 진단기가 죽지 않고 <code>problems</code>에 남긴다.</td></tr>
+<tr><td><code>fact/missing_trace.py</code></td><td><code>trace_missing()</code>이 원인 6종, 확신도, 단계 흔적, 조치, 증거 좌표를 결정한다.</td><td>표현과 진단 규칙을 분리한다. 핵심 원인 판정은 추가 LLM 호출 없이 결정적으로 수행한다.</td></tr>
+<tr><td><code>scripts/why_missing.py</code></td><td>최근/지정 실행 선택, 항목·문서 필터, 전건 요약, 두 실행 diff, 텍스트 출력을 제공한다.</td><td>화면 없이 자동화·배치·CI에서 쓸 수 있는 얇은 어댑터다.</td></tr>
+<tr><td><code>ui/micro_world.py</code></td><td>동일한 <code>MissingTrace</code>를 표, 원인 카드, 증거 원문으로 시각화한다.</td><td>CLI와 UI가 원인 정의를 복제하지 않는다.</td></tr>
+<tr><td><code>tests/test_missing_trace.py</code></td><td>여섯 원인, 우선순위, 확신도, 증거 포인터, 불완전 계측을 검증한다.</td><td>설명 기능도 제품 동작이다. 판정 코드가 바뀌어도 설명이 조용히 거짓말하지 않게 한다.</td></tr>
+</tbody></table></div>
+
+<h3>핵심 결정 트리는 “구체적인 사건부터” 본다</h3>
+<pre>if comparison.decided_by == "llm":
+    return F5_LLM_MISSING
+
+edges = graph.edges_between(reference_fact, target_doc)
+
+if rejected_same_as:
+    return EVIDENCE_GATE_REJECTION
+if undecided_pair:
+    return LLM_UNDECIDED
+if differs_by_edges:
+    return BLOCKED_AS_DIFFERENT_CONCEPT
+
+if extraction_gap:
+    return EXTRACTION_MISSING
+if candidate_record_exists:
+    return RECALL_FAILURE
+return UNRESOLVED</pre>
+
+<p>순서는 단순 구현 디테일이 아니다. 한 기준 fact 주위에는 흔히 여러 <code>differs_by</code> 후보가 있다. 그것을 먼저 보면, 올바른 후보와 연결하려다 근거 게이트에 막힌 더 구체적인 사건을 “의도된 차단”으로 잘못 덮어쓸 수 있다. 실제 코드 주석은 이 오분류가 실측에서 발생했다고 기록한다.</p>
+
+<div class="callout"><span class="label">구조적 강점</span><code>MissingTrace</code>는 화면 문장이 아니라 구조화된 데이터다. <code>cause</code>, <code>confidence</code>, <code>trail[]</code>, <code>evidence[]</code>, <code>next_action</code>을 가지므로 CLI, Streamlit, 향후 에이전트가 같은 진단을 다른 방식으로 소비할 수 있다.</div>
+
+<h2 id="importance">6. 잘 설계하는 것이 왜 중요한가</h2>
+<div class="qmemo" data-qid="importance-why-design-matters" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">설명 기능의 품질 기준에 관해 궁금한 점을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<h3>첫째, 잘못 고치는 비용을 줄인다</h3>
+<p>AI 시스템의 실패는 대개 “모델이 나빴다”로 뭉뚱그려진다. 그러나 모델을 바꾸는 것은 가장 비싸고 위험한 처방일 수 있다. <code>공칭용량</code> 사례에서는 모델과 임베딩이 모두 핵심 임무를 수행했다. 증거 형식의 접점이 문제였다. 원인 분해가 없었다면 임베딩 모델 교체, top_k 증가, 프롬프트 수정 같은 무관한 실험을 반복했을 가능성이 크다.</p>
+
+<h3>둘째, 신뢰를 “말투”가 아니라 검증 가능성에서 만든다</h3>
+<p>좋은 설명은 자신감 있는 문장이 아니다. <code>concept_graph.json · edges[10]</code>처럼 사람이 실행 당시의 산출물로 내려갈 수 있는 좌표를 준다. 이때 “가르는 선”은 문장이 자세한가의 차이가 아니라, <strong>그 문장이 틀렸는지 제3자가 판정할 수 있는가</strong>의 차이다.</p>
+
+<div class="callout"><span class="label">여기서 말하는 설명 가능성의 경계</span>자연어 설명만 있으면 독자는 설명을 믿거나 믿지 않는 선택밖에 할 수 없다. 반면 설명이 실행 기록을 가리키면 독자는 그 주장을 <strong>확인하고, 반박하고, 재현</strong>할 수 있다. 설명이 권위 있는 답변에서 검증 가능한 주장으로 바뀌는 순간이다.</div>
+
+<p>예를 들어 설명이 “검색이 실패했다”고 말한다고 하자. 말투가 아무리 단정적이어도 그것만으로는 사실인지 알 수 없다. 그러나 이 실행의 <code>concept_graph.json · edges[10]</code>을 열면 <code>fact-row-4</code>와 <code>fact-word-7</code>의 쌍이 이미 후보로 검토됐고, <code>recall_score=0.6197</code>, <code>decided_by=llm</code>, <code>rejected_by=evidence</code>였음을 볼 수 있다. 따라서 “검색 실패” 설명은 반증되고, “LLM이 연결을 제안했지만 근거 검증에서 강등됐다”는 설명이 산출물과 맞는다.</p>
+
+<figure class="figure">
+<div class="flow" aria-label="설명 문장에서 원본 증거까지 내려가 검증하는 다섯 단계">
+  <div class="step"><span class="badge b-code">설명 주장</span><strong>근거 게이트에서 강등</strong><small>사람이 읽는 요약</small></div>
+  <div class="step"><span class="badge b-graph">증거 좌표</span><strong><code>edges[10]</code></strong><small>어디를 볼지 지정</small></div>
+  <div class="step"><span class="badge b-llm">실행 기록</span><strong><code>rejected_by=evidence</code></strong><small>누가 무엇을 결정했는지 확인</small></div>
+  <div class="step"><span class="badge b-code">입력 연결</span><strong>양쪽 fact와 인용</strong><small><code>fact-row-4 ↔ fact-word-7</code></small></div>
+  <div class="step"><span class="badge b-human">감사 판정</span><strong>설명 채택 또는 반박</strong><small>기록과 다르면 설명이 틀린 것</small></div>
+</div>
+<figcaption>좌표의 역할은 설명을 더 그럴듯하게 꾸미는 것이 아니라, 요약 문장을 다시 데이터에 묶는 것이다. 이 연결 덕분에 설명의 진위도 검사할 수 있다.</figcaption>
+</figure>
+<div class="qmemo" data-qid="importance-verifiability-boundary" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">검증 가능성이 실제로 성립하려면 무엇이 더 필요한지 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="예: edges[10]은 다음 실행에서도 같은 대상을 가리키나요?"></div><div class="qmemo-answer" hidden></div></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>설명 가능성을 가르는 측면</th><th>일반적인 사후 해설</th><th>운영 가능한 설명</th><th>ContentCompare에서의 근거</th></tr></thead>
+<tbody>
+<tr><td><strong>실행 충실성</strong></td><td>결과를 본 뒤 가능한 이유를 새로 서술한다.</td><td>실행 중 실제로 남은 사건에서 이유를 도출한다.</td><td><code>comparison_result.json</code>, <code>candidate_pairs.json</code>, <code>concept_graph.json</code>을 읽는다.</td></tr>
+<tr><td><strong>추적 가능성</strong></td><td>“근거가 부족했다”처럼 위치 없는 요약만 준다.</td><td>파일·항목·fact id까지 내려가는 경로를 준다.</td><td><code>Evidence.artifact</code>와 <code>Evidence.pointer</code>가 <code>edges[10]</code> 같은 좌표를 보존한다.</td></tr>
+<tr><td><strong>반증 가능성</strong></td><td>그럴듯함만 평가할 수 있어 설명이 틀려도 잡기 어렵다.</td><td>좌표의 필드가 주장과 다르면 설명을 틀렸다고 판정할 수 있다.</td><td>“recall 실패” 주장과 후보 기록·엣지 기록을 직접 대조한다.</td></tr>
+<tr><td><strong>재현성과 일관성</strong></td><td>다시 물을 때 표현이나 이유가 달라질 수 있다.</td><td>같은 실행 스냅샷에는 같은 결정 규칙을 적용한다.</td><td><code>trace_missing()</code>의 명시적 우선순위를 CLI와 UI가 공유한다.</td></tr>
+<tr><td><strong>책임 소재와 조치</strong></td><td>“AI가 확신하지 못했다”처럼 실패 주체와 다음 행동이 흐리다.</td><td>어느 단계에서 누가 결정했는지와 수정 대상을 분리한다.</td><td><code>trail[].who</code>, <code>decided_by</code>, <code>rejected_by</code>, <code>next_action</code>을 함께 남긴다.</td></tr>
+</tbody></table></div>
+
+<p>그래서 “설명 자체도 감사 대상”이라는 말은 설명문을 또 다른 정답으로 취급하지 않는다는 뜻이다. 예컨대 진단기가 흔한 <code>differs_by</code> 엣지를 먼저 보고 “의도된 차단”이라고 설명했지만, 같은 fact에 <code>rejected_by=evidence</code>인 엣지가 있었다면 진단기의 원인 우선순위가 잘못된 것이다. 실제 테스트도 이런 경우 근거 게이트 사건이 우선되어야 하고, 반환된 증거 좌표가 실제 <code>concept_graph.json</code>의 해당 엣지를 가리키는지 검사한다. 즉 판정뿐 아니라 <strong>판정에 붙인 설명도 회귀 테스트의 대상</strong>이 된다.</p>
+
+<p>다만 좌표 하나가 자동으로 설명 가능성을 보장하지는 않는다. 좌표가 유효하려면 ① 그 실행의 산출물이 보존되어 있고, ② 설명의 실행과 산출물의 실행이 같은 run으로 묶여 있으며, ③ 좌표가 실제 대상을 해석 가능하게 가리키고, ④ 자연어 결론이 해당 필드에서 어떤 규칙으로 도출됐는지가 명시되어야 한다. 현재의 <code>edges[10]</code>은 <em>같은 파일 안</em>에서는 유용하지만 재실행하면 배열 순서가 달라질 수 있다. 장기 보관·감사까지 하려면 안정적인 run id, fact id, schema version, 콘텐츠 해시가 함께 필요하다.</p>
+
+<div class="callout warn"><span class="label">두 가지를 구분해야 한다</span><strong>경로 설명의 정확성</strong>과 <strong>업무 판정의 정확성</strong>은 다르다. 산출물은 “근거 게이트가 이 연결을 거부했다”는 실행 경로를 확정할 수 있지만, 그 거부가 업무적으로 옳았는지는 원문과 골든셋, 사람 검토가 필요하다. 또한 여기서 복원하는 것은 모델의 비공개 사고 과정이 아니라, 시스템이 관측·저장한 결정 경로다.</div>
+
+<p>따라서 이 문장에서 말하는 선은 “챗봇에도 이유 문장이 있는가”가 아니다. <strong>설명에 출처가 있는가, 출처로 내려갈 수 있는가, 그 출처로 설명을 반박할 수 있는가, 같은 기록으로 같은 설명을 재현할 수 있는가, 그리고 설명이 틀렸을 때 어느 규칙을 고쳐야 하는가</strong>다. 이 조건을 만족해야 설명이 사용자 안심용 문구를 넘어 운영·감사·개선에 쓰이는 시스템 기능이 된다.</p>
+
+<h3>셋째, 안전 장치를 함부로 약화시키지 않게 한다</h3>
+<p>결과만 보면 “근거 게이트 때문에 match를 놓쳤으니 게이트를 끄자”는 반응이 나오기 쉽다. 경로를 보면 게이트는 LLM 제안을 자동 확정하지 않는 필수 방어선임을 알 수 있다. 고칠 대상은 안전 원칙이 아니라 정상 데이터가 그 원칙을 만족하지 못하는 인터페이스다.</p>
+
+<h3>넷째, 회귀를 측정 가능한 사건으로 만든다</h3>
+<p><code>--diff</code>는 두 실행의 판정 변화를 보여 주고, 원인 집계는 어떤 종류의 실패가 늘었는지 보여 준다. 모델, 프롬프트, 임계값, 온톨로지를 바꾼 뒤 단순 정확도뿐 아니라 <em>어느 실패 모드가 이동했는지</em>를 볼 수 있다.</p>
+
+<h3>다섯째, 자동 교정의 전제 조건이 된다</h3>
+<p>에이전트가 실패를 고치려면 먼저 실패 책임을 올바른 단계에 배분해야 한다. 원인 ①이면 검색을, ④면 추출을, ③이면 인용을 고쳐야 한다. 이 구분 없이 “다시 해 봐”만 반복하면 그것은 에이전트가 아니라 비싼 재시도 루프다.</p>
+
+<blockquote class="quote">설명 가능성은 보고서의 장식이 아니다. 시스템이 스스로를 개선할 수 있게 만드는 상태 표현이다.</blockquote>
+
+<h2 id="usage">7. 이 기능은 지금 어떻게 활용할 수 있는가</h2>
+<div class="qmemo" data-qid="usage-current-workflows" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">실제 업무 흐름에 적용하는 방법을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<div class="grid">
+  <div class="card"><h3>한 건의 오판 조사</h3><p><code>python scripts/why_missing.py 공칭용량 spec_en.docx</code>로 한 항목의 전체 경로와 증거 좌표를 본다.</p></div>
+  <div class="card"><h3>실행 전체의 병목 찾기</h3><p>인자 없이 실행하면 모든 <code>missing</code>을 원인별로 집계한다. 한두 건의 사례보다 “이번 실행은 주로 추출이 무너졌는가, 예산이 부족했는가”를 먼저 알 수 있다.</p></div>
+  <div class="card"><h3>변경 전후 회귀 분석</h3><p><code>--diff &lt;run&gt;</code>로 판정 이동을 찾고, 이동한 항목의 원인을 다시 추적한다. 프롬프트 A/B와 모델 교체 평가에 적합하다.</p></div>
+  <div class="card"><h3>사람 검토 큐 라우팅</h3><p>③은 인용 검토자에게, ⑤는 온톨로지 관리자에게, ④는 추출 담당자에게 보내는 식으로 전문성에 맞게 분배할 수 있다.</p></div>
+  <div class="card"><h3>골든셋 오답 분석</h3><p>정답과 다른 결과를 “오답 1건”으로만 세지 않고, recall·추출·검증·판정 실패로 나눠 개선 우선순위를 정한다.</p></div>
+  <div class="card"><h3>사용자 지원과 감사</h3><p>“왜 없다고 했나요?”에 재현 가능한 실행 라벨, 단계 흔적, 파일 좌표로 답한다. 민감한 원문을 전부 복사하지 않고 필요한 근거 위치만 전달할 수도 있다.</p></div>
+</div>
+
+<div class="callout warn"><span class="label">관측된 실행 주의점</span>현재 <code>why_missing.py</code>는 Windows 기본 <code>cp949</code> 콘솔에서 <code>⚪</code> 문자를 출력할 때 <code>UnicodeEncodeError</code>가 날 수 있다. 이번 실측은 <code>python -X utf8</code>로 수행했다. 자매 도구 <code>why_findings.py</code>에는 이미 <code>stdout.reconfigure(encoding="utf-8")</code> 방어가 있으나, 이 CLI에는 아직 없다.</div>
+
+<h2 id="future">8. 이 기술을 갈고 닦으면 어디까지 갈 수 있는가</h2>
+<div class="qmemo" data-qid="future-opportunities" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">가장 먼저 현실화하고 싶은 확장 방향을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<div class="timeline">
+  <div class="time"><h3>1단계 — 설명 API</h3><p><code>why_missing</code>의 구조화 결과를 CLI와 UI뿐 아니라 API로 제공한다. “왜 missing인가”뿐 아니라 “왜 match·mismatch·unknown인가”까지 같은 스키마로 확장한다.</p></div>
+  <div class="time"><h3>2단계 — 능동 학습 큐</h3><p>확신도 낮음, 반복 발생, 사업 영향도가 큰 원인만 사람에게 묻는다. 답변은 별칭·용어 지식·골든셋 후보가 되고, 재검증을 통과한 것만 지식으로 승격한다.</p></div>
+  <div class="time"><h3>3단계 — 제한된 자동 교정</h3><p>원인별로 안전한 조치를 실행한다. 예산 부족은 예산을 조정해 재실행하고, recall 실패는 쿼리 변형을 시험한다. 영구 온톨로지 수정처럼 안전 경계를 우회하는 일은 제안 큐에만 쓴다.</p></div>
+  <div class="time"><h3>4단계 — 지속 평가와 드리프트 감시</h3><p>문서 유형·언어·모델 버전별 원인 분포를 시계열로 본다. 정확도가 떨어지기 전에 “영어 표에서 evidence_gate 비율 급증” 같은 선행 신호를 잡는다.</p></div>
+  <div class="time"><h3>5단계 — 조직의 판단 지식 그래프</h3><p>어떤 규칙이 어떤 문서와 판정에 영향을 주었는지 연결해, 규격 변경 영향 분석·감사·재현·승인 흐름까지 확장한다.</p></div>
+</div>
+
+<figure class="figure">
+<svg viewBox="0 0 940 315" role="img" aria-labelledby="loop-title loop-desc">
+  <title id="loop-title">설명에서 안전한 교정 루프로 발전하는 구조</title>
+  <desc id="loop-desc">실행, 검증, 원인 분류, 조치 정책, 제한된 재실행이 순환하고 사람 승인선이 온톨로지 영구 변경을 보호한다.</desc>
+  <defs><marker id="arrow2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#607d8b"/></marker></defs>
+  <g font-family="Segoe UI,Noto Sans KR,sans-serif">
+    <rect x="35" y="45" width="155" height="68" rx="14" fill="#eaf3ff" stroke="#79a8d9"/><text x="112" y="74" text-anchor="middle" font-weight="700" fill="#1565c0">① 비교 실행</text><text x="112" y="96" text-anchor="middle" font-size="13" fill="#5f6b76">산출물 + 판정</text>
+    <rect x="232" y="45" width="155" height="68" rx="14" fill="#edf2f4" stroke="#9caeb7"/><text x="309" y="74" text-anchor="middle" font-weight="700" fill="#455a64">② 검증</text><text x="309" y="96" text-anchor="middle" font-size="13" fill="#5f6b76">골든셋 · 규칙</text>
+    <rect x="429" y="45" width="155" height="68" rx="14" fill="#fff0e5" stroke="#e59a64"/><text x="506" y="74" text-anchor="middle" font-weight="700" fill="#b85212">③ 원인 분류</text><text x="506" y="96" text-anchor="middle" font-size="13" fill="#5f6b76">missing_trace</text>
+    <rect x="626" y="45" width="155" height="68" rx="14" fill="#f6eafa" stroke="#b982c5"/><text x="703" y="74" text-anchor="middle" font-weight="700" fill="#7b1fa2">④ 조치 정책</text><text x="703" y="96" text-anchor="middle" font-size="13" fill="#5f6b76">원인별 다른 도구</text>
+    <g stroke="#607d8b" stroke-width="2" marker-end="url(#arrow2)"><line x1="190" y1="79" x2="225" y2="79"/><line x1="387" y1="79" x2="422" y2="79"/><line x1="584" y1="79" x2="619" y2="79"/></g>
+    <path d="M703 113 L703 164 L112 164 L112 121" fill="none" stroke="#607d8b" stroke-width="2" marker-end="url(#arrow2)"/><text x="406" y="153" text-anchor="middle" font-size="13" fill="#5f6b76">안전한 파라미터·입력 변경 후 제한된 재실행</text>
+    <rect x="596" y="215" width="215" height="68" rx="14" fill="#fff6dc" stroke="#d3a43a"/><text x="703" y="243" text-anchor="middle" font-weight="700" fill="#8a5a00">사람 승인선</text><text x="703" y="265" text-anchor="middle" font-size="13" fill="#5f6b76">영구 ontology 변경</text>
+    <line x1="703" y1="164" x2="703" y2="207" stroke="#d3a43a" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow2)"/>
+    <text x="486" y="247" text-anchor="end" font-size="13" fill="#b3261e">에이전트가 넘으면 안 되는 권한 경계 →</text>
+  </g>
+</svg>
+<figcaption>미래의 핵심은 “AI가 스스로 고친다”가 아니라, 원인별로 허용된 조치와 사람 승인 경계를 가진 닫힌 루프다. 설명 데이터는 이 루프의 상태이자 라우팅 신호가 된다.</figcaption>
+</figure>
+<div class="qmemo" data-qid="future-repair-loop" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">자동화해도 되는 조치와 사람이 승인해야 할 조치의 경계를 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="예: aliases 추가는 왜 자동 적용하면 안 되나요?"></div><div class="qmemo-answer" hidden></div></div>
+
+<h2 id="principles">9. 세계 수준의 설명 기능으로 만들기 위한 설계 원칙</h2>
+<div class="qmemo" data-qid="principles-design-rules" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">아래 원칙 중 현재 코드에 더 강화하고 싶은 것을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>원칙</th><th>좋은 형태</th><th>피해야 할 형태</th></tr></thead>
+<tbody>
+<tr><td><strong>실행 당시의 증거</strong></td><td>후보 순위, 엣지, 거부 사유, 판정 주체를 산출물에 저장</td><td>결과만 보고 나중에 LLM에게 이유를 지어 달라고 함</td></tr>
+<tr><td><strong>진단과 표현 분리</strong></td><td><code>MissingTrace</code>를 CLI·UI·API가 공유</td><td>화면마다 별도 if문으로 다른 원인을 표시</td></tr>
+<tr><td><strong>결정적 규칙 우선</strong></td><td>산출물 대조로 확정 가능한 것은 코드가 판정</td><td>진단할 때도 비결정적 LLM을 다시 호출</td></tr>
+<tr><td><strong>정직한 불확실성</strong></td><td>계측이 없으면 <code>unresolved</code>와 재실행 방법을 제시</td><td>가장 가능성 높은 원인을 확정처럼 말함</td></tr>
+<tr><td><strong>증거 좌표</strong></td><td><code>concept_graph.json · edges[10]</code>처럼 원본으로 이동 가능</td><td>“로그를 확인하세요”처럼 범위 없는 지시</td></tr>
+<tr><td><strong>원인→행동 매핑</strong></td><td>각 원인이 다른 조치 정책을 가짐</td><td>모든 실패에 프롬프트 수정 또는 재시도</td></tr>
+<tr><td><strong>안전 권한의 비대칭</strong></td><td>에이전트는 제안, 코드는 차단, 사람은 영구 승격</td><td>에이전트가 스스로 <code>ontology.yaml</code>을 바꿔 자기 검증을 우회</td></tr>
+<tr><td><strong>설명 자체의 테스트</strong></td><td>원인 우선순위·증거 포인터·결손 계측을 회귀 테스트</td><td>판정 테스트만 있고 설명이 맞는지는 확인하지 않음</td></tr>
+</tbody></table></div>
+
+<p>여기에 한 가지를 더 보태고 싶다. <strong>설명의 품질도 평가해야 한다.</strong> 정확한 원인을 맞혔는가, 증거 포인터가 유효한가, 제시한 조치로 재실행했을 때 문제가 개선되는가, 설명이 민감한 원문을 과도하게 노출하지 않는가를 별도 지표로 삼아야 한다.</p>
+
+<h2 id="limits">10. 현재 기능의 경계와 다음 과제</h2>
+<div class="qmemo" data-qid="limits-current-boundaries" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">현재 경계 중 우선순위를 논의하고 싶은 것을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<ul>
+  <li><strong><code>missing</code> 중심이다.</strong> 일반적인 <code>match</code>, <code>mismatch</code>, <code>unknown</code>의 전 경로 설명은 아직 하나의 통합 진단 API로 묶이지 않았다. 후보별 내역 결손은 별도 <code>why_findings.py</code>가 담당한다.</li>
+  <li><strong>산출물이 있어야 한다.</strong> <code>candidate_pairs.json</code>이나 <code>facts_by_block.json</code>이 꺼진 과거 실행에서는 recall과 추출 누락을 확정할 수 없다. 이때 코드는 아는 척하지 않고 <code>판정 불가</code>를 반환한다.</li>
+  <li><strong>원인 분류가 정답 판정을 대신하지 않는다.</strong> “근거 게이트에서 거부됐다”는 경로는 확정할 수 있지만, 그 거부가 업무적으로 옳았는지는 원문·골든셋·사람 판단이 필요하다.</li>
+  <li><strong>증거 포인터는 현재 JSON 좌표다.</strong> 장기적으로는 안정적인 run id, fact id, schema version, 콘텐츠 해시가 있어야 보관·이관 뒤에도 같은 증거를 가리킬 수 있다.</li>
+  <li><strong>설정 조치에는 부작용이 있다.</strong> top_k 증가나 임계값 완화는 recall을 올리지만 LLM 비용과 오연결 위험도 올린다. 다음 조치는 명령이 아니라 검증할 가설로 취급해야 한다.</li>
+  <li><strong>콘솔 인코딩 방어가 불완전하다.</strong> Windows 기본 콘솔 실행성을 자매 진단 도구와 동일하게 맞출 필요가 있다.</li>
+</ul>
+
+<div class="callout good"><span class="label">추천되는 다음 기술 단계</span><code>MissingTrace</code>와 같은 공통 <code>DecisionTrace</code> 모델을 만들되, 먼저 모든 판정 유형을 한꺼번에 일반화하지 말고 현재 실측된 실패 모드부터 추가하는 편이 좋다. 각 확장은 “근거를 저장할 수 있는가 → 코드로 원인을 가를 수 있는가 → 조치가 실제 개선되는가”의 순서로 검증해야 한다.</div>
+
+<h2 id="quiz">11. 이해도 퀴즈</h2>
+<div class="qmemo" data-qid="quiz-reflection" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">퀴즈를 풀며 헷갈린 개념을 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<div class="quiz" data-answer="2"><div class="question">Q1. <code>공칭용량</code> 실측에서 가장 먼저 수정 대상으로 의심해야 할 곳은?</div><div class="options"><button class="option">임베딩 모델 — 후보를 찾지 못했기 때문</button><button class="option">F3 추출 — Word fact가 없기 때문</button><button class="option">LLM 인용 형식과 근거 검증의 접점 — 후보와 same_as 제안은 성공했기 때문</button><button class="option">F5 숫자 비교 — 1150과 1150을 다르다고 판정했기 때문</button></div><div class="feedback" data-good="맞습니다. F5는 후보 0건이라 숫자 비교까지 도달하지 못했습니다. 최초의 의미 있는 실패는 근거 검문소입니다." data-bad="다시 경로를 보세요. 후보 발견과 same_as 제안은 성공했고 F5는 실행되지 않았습니다."></div></div>
+
+<div class="quiz" data-answer="1"><div class="question">Q2. 진단 시점에 LLM에게 “왜 missing이라고 했어?”라고 다시 묻지 않는 가장 중요한 이유는?</div><div class="options"><button class="option">LLM 호출은 언제나 너무 느리기 때문에</button><button class="option">실제 실행 경로 대신 그럴듯한 사후 설명을 만들 수 있기 때문에</button><button class="option">LLM은 한국어를 처리할 수 없기 때문에</button><button class="option">JSON 파일은 LLM보다 항상 정확하기 때문에</button></div><div class="feedback" data-good="맞습니다. 설명은 실제 산출물의 인과 흔적에서 나와야 하며, 새 LLM 서술은 사실과 분리되어야 합니다." data-bad="비용과 속도도 장점이지만 핵심은 충실성입니다. 새 호출은 당시 경로를 기억하지 못합니다."></div></div>
+
+<div class="quiz" data-answer="3"><div class="question">Q3. <code>candidate_pairs.json</code>과 <code>facts_by_block.json</code>이 모두 없는 오래된 실행에서 엣지도 없다. 좋은 진단기의 답은?</div><div class="options"><button class="option">무조건 recall 실패</button><button class="option">무조건 F3 추출 누락</button><button class="option">가장 흔한 원인을 선택</button><button class="option">판정 불가라고 밝히고 필요한 계측을 켜 재실행하도록 안내</button></div><div class="feedback" data-good="맞습니다. 관측 자료가 없으면 ①과 ④를 구분할 수 없습니다. 정직한 불확실성이 설명 품질의 일부입니다." data-bad="증거가 없는데 하나를 확정하면 진단기가 또 하나의 할루시네이션 원천이 됩니다."></div></div>
+
+<div class="quiz" data-answer="0"><div class="question">Q4. <code>MissingTrace</code>를 구조화된 모델로 두는 가장 큰 아키텍처상 이점은?</div><div class="options"><button class="option">CLI, UI, API, 에이전트가 같은 원인 정의와 증거를 재사용할 수 있다</button><button class="option">모든 판정이 자동으로 정확해진다</button><button class="option">산출물 저장이 필요 없어져 디스크를 절약한다</button><button class="option">온톨로지를 사람 검토 없이 자동 수정할 수 있다</button></div><div class="feedback" data-good="맞습니다. 진단과 표현을 분리하면 소비 채널이 늘어도 의미가 갈라지지 않습니다." data-bad="구조화는 소비자 일관성을 높이지만 판정 정확도나 권한 경계를 자동 해결하지는 않습니다."></div></div>
+
+<div class="quiz" data-answer="2"><div class="question">Q5. 미래의 교정 에이전트가 <code>ontology.yaml</code>을 직접 수정하지 않고 제안 큐에 써야 하는 이유는?</div><div class="options"><button class="option">YAML은 LLM이 생성할 수 없는 형식이라서</button><button class="option">파일 쓰기는 언제나 네트워크 호출보다 느려서</button><button class="option">승격된 관계는 검증을 건너뛰어 영구 적용되므로, 에이전트가 자기 안전 게이트를 우회할 수 있어서</button><button class="option">온톨로지는 검색과 무관해서</button></div><div class="feedback" data-good="맞습니다. 제안은 AI, 차단은 코드, 영구 확정은 사람이라는 비대칭이 안전 경계를 만든다는 뜻입니다." data-bad="핵심은 형식이나 성능이 아니라 권한입니다. 영구 지식은 이후 실행의 검증 경로를 바꿉니다."></div></div>
+
+<h2 id="conclusion">12. 결론 — 이 기능의 진짜 이름</h2>
+<div class="qmemo" data-qid="conclusion-takeaway" data-status="open"><div class="qmemo-head"><span class="qmemo-label">질문 메모</span><span class="qmemo-hint">읽고 난 뒤 남은 질문이나 다음 탐구 주제를 적어보세요.</span></div><div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div><div class="qmemo-answer" hidden></div></div>
+
+<p><code>why_missing.py</code>를 단순히 “missing 사유 출력 명령”이라고 부르면 절반만 본 것이다. 더 정확한 이름은 <strong>증거 기반 의사결정 관측성</strong>, 또는 <strong>판단 블랙박스 판독기</strong>다.</p>
+<p>이 기능이 좋은 이유는 화려한 자연어 때문이 아니다. 결과를 만든 경로를 단계별로 분해하고, 판단 주체를 구분하고, 원본 증거로 내려가는 좌표를 주며, 원인마다 다른 다음 행동을 연결한다. 이 역량을 잘 다듬으면 ContentCompare는 문서를 비교하는 도구에서 그치지 않고, 자신의 실패를 측정하고 사람과 함께 개선하는 신뢰 가능한 AI 시스템으로 발전할 수 있다.</p>
+
+<div class="callout"><span class="label">함께 읽기</span><a href="2026-08-14-explanation-missing-and-same-as.html">「⚪ 대상에 없음은 어떻게 정해지는가」</a>는 판정 경로 자체를 더 깊게 다루고, <a href="2026-08-14-explanation-pipeline-to-agent.html">「이 파이프라인을 AI 에이전트로 만들 수 있는가」</a>는 이 진단을 교정 루프로 확장할 때의 권한 경계를 다룬다.</div>
+
+<div class="footer-note">이 문서는 저장소 코드, 테스트, 설계 문서와 2026-08-17 최신 <code>artifacts/</code> 실측을 함께 확인해 작성했다. 실측 결과는 해당 실행의 스냅샷이며, 이후 모델·설정·산출물이 바뀌면 결과도 달라질 수 있다.</div>
+</main>
+
+<!-- uh-nav:bottom:start -->
+<div class="uh-nav uh-bottom"><div class="uh-row"><a href="index.html">← 전체 목차로</a></div><div class="uh-row uh-pn"><a href="2026-08-05-explanation-fact-pipeline-artifacts.html">◀ 이전 · fact 파이프라인 해부 — 생성되는 파일들</a><a href="2026-08-13-explanation-run-stats-anatomy.html">다음 · 실행 통계 읽는 법 ▶</a></div><div class="uh-row uh-rel">관련 · <a href="2026-08-14-explanation-missing-and-same-as.html">⚪ 대상에 없음 은 어떻게 정해지는가</a> · <a href="2026-08-14-explanation-pipeline-to-agent.html">이 파이프라인을 AI 에이전트로 만들 수 있는가</a> · <a href="2026-08-05-explanation-fact-pipeline-artifacts.html">fact 파이프라인 해부 — 생성되는 파일들</a></div></div>
+<!-- uh-nav:bottom:end -->
+<div id="qmemo-bar"><button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button><span id="qmemo-saymsg"></span></div>
+
+<script>
+(function(){
+  var causeText={
+    recall:'<strong>① recall 실패</strong><br>조사할 곳: <code>candidate_pairs.json</code>. 조치 후보: 임계값·top_k·교차언어 임베딩·온톨로지 별칭을 검토한다.',
+    undecided:'<strong>② LLM 미판정</strong><br>조사할 곳: <code>concept_graph.json</code>의 unknown 엣지와 reason. 조치 후보: 예산, 배치 크기, LLM 응답 누락을 확인한다.',
+    evidence:'<strong>③ 근거 게이트 강등</strong><br>조사할 곳: 거부된 엣지의 left_text/right_text와 양쪽 fact 원문. 조치 후보: 인용 형식과 검증 규칙을 확인하고, 사람이 검증한 관계만 승격한다.',
+    extract:'<strong>④ F3 추출 누락</strong><br>조사할 곳: <code>facts_by_block.json</code>의 cited=false 블록과 <code>run_stats.json</code>. 조치 후보: 배치 축소, 컨텍스트 크기, 추출 프롬프트를 확인한다.',
+    blocked:'<strong>⑤ 다른 개념 차단</strong><br>조사할 곳: <code>differs_by</code> 엣지와 승격 주체. 사람이 승격했다면 의도된 동작일 가능성이 높고, 잘못됐다면 온톨로지를 재검토한다.',
+    f5:'<strong>⑥ F5 LLM missing</strong><br>조사할 곳: <code>comparison_result.json</code>의 reason과 candidate. 후보는 도착했으므로 값·단위·문맥을 LLM이 왜 없다고 보았는지 검토한다.'
+  };
+  document.querySelectorAll('.cause-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      document.querySelectorAll('.cause-btn').forEach(function(b){b.classList.remove('active');});
+      btn.classList.add('active');
+      document.getElementById('cause-detail').innerHTML=causeText[btn.dataset.cause];
+    });
+  });
+
+  document.querySelectorAll('.quiz').forEach(function(quiz){
+    var answer=Number(quiz.dataset.answer);
+    var opts=quiz.querySelectorAll('.option');
+    var feedback=quiz.querySelector('.feedback');
+    opts.forEach(function(opt,idx){
+      opt.addEventListener('click',function(){
+        opts.forEach(function(o){o.classList.remove('correct','wrong');});
+        if(idx===answer){opt.classList.add('correct');feedback.textContent=feedback.dataset.good;}
+        else{opt.classList.add('wrong');opts[answer].classList.add('correct');feedback.textContent=feedback.dataset.bad;}
+        feedback.classList.add('show');
+      });
+    });
+  });
+})();
+
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-17-explanation-why-missing-explainability.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-17-explanation-why-missing-explainability.html';
+  });
+})();
+</script>
+</body>
+</html>

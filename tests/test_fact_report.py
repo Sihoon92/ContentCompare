@@ -224,6 +224,28 @@ def test_budget_exhaustion_is_warned_in_the_report():
     assert "max_llm_calls_per_concept" in md
 
 
+def test_compare_budget_exhaustion_is_warned_in_the_report():
+    """비교 예산이 떨어지면 그 뒤 전 항목이 줄줄이 보류된다 — 조치를 알려야 한다.
+
+    개념 단계와 조치가 다르다(``per_compare`` vs ``per_concept``). 경고가 없으면
+    사용자는 모델을 바꾸러 가지, 예산을 올리러 가지 않는다.
+    """
+    md = render_fact_markdown(
+        [], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+        stats={"llm_budget_exceeded": 7},
+    )
+    assert "7" in md
+    assert "max_llm_calls_per_compare" in md
+
+
+def test_no_compare_budget_warning_when_counter_is_zero():
+    md = render_fact_markdown(
+        [], reference_doc="기준.xlsx", target_docs=["규격서.docx"],
+        stats={"llm_budget_exceeded": 0, "llm_failures": 3},
+    )
+    assert "max_llm_calls_per_compare" not in md
+
+
 def test_no_budget_warning_when_counter_is_zero():
     """대조군 — 예산이 충분하면 경고가 나오면 안 된다."""
     graph = _unknown_graph()

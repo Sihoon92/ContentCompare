@@ -267,7 +267,11 @@ comparison_result.json → F6 리포트
 기준 문서 fact × 각 대상 문서 fact 에 대해:
 
 1. 정규화 `entity_name` **완전일치** → 무조건 후보(점수 1.0).
-2. 임베딩 코사인 상위 `concept_recall_top_k`(기본 5) 중 `concept_recall_min`(기본 0.3) 이상.
+2. 임베딩 코사인 상위 `concept_recall_top_k`(기본 10) 중 `concept_recall_min`(기본 0.3) 이상.
+   > 초안은 5 였다. 한 항목이 조건별로 쪼개진 규격표(충전 온도 4~5구간)에서는 **형제
+   > fact 만으로 다섯 자리가 다 차** 정답이 6위로 밀려 탈락하는 사례가 실측돼 10 으로
+   > 올렸다(`cut_by: top_k`). recall 은 판정이 아니므로 넉넉해도 정확도 위험이 낮고,
+   > 작게 잡아 놓치면 "대상에 없다"는 확신에 찬 거짓이 리포트에 실린다.
 3. 임베더가 없으면 BM25 로 폴백(기존 `FactMatcher` 규약 재사용).
 
 출력은 `(ref_fact, target_fact, recall_score)` 목록이다. **이 점수는 이후 판정에 쓰지
@@ -391,10 +395,10 @@ LLM 후보에서 제외한다. 이것이 재현성과 비용을 동시에 해결
 fact:
   # --- F7 개념 그래프 ---
   use_concept_graph: true          # false 면 F5 가 기존 유사도 매칭으로 동작(롤백 스위치)
-  concept_recall_top_k: 5          # 기준 fact 당 LLM 에 검토시킬 후보 수
+  concept_recall_top_k: 10         # 기준 fact 당 LLM 에 검토시킬 후보 수
   concept_recall_min: 0.3          # 후보 생성 최소 점수(판정 아님 — 계산량 제한)
   concept_batch_pairs: 20          # 한 LLM 호출당 판정할 쌍 수
-  max_llm_calls_per_concept: 30    # 개념 단계 LLM 호출 예산
+  max_llm_calls_per_concept: 300   # 개념 단계 LLM 호출 예산
   ontology_path: knowledge/ontology.yaml
 ```
 

@@ -549,6 +549,39 @@ def _expandable_table(headers, rows, details) -> str:
             f'<tbody>{"".join(body)}</tbody></table></div>')
 
 
+def _findings_block(comp: dict) -> str:
+    """1:N 종합 판정의 후보별 내역.
+
+    위 표는 **대표 1건**만 보여준다. 후보가 여럿이면 나머지가 화면에서 사라져,
+    리포트(`report/fact_report.py` 의 같은 이름 절)와 화면이 갈라진다 — 그러면
+    사람이 둘을 대조할 수 없다. 라벨은 :data:`RESULT_LABEL` 단일 출처를 그대로 쓴다.
+
+    후보가 1건뿐이면 붙이지 않는다. 위 표가 이미 같은 내용을 담고 있다.
+    """
+    findings = [f for f in (comp.get("findings") or []) if isinstance(f, dict)]
+    if len(findings) < 2:
+        return ""
+    rows = []
+    for f in findings:
+        attrs = ", ".join(str(a) for a in (f.get("mismatch_attributes") or [])) or "-"
+        quote = str(f.get("quote") or "")
+        cell = f"“{dv.esc(quote[:80])}”" if quote else "-"
+        # 인용 검증 실패는 판정을 버리지 않고 표시만 남긴다 — 사람이 원문을 확인해야
+        # 하는 자리라는 뜻이지, 그 내역이 틀렸다는 뜻이 아니다. 경고는 인용부호
+        # **밖**에 둔다 — 안에 넣으면 경고 문구가 원문의 일부처럼 읽힌다.
+        if not f.get("quote_verified"):
+            cell += ' <span class="dv-sub">⚠️ 원문에서 확인 못 함</span>'
+        rows.append([
+            _result_pill(str(f.get("result"))),
+            dv.esc(attrs),
+            dv.esc(str(f.get("reason") or "")[:80]),
+            cell,
+        ])
+    return ('<div style="font-weight:700;font-size:.85rem;margin:12px 0 2px">'
+            f'후보별 내역 <span class="dv-sub">({len(findings)}건을 종합)</span></div>'
+            + dv.table(["판정", "어긋난 속성", "사유", "근거 인용"], rows))
+
+
 def _detail_card(snap: RunSnapshot, comp: dict, trace: Optional[MissingTrace],
                  key: str) -> str:
     """원인 카드 — 자기 식별 헤더 · 양측 근거 · 파이프라인 흔적 · 조치 · 증거 원문.
@@ -569,6 +602,7 @@ def _detail_card(snap: RunSnapshot, comp: dict, trace: Optional[MissingTrace],
           else "(대응 내용 없음)",
           dv.esc(format_source((target or {}).get("source") or {})) if target else "-"]],
     ))
+    body.append(_findings_block(comp))
 
     if trace is not None and trace.cause != "unresolved" or (trace and trace.trail):
         body.append(f'<div style="font-weight:700;font-size:.85rem;margin:12px 0 2px">'

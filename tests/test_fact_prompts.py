@@ -40,3 +40,93 @@ def test_build_fact_user_renders_table_rows():
 
 def test_fact_version_is_stable_string():
     assert isinstance(FACT_VERSION, str) and FACT_VERSION
+
+
+def test_render_unit_single_line_is_unchanged():
+    """줄이 1개면 기존 형태 그대로 — 대부분의 블록은 출력이 안 바뀐다."""
+    from contentcompare.fact.prompts import _render_unit
+
+    assert _render_unit({"id": "w_b001", "type": "text", "text": "공칭전압은 3.85V"}) == (
+        "[w_b001] 공칭전압은 3.85V"
+    )
+
+
+def test_render_unit_expands_paragraph_lines_with_indent():
+    """여러 줄이면 줄마다 펼치고 들여쓰기를 살린다."""
+    from contentcompare.fact.prompts import _render_unit
+
+    out = _render_unit({
+        "id": "w_b246", "type": "text", "text": "1.1C(4.28V) 0.8C(4.55V)",
+        "lines": [
+            {"raw_text": "1.1C(4.28V)", "indent": 11},
+            {"raw_text": "0.8C(4.55V)", "indent": 11},
+        ],
+    })
+
+    assert out.splitlines() == [
+        "[w_b246]            1.1C(4.28V)",
+        "                    0.8C(4.55V)",
+    ]
+
+
+def test_render_unit_caps_absurd_indent():
+    """비정상적으로 큰 들여쓰기가 프롬프트를 망가뜨리지 않게 자른다."""
+    from contentcompare.fact.prompts import _RENDER_INDENT_CAP, _render_unit
+
+    out = _render_unit({
+        "id": "w_b001", "type": "text", "text": "a b",
+        "lines": [{"raw_text": "a", "indent": 0}, {"raw_text": "b", "indent": 9999}],
+    })
+
+    assert out.splitlines()[1].count(" ") <= len("[w_b001] ") + _RENDER_INDENT_CAP
+
+
+def test_render_unit_table_is_row_wise():
+    """표는 파이썬 repr 이 아니라 행 단위로 렌더한다."""
+    from contentcompare.fact.prompts import _render_unit
+
+    out = _render_unit({
+        "id": "w_b289", "type": "table",
+        "rows": [["항목", "-5~5도씨, 0.1C 5~12도씨, 0.3C"]],
+        "cell_lines": [[[], ["-5~5도씨, 0.1C", "5~12도씨, 0.3C"]]],
+    })
+
+    assert out.splitlines() == [
+        "[w_b289] 표 (1행 × 2열)",
+        "  행1 | 항목",
+        "      | -5~5도씨, 0.1C",
+        "        5~12도씨, 0.3C",
+    ]
+
+
+def test_render_unit_table_without_cell_lines_still_row_wise():
+    """cell_lines 가 없어도(옛 산출물) 행 단위로 낸다 — repr 은 쓰지 않는다."""
+    from contentcompare.fact.prompts import _render_unit
+
+    out = _render_unit({"id": "w_b012", "type": "table", "rows": [["a", "b"], ["c", "d"]]})
+
+    assert out.splitlines() == [
+        "[w_b012] 표 (2행 × 2열)",
+        "  행1 | a",
+        "      | b",
+        "  행2 | c",
+        "      | d",
+    ]
+
+
+def test_fact_system_requires_per_condition_attributes():
+    """조건이 여럿이면 fact 를 나누지 말고 속성을 나누라고 지시해야 한다."""
+    from contentcompare.fact.prompts import FACT_SYSTEM
+
+    assert "의미 경계가 아닙니다" in FACT_SYSTEM
+    assert "fact 를 나누지 말고" in FACT_SYSTEM
+    assert "inherited_from" in FACT_SYSTEM
+    # 분해 방향을 넣지 않는다(설계 §1.4-②) — 쪼개면 top_k·동명·과병합을 누른다.
+    assert "독립된 fact" not in FACT_SYSTEM
+
+
+def test_fact_version_bumped():
+    """프롬프트가 바뀌면 버전도 올라야 캐시가 옛 결과를 안 준다."""
+    from contentcompare.fact.prompts import FACT_VERSION
+
+    assert FACT_VERSION == "fact-v3"

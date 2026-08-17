@@ -214,3 +214,67 @@ def test_report_aggregates_by_check_and_severity():
     assert d["overall"]["facts"] == 2
     assert d["overall"]["error"] == 1 and d["overall"]["low_confidence"] == 1
     assert d["by_check"]["quant_bounds"] == 1 and d["by_check"]["unit_missing"] == 2
+
+
+# --------------------------------------------------------------------------- #
+# numeric_coverage — 조건 뭉치기 감지
+# --------------------------------------------------------------------------- #
+def _fact(attrs, evidence):
+    from contentcompare.fact.fact_models import Fact
+    from contentcompare.fact.record_models import parse_attributes
+
+    return Fact(fact_id="f1", entity_name="x",
+                attributes=parse_attributes(attrs), evidence_text=evidence)
+
+
+def test_numeric_coverage_flags_string_lump():
+    """근거에 숫자가 많은데 속성에 수치가 없으면 축약을 의심한다."""
+    from contentcompare.fact.validator import _check_numeric_coverage
+
+    fact = _fact(
+        {"temp_range_standard_cycle": {"value": "구간별 상이", "unit": ""}},
+        "-5~5도씨, 0.1C(4.55V), 5~12도씨, 0.3C(4.55V) 12~15도씨, 0.8C(4.55V)",
+    )
+    checks = _check_numeric_coverage(fact)
+
+    assert [c.check for c in checks] == ["numeric_coverage"]
+    assert checks[0].severity == "warn"
+
+
+def test_numeric_coverage_ignores_short_evidence():
+    """숫자 한둘은 서술문에서 자연스럽다 — 켜지지 않아야 한다."""
+    from contentcompare.fact.validator import _check_numeric_coverage
+
+    fact = _fact({"note": {"value": "해당 없음", "unit": ""}},
+                 "본 규격은 SEC Req. ver.4.7 을 따른다")
+
+    assert _check_numeric_coverage(fact) == []
+
+
+def test_numeric_coverage_passes_when_attributes_hold_numbers():
+    """조건별로 나눠 담았으면 통과한다."""
+    from contentcompare.fact.validator import _check_numeric_coverage
+
+    fact = _fact(
+        {"charge_temp_range_1": {"value": "-5~5", "unit": "℃"},
+         "charge_rate_1": {"value": "0.1C", "unit": ""},
+         "charge_temp_range_2": {"value": "5~12", "unit": "℃"},
+         "charge_rate_2": {"value": "0.3C", "unit": ""}},
+        "-5~5도씨, 0.1C(4.55V), 5~12도씨, 0.3C(4.55V)",
+    )
+
+    assert _check_numeric_coverage(fact) == []
+
+
+def test_numeric_coverage_wired_into_report():
+    """validate_facts 가 이 검사를 실제로 돌린다."""
+    from contentcompare.fact.fact_models import FactSet
+    from contentcompare.fact.validator import validate_facts
+
+    fact = _fact(
+        {"lump": {"value": "구간별 상이", "unit": ""}},
+        "-5~5도씨, 0.1C(4.55V), 5~12도씨, 0.3C(4.55V) 12~15도씨, 0.8C(4.55V)",
+    )
+    report = validate_facts(FactSet(facts=[fact]), {"doc_type": "word", "blocks": []})
+
+    assert any(c.check == "numeric_coverage" for c in report.checks)

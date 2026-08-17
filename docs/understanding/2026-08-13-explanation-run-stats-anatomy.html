@@ -1,0 +1,1079 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실행 통계 읽는 법 — 이 숫자들은 무엇을 세고 있는가</title>
+<style>
+  :root{
+    --code:#1565c0; --llm:#e65100; --embed:#00796b; --human:#6a1b9a;
+    --ink:#1a1a1a; --muted:#5f6b7a; --line:#dfe4ea; --bg:#fff; --soft:#f6f8fa;
+    --warn:#b26a00; --bad:#c62828; --good:#2e7d32; --grey:#9aa4b0;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Malgun Gothic",sans-serif;
+    color:var(--ink); background:var(--bg); line-height:1.75; font-size:17px; padding-bottom:110px;
+  }
+  .wrap{max-width:880px; margin:0 auto; padding:0 20px}
+  header.top{border-bottom:1px solid var(--line); margin-bottom:28px; padding:44px 0 26px;
+    background:linear-gradient(180deg,#fbfcfd,#fff)}
+  h1{font-size:2rem; line-height:1.3; margin:0 0 10px}
+  .sub{color:var(--muted); margin:0; font-size:1.02rem}
+  .meta{color:var(--muted); font-size:.86rem; margin-top:14px}
+  h2{font-size:1.5rem; margin:56px 0 6px; padding-top:12px; border-top:3px solid var(--ink)}
+  h3{font-size:1.16rem; margin:34px 0 6px}
+  h4{font-size:1rem; margin:22px 0 4px; color:var(--muted)}
+  p{margin:14px 0}
+  code{background:var(--soft); border:1px solid var(--line); border-radius:4px; padding:1px 5px;
+    font-size:.88em; font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace}
+  pre{white-space:pre-wrap; word-break:break-word; background:#0f172a; color:#e2e8f0;
+    border-radius:10px; padding:16px 18px; overflow-x:auto; font-size:.84rem; line-height:1.6;
+    font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace}
+  pre.plain{background:var(--soft); color:var(--ink); border:1px solid var(--line); white-space:pre-wrap}
+  pre b{color:#fbbf24; font-weight:600}
+  pre.plain b{color:var(--bad)}
+  a{color:var(--code)}
+  table{border-collapse:collapse; width:100%; margin:18px 0; font-size:.92rem}
+  th,td{border:1px solid var(--line); padding:9px 11px; text-align:left; vertical-align:top}
+  th{background:var(--soft); font-weight:650}
+  td.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+  ul,ol{padding-left:22px} li{margin:7px 0}
+
+  .call{border-left:5px solid var(--code); background:#f2f7fd; padding:14px 18px;
+    border-radius:0 8px 8px 0; margin:22px 0}
+  .call.warn{border-color:var(--warn); background:#fff8ec}
+  .call.bad{border-color:var(--bad); background:#fdf1f1}
+  .call.def{border-color:var(--human); background:#f8f3fb}
+  .call.ok{border-color:var(--good); background:#f2f9f4}
+  .call .t{font-weight:700; display:block; margin-bottom:4px; font-size:.95rem}
+
+  .who{display:inline-block; border-radius:20px; padding:1px 9px; font-size:.78rem;
+    font-weight:650; border:1.5px solid; white-space:nowrap}
+  .who.code{color:var(--code); border-color:var(--code); background:#eaf2fc}
+  .who.llm{color:var(--llm); border-color:var(--llm); background:#fdf0e6}
+  .who.embed{color:var(--embed); border-color:var(--embed); background:#e6f4f2}
+  .who.human{color:var(--human); border-color:var(--human); background:#f4ecfa}
+
+  /* 레인 */
+  .lane{display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; margin:22px 0; padding:16px;
+    border:1px solid var(--line); border-radius:12px; background:var(--soft)}
+  .lane .step{flex:1 1 130px; min-width:130px; background:#fff; border:1.5px solid var(--line);
+    border-radius:9px; padding:9px 10px; font-size:.83rem; line-height:1.45}
+  .lane .step .lbl{font-weight:700; display:block; margin-bottom:3px}
+  .lane .step .note{color:var(--muted); font-size:.78rem}
+  .lane .step.code{border-color:var(--code)} .lane .step.llm{border-color:var(--llm)}
+  .lane .step.embed{border-color:var(--embed)}
+  .lane .step.hit{box-shadow:0 0 0 3px rgba(198,40,40,.14); border-color:var(--bad)}
+  .lane .arrow{align-self:center; color:var(--muted); font-size:1.1rem; flex:0 0 auto}
+  .lane-title{font-size:.83rem; font-weight:700; color:var(--muted); margin:26px 0 -12px}
+
+  /* 깔때기 */
+  .funnel{margin:22px 0; border:1px solid var(--line); border-radius:12px; padding:18px; background:#fff}
+  .fstep{display:grid; grid-template-columns:190px 1fr 74px; gap:12px; align-items:center; margin:9px 0}
+  .fstep .flabel{font-size:.84rem; font-weight:650}
+  .fstep .flabel small{display:block; font-weight:400; color:var(--muted); font-size:.75rem}
+  .fbar{height:26px; border-radius:5px; background:var(--soft); position:relative; overflow:hidden}
+  .fbar i{position:absolute; left:0; top:0; bottom:0; display:block; border-radius:5px}
+  .fstep .fnum{text-align:right; font-variant-numeric:tabular-nums; font-weight:700; font-size:.9rem}
+  @media (max-width:600px){ .fstep{grid-template-columns:1fr 60px; } .fstep .fbar{grid-column:1/-1} }
+
+  /* 100 점 격자 */
+  .grid100{display:grid; grid-template-columns:repeat(20,1fr); gap:3px; margin:14px 0; max-width:520px}
+  .grid100 span{aspect-ratio:1; border-radius:2px; display:block}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; font-size:.82rem; margin:10px 0 0; color:var(--muted)}
+  .legend b{display:inline-block; width:11px; height:11px; border-radius:2px; margin-right:5px;
+    vertical-align:-1px}
+
+  /* 분모 카드 */
+  .denoms{display:grid; grid-template-columns:repeat(auto-fit,minmax(232px,1fr)); gap:12px; margin:20px 0}
+  .den{border:1.5px solid var(--line); border-radius:10px; padding:13px 15px; background:#fff}
+  .den .dk{font-family:Consolas,monospace; font-size:.82rem; font-weight:700}
+  .den .dv{font-size:1.5rem; font-weight:700; margin:5px 0 2px}
+  .den .df{font-size:.8rem; color:var(--muted); line-height:1.5}
+  .den.n100{border-color:var(--grey)} .den.n24{border-color:var(--warn)} .den.n2{border-color:var(--bad)}
+  .den.n100 .dv{color:#5f6b7a} .den.n24 .dv{color:var(--warn)} .den.n2 .dv{color:var(--bad)}
+
+  /* 사유 막대 */
+  .reasons{margin:18px 0}
+  .rrow{display:grid; grid-template-columns:210px 1fr 54px; gap:10px; align-items:center; margin:7px 0}
+  .rrow .rk{font-family:Consolas,monospace; font-size:.79rem}
+  .rbar{height:22px; background:var(--soft); border-radius:4px; position:relative; overflow:hidden}
+  .rbar i{position:absolute; left:0; top:0; bottom:0; border-radius:4px}
+  .rrow .rn{text-align:right; font-variant-numeric:tabular-nums; font-size:.85rem; font-weight:650}
+  @media (max-width:600px){ .rrow{grid-template-columns:1fr 48px} .rrow .rbar{grid-column:1/-1} }
+
+  /* 속성 칸 */
+  .attrs{display:flex; gap:5px; flex-wrap:wrap; margin:10px 0}
+  .attrs span{border:1.5px solid var(--line); border-radius:5px; padding:4px 9px; font-size:.79rem;
+    background:var(--soft); color:var(--muted)}
+  .attrs span.hit{border-color:var(--good); background:#eaf7ec; color:var(--good); font-weight:650}
+
+  /* 용어 카드 */
+  .terms{display:grid; gap:12px; margin:20px 0}
+  .term{border:1px solid var(--line); border-left:5px solid var(--embed); border-radius:0 9px 9px 0;
+    padding:12px 15px; background:#fff}
+  .term .tname{font-weight:700; font-size:.98rem; margin-bottom:2px}
+  .term .tname code{font-size:.85em}
+  .term.c-llm{border-left-color:var(--llm)} .term.c-code{border-left-color:var(--code)}
+  .term.c-human{border-left-color:var(--human)}
+
+  nav.toc{background:var(--soft); border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin:26px 0}
+  nav.toc .tt{font-weight:700; margin-bottom:8px; display:block}
+  nav.toc ol{margin:0; padding-left:20px; font-size:.93rem}
+  nav.toc li{margin:4px 0} nav.toc a{text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+
+  .qmemo{border:2px dashed #c7cdd6; background:#fcfcfd; border-radius:10px; padding:12px 15px; margin:24px 0}
+  .qmemo[data-status="answered"]{border:2px solid var(--human); background:#faf6fd}
+  .qmemo-head{display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin-bottom:6px}
+  .qmemo-label{font-weight:700; font-size:.83rem; color:var(--human)}
+  .qmemo-hint{font-size:.76rem; color:var(--muted)}
+  .qmemo-question{min-height:2.1em; background:#fff; border:1px solid var(--line); border-radius:6px;
+    padding:8px 10px; font-size:.9rem; outline:none}
+  .qmemo-question:focus{border-color:var(--human); box-shadow:0 0 0 3px rgba(106,27,154,.09)}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#aab1bb}
+  .qmemo-answer{margin-top:9px; padding:10px 12px; background:#fff; border-left:4px solid var(--human);
+    border-radius:0 6px 6px 0; font-size:.9rem}
+  .qmemo-answer:before{content:"답변 "; font-weight:700; color:var(--human); font-size:.82rem}
+
+  .quiz{border:1px solid var(--line); border-radius:11px; padding:16px 18px; margin:20px 0; background:#fff}
+  .quiz .q{font-weight:650; margin-bottom:10px}
+  .quiz .opt{display:block; width:100%; text-align:left; border:1.5px solid var(--line); background:#fff;
+    border-radius:8px; padding:9px 12px; margin:7px 0; cursor:pointer; font-size:.92rem;
+    font-family:inherit; line-height:1.5}
+  .quiz .opt:hover{background:var(--soft)}
+  .quiz .opt.correct{border-color:var(--good); background:#eef8f0}
+  .quiz .opt.wrong{border-color:var(--bad); background:#fdf1f1}
+  .quiz .opt:disabled{cursor:default}
+  .quiz .fb{margin-top:10px; font-size:.89rem; padding:10px 12px; border-radius:8px; display:none}
+  .quiz .fb.show{display:block}
+  .quiz .fb.ok{background:#eef8f0; border-left:4px solid var(--good)}
+  .quiz .fb.ng{background:#fdf1f1; border-left:4px solid var(--bad)}
+
+  #qmemo-bar{position:fixed; left:0; right:0; bottom:0; z-index:50; background:rgba(255,255,255,.97);
+    border-top:1px solid var(--line); padding:10px 18px; display:flex; gap:12px; align-items:center;
+    flex-wrap:wrap; box-shadow:0 -2px 14px rgba(0,0,0,.06)}
+  #qmemo-save-btn{background:var(--human); color:#fff; border:0; border-radius:8px; padding:9px 16px;
+    font-size:.9rem; font-weight:650; cursor:pointer; font-family:inherit}
+  #qmemo-save-btn:hover{background:#54157c}
+  #qmemo-saymsg{font-size:.78rem; color:var(--muted); word-break:break-all}
+  .footnote{color:var(--muted); font-size:.85rem; border-top:1px solid var(--line); margin-top:50px; padding-top:18px}
+</style>
+</head>
+<body>
+
+<!-- uh-nav:top:start -->
+<style>
+.uh-nav{max-width:880px;margin:0 auto;padding:10px 20px;font-size:.86rem;line-height:1.7;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+  color:#5b6570;border-bottom:1px solid #e3e8ee}
+.uh-nav a{color:#1565c0;text-decoration:none}
+.uh-nav a:hover{text-decoration:underline}
+.uh-sep{opacity:.45;margin:0 6px}
+.uh-cur{color:#1a1a1a;font-weight:600}
+.uh-bottom{border-bottom:0;border-top:1px solid #e3e8ee;margin-top:44px;padding-top:16px;padding-bottom:26px}
+.uh-row{margin:5px 0}
+.uh-pn{display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+.uh-pn a{display:inline-block;max-width:46%}
+.uh-banner{max-width:880px;margin:14px auto 0;padding:11px 16px;border-radius:8px;font-size:.9rem;
+  line-height:1.65;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif}
+.uh-banner a{color:inherit;font-weight:600}
+.uh-legacy{background:#fff6e5;border-left:4px solid #b26a00;color:#4a3520}
+.uh-implemented{background:#e8f5e9;border-left:4px solid #2e7d32;color:#1b3a20}
+.uh-revised{background:#e8f1fb;border-left:4px solid #1565c0;color:#12324f}
+@media (prefers-color-scheme:dark){
+  .uh-nav{color:#9aa8b6;border-color:#2a3441}
+  .uh-nav a{color:#6ea8fe}
+  .uh-cur{color:#e6edf3}
+  .uh-legacy{background:#3a2f18;color:#f0e2c8}
+  .uh-implemented{background:#1c3423;color:#d6ecd9}
+  .uh-revised{background:#17293d;color:#d6e6f7}
+}
+@media (max-width:640px){ .uh-pn a{max-width:100%} }
+</style>
+<div class="uh-nav uh-top"><a href="index.html">📚 understanding</a><span class="uh-sep">›</span><a href="index.html#ops">6. 운영·진단</a><span class="uh-sep">›</span><span class="uh-cur">실행 통계 읽는 법</span></div>
+<!-- uh-nav:top:end -->
+<header class="top">
+  <div class="wrap">
+    <h1>실행 통계 읽는 법 — 이 숫자들은 무엇을 세고 있는가</h1>
+    <p class="sub">
+      <code>secondary_review_rate 1.0</code>, <code>unsafe_match_rate 1.0</code>,
+      <code>mean_attribute_coverage 0.1278</code>, <code>code_missing 76</code> …
+      같은 실행에서 나온 스무 개 남짓한 숫자를, 용어의 배경부터 하나씩 풀어봅니다.
+    </p>
+    <p class="meta">
+      2026-08-13 · ContentCompare fact 엔진 · 대상: <code>comparison_result.json</code> 의
+      <code>stats</code> 블록 · 관련 코드: <code>fact/review_router.py</code>,
+      <code>fact/pipeline.py</code>, <code>fact/concept_builder.py</code>
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <span class="tt">목차</span>
+  <ol>
+    <li><a href="#bg">배경 — 왜 통계를 남기는가</a></li>
+    <li><a href="#terms">용어 사전 — 숫자를 읽기 전에</a></li>
+    <li><a href="#picture">이번 실행의 전체 그림 (깔때기)</a></li>
+    <li><a href="#denominator">가장 중요한 것: 분모가 셋이다</a></li>
+    <li><a href="#onebyone">숫자 하나씩 읽기</a></li>
+    <li><a href="#crosscheck">검산 — 숫자들은 서로 맞물린다</a></li>
+    <li><a href="#myths">흔한 오해 세 가지</a></li>
+    <li><a href="#next">그래서 무엇을 해야 하는가</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+  <p style="font-size:.85rem;color:var(--muted);margin:12px 0 0">
+    📝 곳곳의 <strong>질문 메모</strong> 칸에 궁금한 점을 적으면 이 브라우저에 자동 저장됩니다(localStorage).
+    맨 아래 <strong>질문 저장</strong> 을 누르면 질문이 박힌 HTML 이 <em>같은 파일명</em>으로 다운로드되고,
+    덮어쓸 정확한 경로가 안내됩니다. 그 파일을 덮어쓴 뒤 Claude 에게 답변을 요청하세요.
+  </p>
+</nav>
+
+<div class="call">
+  <span class="t">📊 이 글이 다루는 실제 숫자</span>
+<pre class="plain">comparisons: 100          decided_by_llm: ?        llm_calls: ?
+fast_path_rate: 0.0       secondary_review_rate: 1.0    unsafe_match_rate: 1.0
+mean_attribute_coverage: 0.1278
+review_reasons: { code_missing: 76, code_unknown: 22, low_confidence: 24,
+                  partial_attribute_coverage: 23, duplicate_entity_facts: 8 }
+concept: { same_as: 32, differs_by: 454, unknown: 14,
+           pairs_by_llm: 500, pairs_by_code: 0, llm_calls: 25 }</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="bg">1. 배경 — 왜 통계를 남기는가</h2>
+
+<h3>1.1 아주 깊은 배경 <span style="font-weight:400;color:var(--muted);font-size:.9rem">(아는 분은 1.2 로)</span></h3>
+
+<p>
+ContentCompare 는 엑셀 규격표(<strong>기준</strong>)의 항목들을 워드·PPT 문서(<strong>대상</strong>)와
+대조해 "같음 / 다름 / 대상에 없음 / 판단보류"를 판정합니다. 어려운 점은 두 문서가 같은 내용을
+전혀 다른 모양으로 적는다는 것입니다 — 한쪽은 표의 셀, 다른 쪽은 문장, 심지어 언어가 다릅니다.
+</p>
+
+<p>
+그래서 문서를 <strong>fact</strong> 라는 공통 형태로 정규화합니다. fact 하나는
+"무엇에 대한 주장인가(<code>entity_name</code>)" + "값과 단위(<code>attributes</code>)" +
+"근거 원문(<code>evidence_text</code>)" + "출처 좌표(<code>source</code>)" 입니다.
+</p>
+
+<div class="call def">
+  <span class="t">📌 이 시스템의 제1 목표는 정확도가 아니라 <em>검수 가능성</em>이다</span>
+  LLM 은 그럴듯하게 틀립니다. 그래서 판정마다 양쪽 원문과 좌표를 함께 싣고, 중간 산출물을 전부
+  디스크에 남기며, <strong>계측(통계)을 집요하게 남깁니다.</strong> 프로젝트 규칙에도 이렇게
+  적혀 있습니다 — "오판·누락 추적이 목적이므로 이 계측을 제거하지 말 것."
+  통계는 장식이 아니라 <strong>이 시스템이 스스로를 의심하는 방식</strong>입니다.
+</div>
+
+<h3>1.2 숫자는 세 곳에서 나온다</h3>
+
+<p>
+헷갈림의 절반은 "이 키가 어느 단계에서 만들어졌나"를 모르는 데서 옵니다. 출처는 셋입니다.
+</p>
+
+<table>
+  <thead><tr><th>블록</th><th>만드는 곳</th><th>세는 대상</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>concept: {...}</code></td>
+      <td><code>concept_builder.py:338</code></td>
+      <td><strong>후보 쌍</strong> — (기준 fact × 대상 fact) 조합</td>
+    </tr>
+    <tr>
+      <td><code>fast_path_rate</code> 등 게이트 지표</td>
+      <td><code>review_router.py:86</code> <code>gate_stats()</code></td>
+      <td><strong>비교</strong> — (기준 fact × 대상 문서)</td>
+    </tr>
+    <tr>
+      <td><code>comparisons</code>, <code>decided_by_llm</code>, <code>llm_calls</code></td>
+      <td><code>pipeline.py:212</code></td>
+      <td>같은 <strong>비교</strong> 단위 + LLM 호출 수</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="call warn">
+  <span class="t">⚠️ 단위가 다르다 — 쌍 500 과 비교 100 은 같은 것을 세지 않는다</span>
+  <code>concept</code> 블록의 500 은 <strong>후보 쌍</strong>이고, <code>comparisons</code> 의 100 은
+  <strong>비교</strong>입니다. 비교 하나에 후보 쌍이 최대 <code>concept_recall_top_k</code>(기본 5)개
+  달리므로 <strong>100 × 5 = 500</strong> 입니다. 이 둘을 같은 축에 놓고 비율을 내면 아무 의미가 없습니다.
+</div>
+
+<div class="qmemo" data-qid="bg-three-sources" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="terms">2. 용어 사전 — 숫자를 읽기 전에</h2>
+
+<p>
+아래 아홉 개만 알면 모든 숫자가 읽힙니다. 각 용어에는 <strong>왜 그렇게 만들었는지</strong>의
+배경을 붙였습니다 — 배경을 모르면 숫자를 봐도 무엇을 조여야 할지 알 수 없기 때문입니다.
+</p>
+
+<div class="terms">
+
+  <div class="term">
+    <div class="tname"><span class="who embed">🔢 임베딩</span> &nbsp;recall (후보 검색)</div>
+    문장을 숫자 벡터로 바꿔 "가까운 것"을 찾는 단계입니다. 파라미터는 두 개 —
+    <code>concept_recall_top_k</code>(기준 항목당 몇 개까지 볼까, 기본 5)와
+    <code>concept_recall_min</code>(최소 유사도, 기본 0.3).
+    <br><br>
+    <strong>배경:</strong> <code>min_score 0.3</code> 은 <em>임계값이 아니라 계산량 제한</em>입니다.
+    설정 주석에도 "판정 아님 — 계산량 제한"이라고 못 박혀 있습니다. 한↔영 문서에서는 아무 관계 없는
+    쌍도 코사인 0.5~0.6 이 나오기 때문에, 0.3 으로는 사실상 아무것도 걸러지지 않습니다.
+    <strong>그래서 recall 은 거의 항상 5칸을 꽉 채웁니다.</strong>
+  </div>
+
+  <div class="term c-llm">
+    <div class="tname"><span class="who llm">🤖 LLM</span> &nbsp;개념 그래프(F7) — <code>same_as</code> / <code>differs_by</code> / <code>unknown</code></div>
+    "이 둘을 <em>비교해도 되는가</em>"만 답하는 단계입니다. 값이 같은지는 보지 않습니다.
+    <code>same_as</code> 로 이어지지 않으면 <strong>아예 비교하지 않습니다.</strong>
+    <br><br>
+    <strong>배경:</strong> 예전에는 유사도 점수에 임계값을 걸었는데, 실측에서 정답 최저 0.697 vs
+    오매칭 최고 0.700 으로 <em>두 분포가 겹쳤습니다</em>. 코사인 점수는 "무관함"을 표현할 수 없다는
+    뜻이죠. 그래서 점수는 후보를 좁히는 데만 쓰고, 판정은 그래프 조회로 바꿨습니다.
+  </div>
+
+  <div class="term c-human">
+    <div class="tname"><span class="who human">👤 사람</span> &nbsp;온톨로지 승격 — <code>pairs_from_ontology</code>, <code>pairs_by_code</code></div>
+    <code>knowledge/ontology.yaml</code> 에 사람이 "이 둘은 같다"를 적어두면 LLM 을 건너뛰고 영구
+    적용됩니다. 정규화한 이름이 완전히 같은 경우도 코드가 바로 확정합니다(<code>pairs_by_code</code>).
+    <br><br>
+    <strong>배경:</strong> 번역어·약칭은 <code>aliases:</code> 로 묶어야 합니다.
+    <code>differs_by</code> 목록에 번역어를 직접 나열하면 <strong>동의어까지 "다르다"로 선언</strong>되어
+    반대 효과가 납니다.
+  </div>
+
+  <div class="term c-code">
+    <div class="tname"><span class="who code">⚙️ 코드</span> &nbsp;<code>ComparisonProbe</code> — 코드 판정까지만 끝낸 중간 상태</div>
+    <code>compare_code()</code> 가 만들고, <strong>LLM 을 절대 부르지 않습니다</strong>(테스트로 고정).
+    <code>code_result</code> 는 <code>match</code>/<code>mismatch</code>/<code>missing</code>/
+    <strong><code>None</code></strong> 넷입니다.
+    <br><br>
+    <strong>배경:</strong> <code>None</code> 과 <code>"unknown"</code> 은 다릅니다 —
+    <code>None</code> 은 <em>코드가 판단을 포기</em>했다는 뜻이고 <code>unknown</code> 은 최종 판정
+    라벨입니다. 둘을 합치면 "코드가 못 정한 것"과 "사람이 봐야 하는 것"이 섞입니다.
+  </div>
+
+  <div class="term c-code">
+    <div class="tname"><span class="who code">⚙️ 코드</span> &nbsp;Acceptance Gate 와 <code>review_reasons</code></div>
+    probe 를 채점해 <strong>검토 사유</strong>를 붙입니다. 사유가 하나도 없으면 "안전하게 확정 가능".
+    사유는 7종: <code>code_missing</code>, <code>code_mismatch</code>, <code>code_unknown</code>,
+    <code>low_confidence</code>, <code>partial_attribute_coverage</code>,
+    <code>duplicate_entity_facts</code>, <code>invalid_evidence</code>.
+    <br><br>
+    <strong>배경:</strong> 게이트는 <em>탐지</em>가 아니라 <em>라우팅</em>입니다. "후보가 2건 이상이다"
+    같은 <strong>셀 수 있는 사실</strong>만 확인하고 "어느 후보가 맞는가"는 판단하지 않습니다.
+    이 경계를 흐리면 게이트가 또 하나의 축약된 판정기가 됩니다.
+  </div>
+
+  <div class="term c-code">
+    <div class="tname"><span class="who code">⚙️ 코드</span> &nbsp;<code>attribute_coverage</code> — 커버리지</div>
+    기준 fact 의 속성 중 대상 fact 에서 <strong>대응된 비율</strong>입니다.
+    <br><br>
+    <strong>배경:</strong> 코드의 값 대조는 <strong>공통 속성만</strong> 봅니다. 그래서 기준에 속성이
+    셋 있고 대상에 하나뿐이어도, 그 하나가 같으면 <code>match</code> 가 됩니다. 이 구멍을 수치로
+    드러내려고 만든 지표입니다. 분모는 기준 fact 의 <em>전체</em> 속성입니다.
+  </div>
+
+  <div class="term">
+    <div class="tname">Fast Path 와 shadow / enforce</div>
+    사유가 없는 비교는 LLM 없이 즉시 확정 — 이것이 fast path 입니다.
+    <code>fast_path.enforce: false</code>(기본)면 게이트는 <strong>채점만</strong> 하고 판정을 바꾸지
+    않습니다(shadow 모드).
+    <br><br>
+    <strong>배경:</strong> 이 단계는 비용을 <em>줄이지 않고 늘립니다</em>. 지금도 코드 <code>match</code>
+    는 LLM 을 안 부르므로, 게이트를 켜는 효과는 <strong>조용히 확정되던 판정을 LLM 으로 보내는</strong>
+    것입니다. 그래서 기본이 shadow 이고, <code>unsafe_match_rate</code> 가 "켜면 얼마나 늘어나는가"를
+    미리 알려줍니다.
+  </div>
+
+  <div class="term c-llm">
+    <div class="tname"><span class="who llm">🤖 LLM</span> &nbsp;<code>decided_by</code> 와 예산</div>
+    판정 주체가 <code>code</code> 였는지 <code>llm</code> 이었는지 남깁니다. 개념 단계의 LLM 호출은
+    <code>max_llm_calls_per_concept</code>(기본 30)로 제한되고, 한 번에
+    <code>concept_batch_pairs</code>(기본 20)쌍씩 묶어 묻습니다.
+    <br><br>
+    <strong>배경:</strong> 예산이 끝나면 남은 쌍은 판정 없이 잘리고
+    <code>budget_exhausted_pairs</code> 에 기록됩니다. 이 값이 0 이 아닌데 모르고 넘어가면
+    "전부 대상에 없음"으로만 보입니다.
+  </div>
+
+  <div class="term c-code">
+    <div class="tname"><span class="who code">⚙️ 코드</span> &nbsp;<code>needs_review</code> → <code>low_confidence</code></div>
+    후보에 붙는 깃발인데, <strong>생산자에 따라 뜻이 다릅니다.</strong> 개념 그래프 경로에서는
+    "이 연결을 <em>LLM 이 만들었는가</em>"를 뜻합니다(점수 경계가 아닙니다).
+    <br><br>
+    <strong>배경:</strong> 아직 아무도 확인하지 않은 연결 위에서 코드가 값을 단정하면 위험하므로,
+    LLM 이 한 번 더 보게 합니다. 코드·온톨로지가 확정한 연결은 <code>False</code> 입니다.
+  </div>
+
+</div>
+
+<div class="qmemo" data-qid="terms-vocabulary" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">아홉 용어 중 아직 흐릿한 것이 있으면 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="picture">3. 이번 실행의 전체 그림</h2>
+
+<p>
+파이프라인을 지나면서 후보가 어떻게 줄어드는지를 한 장으로 보면 이렇습니다. 막대 길이는
+<strong>같은 축(로그 아님)</strong>이고, 각 단계의 단위가 다르다는 점에 주의하세요 — 위 둘은
+<em>쌍</em>, 아래 둘은 <em>비교</em>입니다.
+</p>
+
+<div class="funnel">
+  <div class="fstep">
+    <div class="flabel">① recall 이 올린 후보 쌍<small>단위: 쌍 · 100건 × top_k 5</small></div>
+    <div class="fbar"><i style="width:100%;background:var(--embed);opacity:.85"></i></div>
+    <div class="fnum">500</div>
+  </div>
+  <div class="fstep">
+    <div class="flabel">② 개념 판정을 통과(<code>same_as</code>)<small>단위: 쌍 · 나머지는 differs_by 454 / unknown 14</small></div>
+    <div class="fbar"><i style="width:6.4%;background:var(--llm)"></i></div>
+    <div class="fnum">32</div>
+  </div>
+  <div class="fstep">
+    <div class="flabel">③ 후보를 <em>가진</em> 비교<small>단위: 비교 · 나머지 76건은 후보 0</small></div>
+    <div class="fbar"><i style="width:24%;background:var(--warn)"></i></div>
+    <div class="fnum">24</div>
+  </div>
+  <div class="fstep">
+    <div class="flabel">④ 코드가 <em>의견을 낸</em> 비교<small>단위: 비교 · 나머지 22건은 code_unknown</small></div>
+    <div class="fbar"><i style="width:2%;background:var(--bad)"></i></div>
+    <div class="fnum">2</div>
+  </div>
+</div>
+
+<p>
+마지막 막대가 이 실행의 요약입니다. <strong>100건 중 98건이 코드 판정에 도달하지 못했습니다.</strong>
+</p>
+
+<p class="lane-title">어디서 무엇이 걸렀는가</p>
+<div class="lane">
+  <div class="step embed"><span class="lbl">🔢 recall</span><span class="note">500쌍 통과<br>거의 안 거름 (설계 의도)</span></div>
+  <div class="arrow">→</div>
+  <div class="step llm hit"><span class="lbl">🤖 개념 판정</span><span class="note"><strong>468쌍 차단</strong><br>differs_by 454 · unknown 14</span></div>
+  <div class="arrow">→</div>
+  <div class="step code hit"><span class="lbl">⚙️ 값 대조</span><span class="note"><strong>22건 포기</strong><br>공통 속성 없음/단위 미상</span></div>
+  <div class="arrow">→</div>
+  <div class="step"><span class="lbl">📄 결과</span><span class="note">코드 의견 2건<br>둘 다 게이트 거부</span></div>
+</div>
+
+<h3>3.1 100건을 점 하나씩 그리면</h3>
+
+<p>비교 100건을 정사각형 100칸으로 그린 것입니다. 색은 <strong>코드 판정 결과</strong>입니다.</p>
+
+<div class="grid100" id="grid-code"></div>
+<div class="legend">
+  <span><b style="background:var(--grey)"></b>후보 없음 → <code>missing</code> 76</span>
+  <span><b style="background:var(--warn)"></b>후보 있으나 코드 포기 → <code>code_unknown</code> 22</span>
+  <span><b style="background:var(--bad)"></b>코드가 의견을 냄 2</span>
+</div>
+
+<div class="call bad">
+  <span class="t">🚨 이 그림이 말하는 것</span>
+  회색 76칸은 <strong>대상 문서와 연결조차 되지 않은</strong> 기준 항목입니다. 주황 22칸은
+  연결은 됐지만 <strong>대조할 속성이 맞지 않아</strong> 코드가 손을 든 것입니다.
+  빨강 2칸만이 실제로 값이 비교된 항목입니다. 두 문제는 <strong>서로 다른 집합</strong>이라
+  한쪽을 고쳐도 다른 쪽은 그대로입니다.
+</div>
+
+<div class="qmemo" data-qid="picture-funnel" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">깔때기와 100칸 그림에서 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="denominator">4. 가장 중요한 것: 분모가 셋이다</h2>
+
+<p>
+이 통계를 오독하는 가장 흔한 이유는, 모든 비율이 100 을 분모로 쓴다고 <em>가정</em>하기
+때문입니다. 실제로는 지표마다 분모가 다르고, 그것은 의도된 설계입니다.
+</p>
+
+<div class="denoms">
+  <div class="den n100">
+    <div class="dk">분모 = 100</div>
+    <div class="dv">전체 비교</div>
+    <div class="df"><code>fast_path_rate</code><br><code>secondary_review_rate</code><br>
+      <code>result_changed_count</code><br><code>code_overridden_count</code></div>
+  </div>
+  <div class="den n24">
+    <div class="dk">분모 = 24</div>
+    <div class="dv">후보가 있던 비교</div>
+    <div class="df"><code>mean_attribute_coverage</code><br>
+      <small>(<code>initial_result == missing</code> 76건 제외 — 커버리지가 낮은 게 아니라
+      <strong>잴 대상이 없기</strong> 때문)</small></div>
+  </div>
+  <div class="den n2">
+    <div class="dk">분모 = 2</div>
+    <div class="dv">코드 match</div>
+    <div class="df"><code>unsafe_match_rate</code><br>
+      <small>(코드가 <code>match</code> 라고 한 건만. 이 실행에선 단 2건)<br>
+      ⚠️ <strong>전환 비용은 <code>enforce_new_llm_count</code></strong> 로 볼 것 — 아래 정정</small></div>
+  </div>
+</div>
+
+<p>코드로 보면 분모의 차이가 명확합니다.</p>
+
+<pre>total = len(comparisons)                                    <b># 100</b>
+safe  = sum(1 for c in comparisons if c.safe_to_finalize)   <b># 0</b>
+
+code_match = [c for c in comparisons if c.initial_result == MATCH]   <b># 2건</b>
+unsafe     = sum(1 for c in code_match if not c.safe_to_finalize)    <b># 2건</b>
+
+measured = [c for c in comparisons if c.initial_result != MISSING]   <b># 24건</b>
+
+return {
+  "fast_path_rate":       round(safe / total, 4),                       <b># 0/100  = 0.0</b>
+  "secondary_review_rate": round(1 - safe / total, 4),                  <b># 1.0</b>
+  "unsafe_match_rate":     round(unsafe / len(code_match), 4),          <b># 2/2    = 1.0</b>
+  "mean_attribute_coverage": round(sum(c.attribute_coverage
+                                       for c in measured) / len(measured), 4),  <b># 0.1278</b>
+}</pre>
+
+<div class="call warn">
+  <span class="t">⚠️ 그래서 <code>unsafe_match_rate: 1.0</code> 은 "100% 위험"이 아니다</span>
+  분모가 2 입니다. "코드가 의견을 낸 두 건이 둘 다 검토 대상이 됐다"는 뜻일 뿐이죠.
+  <strong>비율이 아니라 분모의 크기를 먼저 보세요.</strong>
+</div>
+
+<div class="call bad">
+  <span class="t">🔧 정정 (2026-08-13) — <code>unsafe_match_rate</code> 는 전환 비용이 아니다</span>
+  이 페이지의 초판은 이 값을 "<code>enforce</code> 를 켜면 늘어날 LLM 호출 비율"로 설명했습니다.
+  <strong>그렇게 읽으면 안 됩니다.</strong> 게이트 사유 셋(<code>low_confidence</code> ·
+  <code>code_unknown</code> · <code>duplicate_entity_facts</code>)은 <code>finalize()</code> 가
+  <strong>이미</strong> LLM 으로 보내는 조건과 같은 사실을 가리키므로, 켜도 호출이 늘지 않습니다.
+  <br><br>
+  그래서 <code>enforce_new_llm_count</code> / <code>enforce_new_llm_rate</code> 가 추가됐습니다
+  (커밋 <code>4993933</code>) — <strong>정말로 새로 늘어나는 호출만</strong> 셉니다. 실측에서
+  <code>unsafe_match_rate</code> 0.88 이 실제 순증가 10%를 <strong>3.5배 부풀렸습니다</strong>
+  (unsafe 7건 중 5건은 이미 LLM 경로였음).
+</div>
+
+<div class="qmemo" data-qid="denominator-three" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">분모가 왜 지표마다 달라야 하는지 등, 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="onebyone">5. 숫자 하나씩 읽기</h2>
+
+<h3>5.1 개념 단계 (<code>concept</code> 블록) — 단위: 쌍</h3>
+
+<table>
+  <thead><tr><th>키</th><th class="num">값</th><th>뜻과 읽는 법</th></tr></thead>
+  <tbody>
+    <tr><td><code>pairs_considered</code></td><td class="num">500</td>
+      <td>개념 판정에 올라간 후보 쌍. = 비교 100 × <code>top_k</code> 5. <strong>recall 이 5칸을 꽉 채웠다</strong>는 뜻</td></tr>
+    <tr><td><code>same_as</code></td><td class="num">32</td>
+      <td>"같은 개념" 판정. <strong>500쌍 중 6.4%</strong>만 통과</td></tr>
+    <tr><td><code>differs_by</code></td><td class="num">454</td>
+      <td>"다른 항목" 차단. <strong>91%</strong>. 이것이 곧 <code>code_missing</code> 의 원인</td></tr>
+    <tr><td><code>unknown</code></td><td class="num">14</td>
+      <td>LLM 이 판단 보류. 차단과 같은 효과(비교 안 함)지만 원인이 다름</td></tr>
+    <tr><td><code>pairs_by_llm</code></td><td class="num">500</td>
+      <td>LLM 이 판정한 쌍. <strong>전부</strong>다</td></tr>
+    <tr><td><code>pairs_by_code</code></td><td class="num">0</td>
+      <td>정규화 이름 완전일치로 코드가 확정한 쌍. <strong>0 = 한↔영 문서쌍의 전형</strong>.
+          이것이 <code>low_confidence</code> 24/24 의 직접 원인</td></tr>
+    <tr><td><code>llm_calls</code></td><td class="num">25</td>
+      <td>= 500 ÷ <code>concept_batch_pairs</code> 20. ⚠️ 기본 예산 30 의 <strong>83%</strong></td></tr>
+    <tr><td><code>budget_exhausted_pairs</code></td><td class="num">확인 필요</td>
+      <td>0 이 아니면 판정도 못 받고 잘린 쌍이 있다는 뜻 — 그 항목은 원인 없이 <code>missing</code> 이 된다</td></tr>
+    <tr><td><code>rejected_evidence</code> / <code>rejected_differs_by</code></td><td class="num">확인 필요</td>
+      <td>LLM 의 <code>same_as</code> 제안을 코드가 거부한 수(인용 실패 / 모순). <strong>과차단의 흔적</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="call">
+  <span class="t">🔍 <code>differs_by</code> 454 는 문제인가?</span>
+  <strong>그 자체로는 정상입니다.</strong> recall 은 "가장 가까운 5개"를 무조건 채우므로, 대상 문서에
+  없는 항목이라도 엉뚱한 후보 5개가 붙습니다. 예를 들어 기준의 <em>고객 표준 버전</em> 에는
+  <em>Rated charging voltage</em>(0.596), <em>Rated capacity</em>(0.551) … 가 후보로 붙는데,
+  이들을 <code>differs_by</code> 로 막는 것은 <strong>정답</strong>입니다.
+  <br><br>
+  문제는 <em>정답 쌍까지</em> 막혔을 때입니다. 실제로 이 저장소 산출물에서
+  <code>최대충전전류 ↔ Maximum charging current</code> 가 recall 1위(0.691)였는데
+  <code>same_as</code> 제안이 거부되어 <code>unknown</code> 으로 떨어진 사례가 있습니다.
+</div>
+
+<h3>5.2 게이트 지표 — 단위: 비교</h3>
+
+<table>
+  <thead><tr><th>키</th><th class="num">값</th><th>뜻과 읽는 법</th></tr></thead>
+  <tbody>
+    <tr><td><code>fast_path_rate</code></td><td class="num">0.0</td>
+      <td>사유 없이 확정 가능한 비율. <strong>0 = 100건 전부 검토 대상</strong></td></tr>
+    <tr><td><code>secondary_review_rate</code></td><td class="num">1.0</td>
+      <td><code>1 - fast_path_rate</code>. 같은 정보의 뒷면이라 <strong>둘 중 하나만 보면 된다</strong></td></tr>
+    <tr><td><code>unsafe_match_rate</code></td><td class="num">1.0</td>
+      <td>분모 2. <strong>이번 실행에선 의미 없음</strong>(§4). 게이트가 얼마나 조이는지를 재는 값이지
+          <strong>전환 비용이 아니다</strong></td></tr>
+    <tr><td><code>enforce_new_llm_count</code><br><code>enforce_new_llm_rate</code></td><td class="num">신규</td>
+      <td><strong>이쪽이 전환 비용이다</strong> — 거부된 코드 match 중 <code>finalize</code> 가 아직
+          LLM 으로 보내지 <em>않던</em> 건수. 커밋 <code>4993933</code></td></tr>
+    <tr><td><code>mean_attribute_coverage</code></td><td class="num">0.1278</td>
+      <td>분모 24. 기준 속성 중 평균 <strong>13%</strong>만 대응됨</td></tr>
+    <tr><td><code>result_changed_count</code></td><td class="num">—</td>
+      <td><code>initial != final</code>. <strong>과잉 계상됨</strong> — 코드가 포기한 경우도
+          <code>initial=unknown</code> 이라 무조건 켜짐</td></tr>
+    <tr><td><code>code_overridden_count</code></td><td class="num">—</td>
+      <td>코드가 <strong>의견을 냈는데</strong> 최종이 다른 건수. <strong>이쪽만 신뢰할 것</strong></td></tr>
+  </tbody>
+</table>
+
+<h3>5.3 검토 사유 (<code>review_reasons</code>)</h3>
+
+<p>
+막대의 회색 배경은 <strong>그 사유가 붙을 수 있는 최대치</strong>(=분모)입니다. 첫 줄만 분모가
+100 이고 나머지는 24 라는 점을 눈으로 확인해 보세요.
+</p>
+
+<div class="reasons">
+  <div class="rrow">
+    <div class="rk">code_missing</div>
+    <div class="rbar" title="분모 100"><i style="width:76%;background:var(--grey)"></i></div>
+    <div class="rn">76<small style="color:var(--muted)">/100</small></div>
+  </div>
+  <div class="rrow">
+    <div class="rk">low_confidence</div>
+    <div class="rbar" title="분모 24"><i style="width:100%;background:var(--llm)"></i></div>
+    <div class="rn">24<small style="color:var(--muted)">/24</small></div>
+  </div>
+  <div class="rrow">
+    <div class="rk">partial_attribute_coverage</div>
+    <div class="rbar" title="분모 24"><i style="width:95.8%;background:var(--warn)"></i></div>
+    <div class="rn">23<small style="color:var(--muted)">/24</small></div>
+  </div>
+  <div class="rrow">
+    <div class="rk">code_unknown</div>
+    <div class="rbar" title="분모 24"><i style="width:91.7%;background:var(--bad)"></i></div>
+    <div class="rn">22<small style="color:var(--muted)">/24</small></div>
+  </div>
+  <div class="rrow">
+    <div class="rk">duplicate_entity_facts</div>
+    <div class="rbar" title="분모 24"><i style="width:33.3%;background:var(--code)"></i></div>
+    <div class="rn">8<small style="color:var(--muted)">/24</small></div>
+  </div>
+  <div class="rrow">
+    <div class="rk">code_mismatch · invalid_evidence</div>
+    <div class="rbar" title="분모 24"><i style="width:0;background:var(--good)"></i></div>
+    <div class="rn">0</div>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>사유</th><th>이 실행에서의 해석</th></tr></thead>
+  <tbody>
+    <tr><td><code>code_missing</code> 76</td>
+      <td>후보가 하나도 없음. <strong>단독 반환</strong>이라 다른 사유와 절대 겹치지 않는다
+          (<code>evaluate()</code> 가 <code>return [CODE_MISSING]</code> 로 즉시 끝냄).
+          <em>왜 단독인가:</em> 함께 평가하면 모든 missing 에 "커버리지 0"과 "대상 fact 없음"이
+          따라붙어 사유 통계가 온통 <code>partial_coverage</code> 로 보이면서 진짜 원인을 덮는다</td></tr>
+    <tr><td><code>low_confidence</code> 24/24</td>
+      <td>후보가 있는 <strong>전건</strong>. <code>pairs_by_code: 0</code> 이 원인 — 모든 개념 연결을
+          LLM 이 만들었으므로 <code>needs_review=True</code>. <strong>한↔영 문서쌍에서는 정상</strong></td></tr>
+    <tr><td><code>partial_attribute_coverage</code> 23/24</td>
+      <td>커버리지 1.0 인 비교가 단 1건. 아래 <code>code_unknown</code> 과 같은 뿌리</td></tr>
+    <tr><td><code>code_unknown</code> 22/24</td>
+      <td>코드가 판단 포기. 공통 속성 키가 없거나 단위 등가를 모름</td></tr>
+    <tr><td><code>duplicate_entity_facts</code> 8/24</td>
+      <td>후보가 2건 이상. <a href="2026-08-13-explanation-multi-candidate-1n-comparison.html">1:N 판정 문제</a>가
+          실제로 8건 발생 중 (현재 <code>candidates[0]</code> 으로 조용히 확정됨)</td></tr>
+  </tbody>
+</table>
+
+<h3>5.4 <code>mean_attribute_coverage 0.1278</code> 을 그림으로</h3>
+
+<p>
+기준 fact 하나가 속성을 여러 개 갖고, 대상 fact 는 보통 하나만 갖습니다. 코드는
+<strong>공통 키만</strong> 보므로 이런 그림이 됩니다.
+</p>
+
+<div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fff">
+  <div style="font-size:.85rem;font-weight:650;margin-bottom:4px">기준(엑셀) fact — 속성 8개</div>
+  <div class="attrs">
+    <span class="hit">target_value ✓</span><span>lower_limit</span><span>upper_limit</span>
+    <span>unit</span><span>condition</span><span>tolerance</span><span>note</span><span>rank</span>
+  </div>
+  <div style="font-size:.85rem;font-weight:650;margin:14px 0 4px">대상(워드) fact — 속성 1개</div>
+  <div class="attrs"><span class="hit">target_value ✓</span></div>
+  <div style="margin-top:12px;font-size:.86rem;color:var(--muted)">
+    커버리지 = 대응된 1 ÷ 기준 전체 8 = <strong style="color:var(--ink)">0.125</strong>
+    &nbsp;≈&nbsp; 실측 평균 0.1278
+  </div>
+</div>
+
+<div class="call bad">
+  <span class="t">🚨 커버리지가 0 이면 코드는 아예 판단을 포기한다</span>
+  공통 키가 <em>하나도</em> 없으면 코드는 <code>_compare_single_attributes()</code> 로 넘어가는데,
+  이 함수는 <strong>양쪽 모두 속성이 하나뿐일 때만</strong> 작동합니다. 기준이 속성 8개를 가지면
+  즉시 <code>None</code> 을 돌려주고, 그것이 <code>code_unknown</code> 22건입니다.
+  <br><br>
+  <strong>즉 <code>code_unknown</code> 22 와 <code>partial_attribute_coverage</code> 23 은
+  두 개의 문제가 아니라 하나의 문제입니다</strong> — 양쪽 fact 의 <em>속성 키 어휘가 갈렸다</em>.
+</div>
+
+<div class="qmemo" data-qid="onebyone-coverage" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">커버리지·사유 해석에서 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="crosscheck">6. 검산 — 숫자들은 서로 맞물린다</h2>
+
+<p>
+좋은 계측의 조건은 <strong>서로 독립적으로 세어진 숫자들이 맞아떨어지는 것</strong>입니다.
+이 실행의 값들은 네 갈래로 검산됩니다. 하나라도 어긋나면 계측 자체를 의심해야 합니다.
+</p>
+
+<table>
+  <thead><tr><th>검산</th><th>식</th><th>결과</th></tr></thead>
+  <tbody>
+    <tr><td>후보 쌍 총량</td><td><code>comparisons</code> 100 × <code>top_k</code> 5</td>
+      <td class="num">= 500 = <code>pairs_considered</code> ✔</td></tr>
+    <tr><td>LLM 호출 수</td><td>500 ÷ <code>concept_batch_pairs</code> 20</td>
+      <td class="num">= 25 = <code>llm_calls</code> ✔</td></tr>
+    <tr><td>비교의 분해</td><td><code>code_missing</code> 76 + 후보 있는 24</td>
+      <td class="num">= 100 = <code>comparisons</code> ✔</td></tr>
+    <tr><td><code>same_as</code> 간선의 분배</td>
+      <td>후보 1건짜리 16 + 후보 2건짜리 8×2</td>
+      <td class="num">= 32 = <code>same_as</code> ✔<br>
+        <small>(8 = <code>duplicate_entity_facts</code>)</small></td></tr>
+  </tbody>
+</table>
+
+<p>
+네 번째 검산이 특히 예쁩니다. <code>same_as</code> 는 <em>개념 그래프</em>가 센 간선 수이고
+<code>duplicate_entity_facts</code> 는 <em>게이트</em>가 센 비교 수인데, 서로 다른 모듈이 센
+두 숫자가 <strong>32 = 16 + 8×2</strong> 로 정확히 맞습니다.
+</p>
+
+<div class="call ok">
+  <span class="t">✅ 그래서 총 건수를 몰라도 역산할 수 있다</span>
+  처음에 <code>comparisons</code> 값을 몰랐을 때도 <code>pairs 500 ÷ top_k 5 = 100</code> 으로
+  총 건수를 맞힐 수 있었습니다. 계측이 서로 맞물려 있으면 <strong>일부만 봐도 전체를 복원</strong>할
+  수 있다는 것이 이런 설계의 실질적 이득입니다.
+</div>
+
+<div class="qmemo" data-qid="crosscheck-arithmetic" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">검산이 안 맞는 경우가 있다면 어떤 뜻일지 등, 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="myths">7. 흔한 오해 세 가지</h2>
+
+<h3>오해 ① "<code>candidate_pairs.json</code> 에는 후보가 다 있는데 왜 <code>code_missing</code> 인가?"</h3>
+
+<p>
+가장 많이 걸리는 함정입니다. <strong>두 파일이 다른 단계를 기록</strong>합니다.
+</p>
+
+<pre class="plain">candidate_pairs.json  →  ① recall 단계의 순위표
+                          kept:true 는 "개념 판정에 올라갔다"는 뜻이지
+                          "비교 후보가 됐다"가 <b>아니다</b>
+
+code_missing          →  ③ 개념 판정을 통과한 뒤 남은 후보의 수</pre>
+
+<p>
+F5 가 쓰는 후보는 <code>ConceptMatcher.search()</code> 가 만드는데, 이 함수는
+<strong>유사도를 아예 보지 않고</strong> 개념 그래프의 <code>same_as</code> 파트너만 가져옵니다.
+</p>
+
+<pre>def search(self, ref):
+    out = []
+    for member in self.graph.<b>partners</b>(self.reference_doc, ref.fact_id, self.target_doc):
+        ...            <b># same_as 로 이어진 멤버만. 없으면 빈 리스트 → missing</b></pre>
+
+<p>실제 데이터로 보면 이렇습니다.</p>
+
+<pre class="plain">[고객 표준 버전] → spec_en.docx      <b>← recall 은 5칸을 꽉 채웠다</b>
+   0.596  Rated charging voltage      kept:true  cut_by:""   → differs_by
+   0.551  Rated capacity              kept:true  cut_by:""   → differs_by
+   0.550  Nominal capacity            kept:true  cut_by:""   → differs_by
+   0.535  Standard charging current   kept:true  cut_by:""   → differs_by
+   0.534  Nominal voltage             kept:true  cut_by:""   → differs_by
+                                                  <b>→ same_as 0건 → code_missing</b></pre>
+
+<p>
+후보 다섯이 전부 <em>무관한 항목</em>이므로 이 경우 차단은 <strong>정답</strong>입니다.
+워드 문서에 "고객 표준 버전"이 없으니 <code>⚪ 대상에 없음</code> 이 맞습니다.
+</p>
+
+<h3>오해 ② "<code>unsafe_match_rate 1.0</code> 이니 코드 판정을 못 믿겠다"</h3>
+
+<p>
+분모가 2 입니다(§4). 이 지표는 코드 <code>match</code> 가 충분히 쌓였을 때만 의미가 있습니다.
+지금은 <strong>분모가 너무 작아 노이즈</strong>입니다.
+</p>
+
+<h3>오해 ③ "사유 합계가 153 인데 비교는 100건이라 이상하다"</h3>
+
+<p>
+<strong>한 비교에 사유가 여러 개 붙을 수 있습니다.</strong> 후보가 있는 24건에는 보통
+<code>low_confidence</code> + <code>partial_attribute_coverage</code> + <code>code_unknown</code> 이
+동시에 붙습니다. 그래서 합계는 비교 수를 넘습니다.
+</p>
+
+<pre class="plain">76 + 24 + 23 + 22 + 8 = 153  >  100
+
+단, code_missing 76 만은 <b>단독</b>이라 겹치지 않는다
+→ 나머지 77개 사유가 24건에 몰려 있다 (건당 평균 3.2개)</pre>
+
+<div class="qmemo" data-qid="myths-three" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">세 오해 외에 헷갈렸던 지점이 있으면 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="next">8. 그래서 무엇을 해야 하는가</h2>
+
+<div class="call warn">
+  <span class="t">⚠️ 게이트 지표는 지금 <em>포화</em>라 아무것도 알려주지 못한다</span>
+  100건 전부에 사유가 붙어 <code>fast_path_rate 0</code> 입니다. 전부 검토 대상이라는 것은
+  <strong>아무것도 구분하지 못한다</strong>는 뜻이죠. 게이트 손잡이(<code>enforce</code>)를 만질 게
+  아니라 <strong>상류 두 곳</strong>을 봐야 합니다.
+</div>
+
+<h3>진단 1 — 76건의 차단이 정당한가 (LLM 호출 0)</h3>
+
+<pre>python scripts/why_missing.py --all</pre>
+
+<p>
+<code>missing</code> 의 원인은 여섯 가지이고 조치가 각각 다릅니다 — ①recall 실패 ②LLM 미판정
+③근거 게이트 강등 ④F3 추출 누락 ⑤의도된 차단 ⑥F5 LLM 판정. 이 도구가 산출물만으로 갈라줍니다.
+함께 볼 것은 <code>rejected_differs_by</code> 와 <code>rejected_evidence</code> — <strong>과차단의
+흔적</strong>입니다. 번역어 쌍이 막혀 있으면 <code>knowledge/ontology.yaml</code> 에
+<code>aliases:</code> 로 묶어 승격하면 됩니다.
+</p>
+
+<h3>진단 2 — 속성 키 어휘가 갈렸는가 (LLM 호출 0)</h3>
+
+<pre>python - &lt;&lt;'PY'
+import json, io, glob, collections
+for p in glob.glob('artifacts/*/facts.json'):
+    d = json.load(io.open(p, encoding='utf-8'))
+    facts = d['facts'] if isinstance(d, dict) and 'facts' in d else d
+    n = collections.Counter(len(f.get('attributes') or {}) for f in facts)
+    keys = collections.Counter(k for f in facts for k in (f.get('attributes') or {}))
+    print('==', p, '| fact', len(facts))
+    print('   속성 개수 분포:', dict(sorted(n.items())))
+    print('   키 상위:', keys.most_common(10))
+PY</pre>
+
+<p>
+확인할 것은 두 가지 — 기준 fact 의 속성 개수(8 근처면 위 그림대로), 그리고 <strong>양쪽 키 이름이
+겹치는가</strong>. 기준은 F1 이 정한 <code>semantic_role</code> 어휘(<code>lower_limit</code>,
+<code>target_value</code> …)로 정규화되는데, 대상(워드/PPT)은 F1·F2 를 건너뛰고 LLM 이 블록에서
+바로 뽑기 때문에 키 이름이 자유롭게 나옵니다. 여기서 갈리면 커버리지가 <strong>구조적으로</strong>
+0 이 됩니다.
+</p>
+
+<h3>우선순위</h3>
+
+<ol>
+  <li><strong>진단 2 먼저.</strong> 표본이 24건으로 작고 원인이 산출물에 그대로 드러나 있어
+      몇 분이면 확정됩니다. 여기가 문제면 <em>연결에 성공한 24건조차 비교가 안 되고 있다</em>는
+      뜻이라 파급이 큽니다.</li>
+  <li><strong>진단 1.</strong> 76건 중 과차단이 얼마인지에 따라 온톨로지 보강으로 회수 가능한
+      양이 정해집니다.</li>
+  <li><code>duplicate_entity_facts</code> 8건 — 설계만 끝난
+      <a href="2026-08-13-explanation-multi-candidate-1n-comparison.html">1:N 판정</a> 구현.</li>
+  <li><code>llm_calls 25 / 예산 30</code> — 문서가 조금만 커져도 예산이 터집니다.
+      <code>max_llm_calls_per_concept</code> 를 올려두세요.</li>
+</ol>
+
+<div class="qmemo" data-qid="next-actions" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">다음 조치에 대해 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="quiz">9. 퀴즈</h2>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q1. <code>mean_attribute_coverage: 0.1278</code> 의 분모(모집단)는?</div>
+  <button class="opt">전체 비교 100건</button>
+  <button class="opt">기준 문서의 fact 전체</button>
+  <button class="opt">후보가 있었던 24건 — <code>initial_result == missing</code> 인 76건은 제외된다</button>
+  <button class="opt">코드가 <code>match</code> 라고 한 2건</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q2. <code>candidate_pairs.json</code> 을 보면 기준 항목마다 후보가 5건씩 있는데 <code>code_missing</code> 이 76건인 이유는?</div>
+  <button class="opt">recall 점수가 <code>min_score</code> 0.3 에 못 미쳐 잘렸기 때문</button>
+  <button class="opt">그 파일은 recall 단계의 순위표이고, F5 가 쓰는 후보는 개념 그래프의 <code>same_as</code> 파트너뿐이기 때문 — 76건은 후보 5개가 전부 <code>differs_by</code>/<code>unknown</code> 으로 막혔다</button>
+  <button class="opt">F3 추출이 대상 문서에서 fact 를 만들지 못했기 때문</button>
+  <button class="opt">게이트가 <code>enforce</code> 모드로 후보를 걸러냈기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. <code>review_reasons</code> 의 합이 153 으로 <code>comparisons</code> 100 보다 큰 이유는?</div>
+  <button class="opt">사유가 대상 문서 수만큼 중복 기록되기 때문</button>
+  <button class="opt">후보 쌍(500) 단위로 세기 때문</button>
+  <button class="opt">계측 버그 — 같은 사유가 두 번 append 된다</button>
+  <button class="opt">한 비교에 사유가 여러 개 붙을 수 있기 때문. 단 <code>code_missing</code> 은 단독 반환이라 겹치지 않으므로, 나머지 77개가 24건에 몰려 있다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q4. <code>pairs_by_code: 0</code> 이 <code>low_confidence: 24/24</code> 를 설명하는 이유는?</div>
+  <button class="opt">개념 연결을 코드·온톨로지가 확정한 게 하나도 없어 전부 LLM 산이고, 개념 경로에서 <code>needs_review</code> 는 "연결을 LLM 이 만들었는가"를 뜻하기 때문</button>
+  <button class="opt">코드가 판정을 못 하면 자동으로 신뢰도가 낮게 기록되기 때문</button>
+  <button class="opt">임베딩 점수가 <code>review_score</code> 경계 아래라서</button>
+  <button class="opt">F4a 검증기가 모든 fact 를 <code>low_confidence</code> 로 태깅했기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q5. <code>unsafe_match_rate: 1.0</code> 을 보고 내려야 할 결론은?</div>
+  <button class="opt">코드 판정이 전부 위험하므로 <code>fast_path.enforce</code> 를 즉시 켜야 한다</button>
+  <button class="opt">게이트가 오작동 중이므로 <code>fast_path.enabled</code> 를 꺼야 한다</button>
+  <button class="opt">분모가 코드 <code>match</code> 2건뿐이라 이번 실행에서는 예측력이 없다 — 비율보다 분모 크기를 먼저 봐야 한다</button>
+  <button class="opt">코드 <code>match</code> 판정 로직에 버그가 있다는 신호다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup-stats" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있다면 어느 부분이 흐릿한지 적어두세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<div class="call def">
+  <span class="t">📎 후속편 — <code>missing 76건은 정상인가</code></span>
+  이 페이지를 읽고 나온 세 질문(① <code>missing</code> 은 후보가 없는 항목인가 ② 후보가 있으면
+  판정은 누가 어떻게 내리나 ③ 76건은 결함인가)에 실측으로 답한 글이 있습니다 →
+  <a href="2026-08-13-explanation-run-stats-anatomy-followup.html"><strong>missing 76건은 정상인가 — 후보·판정·그리고 그 숫자의 정체</strong></a>
+</div>
+
+<p class="footnote">
+  관련 문서 —
+  후속편: <a href="2026-08-13-explanation-run-stats-anatomy-followup.html">missing 76건은 정상인가</a> ·
+  게이트 설계: <a href="2026-08-10-explanation-fact-acceptance-gate.html">2026-08-10-explanation-fact-acceptance-gate.html</a> ·
+  1:N 판정 문제: <a href="2026-08-13-explanation-multi-candidate-1n-comparison.html">2026-08-13-explanation-multi-candidate-1n-comparison.html</a> ·
+  교차언어 recall: <a href="2026-08-06-explanation-cross-language-recall-bottleneck.html">2026-08-06-explanation-cross-language-recall-bottleneck.html</a> ·
+  개념 병합과 거부권: <a href="2026-08-06-explanation-concept-merge-and-veto.html">2026-08-06-explanation-concept-merge-and-veto.html</a> ·
+  코드: <code>fact/review_router.py</code> · <code>fact/concept_builder.py</code> · <code>fact/fact_matcher.py</code>
+</p>
+
+</div><!-- /wrap -->
+
+<!-- uh-nav:bottom:start -->
+<div class="uh-nav uh-bottom"><div class="uh-row"><a href="index.html">← 전체 목차로</a></div><div class="uh-row uh-pn"><a href="2026-08-17-explanation-why-missing-explainability.html">◀ 이전 · 왜 AI는 ‘틀렸는지’ 말할 수 있어야 하는가</a><a href="2026-08-13-explanation-run-stats-anatomy-followup.html">다음 · missing 76건은 정상인가 ▶</a></div></div>
+<!-- uh-nav:bottom:end -->
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+/* --- 100칸 격자 (재실행해도 중복 생성되지 않게 가드) --- */
+(function () {
+  var el = document.getElementById('grid-code');
+  if (!el || el.children.length) return;
+  var plan = [[76, '#9aa4b0'], [22, '#b26a00'], [2, '#c62828']];
+  var titles = ['후보 없음 → missing', '코드 포기 → code_unknown', '코드가 의견을 냄'];
+  plan.forEach(function (p, i) {
+    for (var k = 0; k < p[0]; k++) {
+      var s = document.createElement('span');
+      s.style.background = p[1];
+      s.title = titles[i];
+      el.appendChild(s);
+    }
+  });
+})();
+
+/* --- 질문 메모: 자동 저장 + 파일로 굽기 --- */
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-13-explanation-run-stats-anatomy.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-13-explanation-run-stats-anatomy.html';
+  });
+})();
+
+/* --- 퀴즈 --- */
+(function () {
+  var EXPLAIN = [
+    '<code>gate_stats()</code> 는 <code>measured = [c for c in comparisons if c.initial_result != MISSING]</code> 로 분모를 만듭니다. 후보가 없는 비교의 커버리지 0.0 은 "커버리지가 낮다"가 아니라 "잴 대상이 없다"이므로, 섞으면 missing 이 많은 문서에서 평균이 함께 내려가 게이트가 과하게 조인 것처럼 보입니다.',
+    '<code>ConceptMatcher.search()</code> 는 유사도를 보지 않고 <code>graph.partners()</code> 만 조회합니다. recall 의 <code>kept:true</code> 는 "개념 판정에 올라갔다"는 뜻일 뿐입니다. <code>min_score 0.3</code> 은 임계가 아니라 계산량 제한이라, 교차언어에서 0.5~0.6 이 나오는 무관한 쌍도 전부 통과합니다.',
+    '게이트는 사유를 리스트로 모읍니다(<code>reasons.append(...)</code>). 다만 후보가 없을 때만 <code>return [CODE_MISSING]</code> 로 즉시 끝내는데, 그러지 않으면 모든 missing 에 커버리지 0 과 근거 없음이 따라붙어 사유 통계가 진짜 원인을 덮기 때문입니다.',
+    '<code>fact_matcher.py:246</code> — <code>needs_review = not (edge.promoted or edge.decided_by in (BY_CODE, BY_ONTOLOGY))</code>. 한↔영 문서쌍은 이름 완전일치가 원리적으로 불가능해 <code>pairs_by_code</code> 가 0 이 되고, 온톨로지 승격도 없으면 모든 연결이 LLM 산이 됩니다.',
+    '이 지표의 분모는 <code>initial_result == MATCH</code> 인 비교입니다. 이번 실행에서는 코드가 의견을 낸 것이 2건뿐(나머지 22건은 <code>code_unknown</code>, 76건은 <code>missing</code>)이라 2/2 = 1.0 입니다. 원래 용도인 "enforce 를 켜면 LLM 호출이 얼마나 늘까"의 예측력이 없습니다.'
+  ];
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = quiz.querySelectorAll('.opt');
+    var fb = quiz.querySelector('.fb');
+    opts.forEach(function (opt, i) {
+      opt.addEventListener('click', function () {
+        if (quiz.dataset.done) return;
+        quiz.dataset.done = '1';
+        opts.forEach(function (o, j) {
+          o.disabled = true;
+          if (j === answer) o.classList.add('correct');
+        });
+        var right = i === answer;
+        if (!right) opt.classList.add('wrong');
+        fb.className = 'fb show ' + (right ? 'ok' : 'ng');
+        fb.innerHTML = '<strong>' + (right ? '정답입니다. ' : '아쉽네요. ') + '</strong>' + EXPLAIN[qi];
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -17,7 +17,9 @@ from contentcompare.fact.fact_comparator import (
     MISMATCH,
     MISSING,
     UNKNOWN,
+    ComparisonProbe,
     FactComparator,
+    attribute_coverage,
     canonical_unit,
 )
 from contentcompare.fact.fact_matcher import EMBED, EXACT, MatchCandidate
@@ -288,3 +290,170 @@ def test_canonical_unit_known(raw, expected):
 def test_canonical_unit_unknown_is_none():
     """사전에 없으면 '모름' — 추측하지 않고 LLM 에 넘기기 위한 신호."""
     assert canonical_unit("돈") is None
+
+
+# --------------------------------------------------------------------------- #
+# attribute_coverage — _decide_by_code 가 공통 속성만 보는 구멍을 수치화한다
+# --------------------------------------------------------------------------- #
+def test_coverage_is_partial_when_target_has_fewer_attributes():
+    """기준 3속성 · 대상 1속성 → 그 하나가 같으면 match 지만 커버리지는 1/3."""
+    ref = _fact("r", "전지", nominal=("3.85", "V"), upper=("4.55", "V"), lower=("3.0", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    assert attribute_coverage(ref, tgt) == pytest.approx(1 / 3)
+
+
+def test_coverage_is_full_when_all_reference_attributes_are_covered():
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"), extra=("1", ""))
+    assert attribute_coverage(ref, tgt) == 1.0
+
+
+def test_coverage_without_reference_attributes_is_full():
+    """비교할 속성이 없으면 커버리지 논의 자체가 무의미하다 — 게이트가 헛돌면 안 된다."""
+    ref = _fact("r", "전지")
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    assert attribute_coverage(ref, tgt) == 1.0
+
+
+def test_coverage_without_target_is_zero():
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    assert attribute_coverage(ref, None) == 0.0
+
+
+def test_single_attribute_pair_counts_as_full_regardless_of_key_name():
+    """양쪽 속성이 하나씩이면 키 이름이 달라도 같은 항목의 단일 값이다.
+
+    실측 근거는 _compare_single_attributes 와 같다 — 기준이 공칭용량을 '하한치'
+    열에 적어 lower_limit 이 됐고 대상은 target_value 였다. **두 함수의 조건이
+    같아야 한다** — 어긋나면 같은 쌍을 한쪽은 match, 다른 쪽은 커버리지 0 으로
+    채점해 그 match 가 전부 unsafe 로 거부된다(2026-08-10 실측).
+    """
+    ref = _fact("r", "용량", lower_limit=("1150", "mAh"))
+    tgt = _fact("t", "용량", target_value=("1150", "mAh"))
+    assert attribute_coverage(ref, tgt) == 1.0
+
+
+def test_single_attribute_exception_does_not_depend_on_link_provenance():
+    """LLM 이 만든 연결이어도 커버리지는 깎지 않는다.
+
+    연결이 불안하다는 신호는 low_confidence 사유가 **이미 따로** 싣는다. 커버리지에
+    이중 반영하면 "속성이 안 적혀 있다"와 "연결을 LLM 이 만들었다"가 한 숫자에
+    섞여, 그 숫자로 내리려던 판단이 불가능해진다.
+    """
+    ref = _fact("r", "용량", lower_limit=("1150", "mAh"))
+    tgt = _fact("t", "용량", target_value=("1150", "mAh"))
+    cmp_, _ = _comparator()
+    probe = cmp_.compare_code(ref, _cand(tgt, review=True), _target(tgt))
+    assert probe.attribute_coverage == 1.0      # 커버리지는 온전
+    assert probe.uncertain is True              # 불안함은 여기로 표현된다
+
+
+# --------------------------------------------------------------------------- #
+# compare_code / finalize 분리 — probe 단계는 LLM 을 절대 부르지 않는다
+# --------------------------------------------------------------------------- #
+def test_compare_code_never_calls_llm_even_when_uncertain():
+    """분리의 핵심 계약. 이게 깨지면 게이트가 채점하기 전에 비용이 나간다."""
+    cmp_, chat = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "무슨단위"))   # 단위 미상 → 코드 포기
+    probe = cmp_.compare_code(ref, _cand(tgt, review=True), _target(tgt))
+    assert chat.calls == 0
+    assert probe.code_result is None          # 코드가 판단을 포기한 상태
+    assert probe.uncertain is True
+
+
+def test_compare_code_without_candidates_carries_missing_reason():
+    cmp_, chat = _comparator()
+    probe = cmp_.compare_code(
+        _fact("r", "전지"), [], _target(), missing_reason="개념 연결이 없습니다."
+    )
+    assert chat.calls == 0
+    assert probe.code_result == MISSING
+    assert probe.code_reason == "개념 연결이 없습니다."
+    assert probe.best is None
+
+
+def test_compare_code_records_coverage_and_candidates():
+    cmp_, _ = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"), upper=("4.55", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    probe = cmp_.compare_code(ref, _cand(tgt), _target(tgt))
+    assert probe.code_result == MATCH          # 공통 속성만 보면 일치
+    assert probe.attribute_coverage == pytest.approx(0.5)
+    assert probe.best is not None and probe.best.fact is tgt
+
+
+def test_finalize_reproduces_compare():
+    """compare() 는 compare_code() + finalize() 의 래퍼여야 한다."""
+    cmp_, _ = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    direct = cmp_.compare(ref, _cand(tgt), _target(tgt))
+    staged = cmp_.finalize(cmp_.compare_code(ref, _cand(tgt), _target(tgt)))
+    assert (direct.result, direct.decided_by, direct.reason) == (
+        staged.result, staged.decided_by, staged.reason
+    )
+
+
+def test_force_llm_demotes_a_code_match():
+    """게이트가 거부한 match 를 LLM 으로 강등하는 경로(enforce 모드)."""
+    cmp_, chat = _comparator({"result": "mismatch", "reason": "조건이 다릅니다"})
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    probe = cmp_.compare_code(ref, _cand(tgt), _target(tgt))
+    assert probe.code_result == MATCH
+    out = cmp_.finalize(probe, force_llm=True)
+    assert chat.calls == 1
+    assert out.result == MISMATCH and out.decided_by == BY_LLM
+
+
+def test_force_llm_falls_back_to_code_when_llm_is_off():
+    """LLM 을 못 쓰면 강등해도 코드 판정을 버리지 않는다(§6.2 보류 원칙)."""
+    cmp_ = FactComparator(runner=None, use_llm=False)
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    probe = cmp_.compare_code(ref, _cand(tgt), _target(tgt))
+    out = cmp_.finalize(probe, force_llm=True)
+    assert out.result == MATCH and out.decided_by == BY_CODE
+
+
+# --------------------------------------------------------------------------- #
+# 판정 이력 — 2차 검사가 1차를 조용히 덮지 않게 하는 기반
+# --------------------------------------------------------------------------- #
+def test_to_dict_adds_history_fields_and_keeps_existing_keys():
+    cmp_, _ = _comparator()
+    ref = _fact("r", "전지", nominal=("3.85", "V"))
+    tgt = _fact("t", "전지", nominal=("3.85", "V"))
+    out = cmp_.compare(ref, _cand(tgt), _target(tgt))
+    out.initial_result = MATCH
+    out.review_triggers = ["duplicate_entity_facts"]
+    out.attribute_coverage = 0.5
+
+    d = out.to_dict()
+    # 새 키
+    assert d["initial_result"] == MATCH
+    assert d["review_triggers"] == ["duplicate_entity_facts"]
+    assert d["attribute_coverage"] == 0.5
+    assert d["safe_to_finalize"] is False
+    assert d["result_changed"] is False
+    # 기존 소비자(missing_trace/artifact_reader/why_missing)가 쓰는 키는 그대로
+    for key in ("entity_name", "target_doc", "result", "decided_by", "reason",
+                "mismatch_attributes", "match_score", "match_method",
+                "reference", "target"):
+        assert key in d
+
+
+def test_result_changed_detects_llm_overriding_code():
+    cmp_, _ = _comparator()
+    out = cmp_.compare(_fact("r", "전지"), [], _target())
+    out.initial_result = MATCH          # 코드는 match 라 했는데
+    out.result = MISMATCH               # 최종은 mismatch
+    assert out.result_changed is True
+
+
+def test_result_changed_is_false_without_initial_result():
+    """initial_result 를 안 채운 호출부(롤백 경로)에서 오탐이 나면 안 된다."""
+    cmp_, _ = _comparator()
+    out = cmp_.compare(_fact("r", "전지"), [], _target())
+    assert out.initial_result == ""
+    assert out.result_changed is False

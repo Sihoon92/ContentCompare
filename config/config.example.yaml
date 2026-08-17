@@ -135,7 +135,7 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
   artifacts_dir: "artifacts"       # 중간 산출물 저장 루트(artifacts/<문서>/<단계>.json)
   save_artifacts: true             # 중간 산출물 항상 저장
   cache: true                      # 단계별 산출물 캐싱(같은 입력이면 재호출 0)
-  max_llm_calls_per_doc: 50        # 문서당 LLM 호출 예산
+  max_llm_calls_per_doc: 500       # 문서당 LLM 호출 예산 (폭주 방지선 — 비용 목표가 아니다)
   record_batch_rows: 30            # F2: 한 LLM 호출당 정규화할 데이터 행 수
   fact_batch_blocks: 20            # F3: 한 LLM 호출당 처리할 Word/PPT 블록/도형 수
   max_repair_iters: 2              # Repair Loop 최대 반복(F4b, 미구현)
@@ -145,13 +145,32 @@ fact:                      # 신규 fact 파이프라인(--engine fact 일 때�
                                    # 실측 근거: 정답 0.697~0.808 vs 오매칭 0.449~0.700
   match_review_score: 0.75         # 이 미만이면 코드 단독 판정을 믿지 않고 LLM 에 위임
   compare_use_llm: true            # false 면 코드 판정만(애매한 건 전부 판단보류)
-  max_llm_calls_per_compare: 100   # 비교 단계 LLM 호출 예산(문서 처리 예산과 별도)
+  max_llm_calls_per_compare: 1000  # 비교 단계 LLM 호출 예산(문서 처리 예산과 별도)
+                                   # 소요 ≈ 애매한 항목 수 × 대상 문서 수
+  # --- Fast Path 게이트(F5) ---
+  fast_path:
+    enabled: true                  # 코드 match 의 신뢰도 채점 + 계측
+    enforce: false                 # true 면 게이트가 거부한 code match 를 LLM 에 넘긴다
+                                   # 기본 false(shadow) — 켜면 LLM 호출이 늘어난다.
+                                   # 얼마나 늘지는 enforce_new_llm_count 를 볼 것.
+                                   # unsafe_match_rate 를 전환 비용으로 읽지 말 것 —
+                                   # 거부된 match 의 상당수는 finalize 가 이미 LLM 으로
+                                   # 보내고 있어(저신뢰·후보 2건 이상) 늘지 않는다.
+                                   # 실측: unsafe 0.88 인데 실제 순증가는 10% 였다.
   # --- 개념 그래프(F7) ---
   use_concept_graph: true          # false 면 예전 유사도 매칭으로 롤백
-  concept_recall_top_k: 5          # 기준 fact 당 개념 판정에 올릴 후보 수
+  concept_recall_top_k: 10         # 기준 fact 당 개념 판정에 올릴 후보 수
+                                   # 5 는 "짝 후보가 5개 이하"라는 가정이었는데, 한 항목이
+                                   # 조건별로 쪼개진 규격표(온도 4~5구간)에서는 형제 fact
+                                   # 만으로 자리가 찬다. 실측: 정답이 6위로 밀려 탈락
+                                   # (cut_by=top_k) → 비교 자체가 없어 '대상에 없음'.
+                                   # 판정이 아니라 recall 이라 넉넉해도 안전하다.
   concept_recall_min: 0.3          # 후보 생성 최소 유사도(판정 아님 — 계산량 제한)
   concept_batch_pairs: 20          # 한 LLM 호출당 판정할 쌍 수
-  max_llm_calls_per_concept: 30    # 개념 단계 LLM 호출 예산
+  max_llm_calls_per_concept: 300   # 개념 단계 LLM 호출 예산
+                                   # 소요 ≈ 기준 fact 수 × recall_top_k ÷ batch_pairs
+                                   # 기본값(10·20)이면 기준 fact 600개까지 감당한다
+                                   # 여기서 고갈되면 전 항목이 '대상에 없음'이 된다
   ontology_path: knowledge/ontology.yaml   # 사람이 승격한 개념 관계
 
   # --- 진단 계측 (LLM 을 부르지 않아 비용 0) ---

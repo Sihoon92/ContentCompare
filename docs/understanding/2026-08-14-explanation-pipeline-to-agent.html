@@ -1,0 +1,1365 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이 파이프라인을 AI 에이전트로 만들 수 있는가 — 루프 · 그래프 · 그리고 권한 경계</title>
+<style>
+  :root{
+    --code:#1565c0; --code-bg:#e8f1fb;
+    --llm:#e65100;  --llm-bg:#fdf0e3;
+    --emb:#00796b;  --emb-bg:#e2f2f0;
+    --human:#6a1b9a;--human-bg:#f4e9f7;
+    --ink:#1a1a1a; --muted:#5b6570; --line:#dfe4ea; --bg:#ffffff; --soft:#f7f9fb;
+    --ok:#2e7d32; --bad:#c62828; --warn:#b26a00;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,"D2Coding",monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+    line-height:1.75; font-size:16.5px;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:0 20px 140px}
+  header.top{padding:56px 0 28px;border-bottom:1px solid var(--line);margin-bottom:32px}
+  header.top h1{font-size:1.95rem;line-height:1.34;margin:0 0 12px;letter-spacing:-.02em}
+  header.top .sub{color:var(--muted);font-size:1.02rem;margin:0}
+  h2{font-size:1.5rem;margin:56px 0 8px;padding-top:14px;border-top:2px solid var(--ink);letter-spacing:-.01em}
+  h3{font-size:1.15rem;margin:34px 0 8px;color:#2a3540}
+  h4{font-size:1rem;margin:22px 0 6px;color:#37424e}
+  p{margin:14px 0}
+  a{color:var(--code)}
+  code{font-family:var(--mono);font-size:.9em;background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  pre{
+    font-family:var(--mono); font-size:.86rem; line-height:1.6;
+    background:#0f1720; color:#e6edf3; border-radius:8px; padding:16px 18px;
+    overflow-x:auto; white-space:pre; margin:16px 0;
+  }
+  pre.light{background:var(--soft);color:var(--ink);border:1px solid var(--line);white-space:pre-wrap}
+  blockquote{border-left:3px solid var(--muted);margin:16px 0;padding:6px 18px;color:#3d4954;background:var(--soft);border-radius:0 6px 6px 0}
+  table{border-collapse:collapse;width:100%;margin:18px 0;font-size:.93rem}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600}
+  .scroll{overflow-x:auto}
+  ul,ol{padding-left:24px}
+  li{margin:6px 0}
+
+  .actor{display:inline-block;font-size:.8rem;font-weight:600;border-radius:999px;padding:2px 10px;white-space:nowrap;border:1px solid}
+  .a-code{color:var(--code);background:var(--code-bg);border-color:var(--code)}
+  .a-llm{color:var(--llm);background:var(--llm-bg);border-color:var(--llm)}
+  .a-emb{color:var(--emb);background:var(--emb-bg);border-color:var(--emb)}
+  .a-human{color:var(--human);background:var(--human-bg);border-color:var(--human)}
+
+  .callout{border-left:4px solid var(--code);background:var(--code-bg);padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .callout.warn{border-color:var(--warn);background:#fff6e5}
+  .callout.bad{border-color:var(--bad);background:#fdecea}
+  .callout.def{border-color:var(--human);background:var(--human-bg)}
+  .callout.good{border-color:var(--ok);background:#e8f5e9}
+  .callout .t{font-weight:700;display:block;margin-bottom:5px}
+
+  .toc{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin:26px 0}
+  .toc ol{margin:6px 0 0;padding-left:22px}
+  .toc a{text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .skip{font-size:.9rem;color:var(--muted);background:var(--soft);border:1px dashed var(--line);border-radius:8px;padding:9px 14px;margin:14px 0}
+
+  figure{margin:26px 0}
+  figure svg{max-width:100%;height:auto;display:block;margin:0 auto}
+  figcaption{font-size:.87rem;color:var(--muted);text-align:center;margin-top:10px}
+  .figbox{border:1px solid var(--line);border-radius:10px;padding:16px;background:#fff;overflow-x:auto}
+
+  .v{display:inline-block;font-size:.85rem;border-radius:6px;padding:1px 8px;border:1px solid;white-space:nowrap}
+  .v-match{color:var(--ok);border-color:#a5d6a7;background:#e8f5e9}
+  .v-mis{color:var(--bad);border-color:#ef9a9a;background:#ffebee}
+  .v-none{color:#455a64;border-color:#cfd8dc;background:#eceff1}
+  .v-unk{color:var(--warn);border-color:#ffcc80;background:#fff8e1}
+
+  .qmemo{border:1px dashed #b9c2cc;background:#fafbfc;border-radius:10px;padding:12px 15px;margin:24px 0}
+  .qmemo[data-status="answered"]{border:1px solid var(--human);border-left:5px solid var(--human);background:var(--human-bg)}
+  .qmemo-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:7px}
+  .qmemo-label{font-size:.8rem;font-weight:700;color:var(--human);background:var(--human-bg);border-radius:999px;padding:2px 10px}
+  .qmemo-hint{font-size:.8rem;color:var(--muted)}
+  .qmemo-question{min-height:2.1em;border:1px solid var(--line);border-radius:7px;background:#fff;padding:8px 11px;font-size:.94rem;outline:none}
+  .qmemo-question:focus{border-color:var(--human);box-shadow:0 0 0 3px rgba(106,27,154,.09)}
+  .qmemo-question:empty::before{content:attr(data-placeholder);color:#9aa5b1}
+  .qmemo-answer{margin-top:10px;padding:10px 13px;background:#fff;border:1px solid var(--human);border-radius:7px;font-size:.94rem}
+  .qmemo-answer::before{content:"답변";display:block;font-size:.78rem;font-weight:700;color:var(--human);margin-bottom:4px}
+
+  #qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.97);border-top:1px solid var(--line);
+    padding:10px 16px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:50;
+    box-shadow:0 -2px 10px rgba(0,0,0,.05)}
+  #qmemo-save-btn{background:var(--human);color:#fff;border:0;border-radius:8px;padding:9px 18px;font-size:.93rem;font-weight:600;cursor:pointer}
+  #qmemo-save-btn:hover{background:#57157f}
+  #qmemo-saymsg{font-size:.8rem;color:var(--muted);word-break:break-all}
+
+  .quiz{border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:22px 0;background:#fff}
+  .quiz .q{font-weight:600;margin-bottom:10px}
+  .opt{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--soft);border-radius:8px;
+    padding:9px 13px;margin:7px 0;cursor:pointer;font-size:.94rem;font-family:inherit;line-height:1.55}
+  .opt:hover{border-color:var(--code)}
+  .opt.correct{background:#e8f5e9;border-color:#66bb6a}
+  .opt.wrong{background:#ffebee;border-color:#ef5350}
+  .opt.locked{cursor:default}
+  .fb{margin-top:10px;font-size:.92rem;padding:10px 13px;border-radius:8px;display:none}
+  .fb.show{display:block}
+  .fb.good{background:#e8f5e9;border-left:4px solid #66bb6a}
+  .fb.bad{background:#fff6e5;border-left:4px solid var(--warn)}
+
+  .lede{font-size:1.06rem;color:#33404d}
+  .small{font-size:.9rem;color:var(--muted)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  .card{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:#fff}
+  .card h4{margin-top:0}
+  @media (max-width:700px){ .cols{grid-template-columns:1fr} }
+  @media (max-width:640px){
+    body{font-size:16px}
+    header.top h1{font-size:1.52rem}
+    h2{font-size:1.28rem}
+  }
+</style>
+</head>
+<body>
+<!-- uh-nav:top:start -->
+<style>
+.uh-nav{max-width:920px;margin:0 auto;padding:10px 20px;font-size:.86rem;line-height:1.7;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+  color:#5b6570;border-bottom:1px solid #e3e8ee}
+.uh-nav a{color:#1565c0;text-decoration:none}
+.uh-nav a:hover{text-decoration:underline}
+.uh-sep{opacity:.45;margin:0 6px}
+.uh-cur{color:#1a1a1a;font-weight:600}
+.uh-bottom{border-bottom:0;border-top:1px solid #e3e8ee;margin-top:44px;padding-top:16px;padding-bottom:26px}
+.uh-row{margin:5px 0}
+.uh-pn{display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+.uh-pn a{display:inline-block;max-width:46%}
+.uh-banner{max-width:920px;margin:14px auto 0;padding:11px 16px;border-radius:8px;font-size:.9rem;
+  line-height:1.65;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif}
+.uh-banner a{color:inherit;font-weight:600}
+.uh-legacy{background:#fff6e5;border-left:4px solid #b26a00;color:#4a3520}
+.uh-implemented{background:#e8f5e9;border-left:4px solid #2e7d32;color:#1b3a20}
+.uh-revised{background:#e8f1fb;border-left:4px solid #1565c0;color:#12324f}
+@media (prefers-color-scheme:dark){
+  .uh-nav{color:#9aa8b6;border-color:#2a3441}
+  .uh-nav a{color:#6ea8fe}
+  .uh-cur{color:#e6edf3}
+  .uh-legacy{background:#3a2f18;color:#f0e2c8}
+  .uh-implemented{background:#1c3423;color:#d6ecd9}
+  .uh-revised{background:#17293d;color:#d6e6f7}
+}
+@media (max-width:640px){ .uh-pn a{max-width:100%} }
+</style>
+<div class="uh-nav uh-top"><a href="index.html">📚 understanding</a><span class="uh-sep">›</span><a href="index.html#strategy">7. 전략</a><span class="uh-sep">›</span><span class="uh-cur">이 파이프라인을 AI 에이전트로 만들 수 있는가</span></div>
+<!-- uh-nav:top:end -->
+<div class="wrap">
+
+<header class="top">
+  <h1>이 파이프라인을 AI 에이전트로 만들 수 있는가</h1>
+  <p class="sub">루프 · 그래프 엔지니어링 · 그리고 정말 중요한 것 — 권한 경계</p>
+</header>
+
+<p class="lede">
+짧은 답: <b>만들 수 있고, 이미 절반은 만들어져 있다.</b> 그런데 지금 없는 절반은 툴도 프롬프트도 아니다.
+</p>
+
+<p>
+이 글은 ContentCompare 의 fact 엔진을 소재로, "고정 파이프라인을 에이전트로 바꾼다"는 것이
+구체적으로 무슨 뜻인지 따져 본다. 일반론이 아니라 <b>이 저장소의 실제 코드와 실측 숫자</b>에
+붙여서 이야기한다 — 그래야 "그래서 우리는 뭘 하면 되나"가 나온다.
+</p>
+
+<div class="toc">
+  <b>목차</b>
+  <ol>
+    <li><a href="#bg1">배경 ① — "에이전트"라는 말이 실제로 가리키는 것 <span class="small">(익숙하면 건너뛰세요)</span></a></li>
+    <li><a href="#bg2">배경 ② — 지금 파이프라인은 어떻게 생겼나</a></li>
+    <li><a href="#intuition">직관 — 루프를 넣는다는 것의 본질</a></li>
+    <li><a href="#where">루프를 넣을 자리는 이미 정해져 있다</a></li>
+    <li><a href="#graph">"그래프 엔지니어링"의 두 가지 의미</a></li>
+    <li><a href="#tools">툴을 많이 쥐어주면 되나</a></li>
+    <li><a href="#verify">검증을 정의하면 되나</a></li>
+    <li><a href="#roadmap">구현 로드맵 — 0·1·2·3 단계</a></li>
+    <li><a href="#skills">당신에게 중요한 역량</a></li>
+    <li><a href="#risk">가장 큰 위험 하나</a></li>
+    <li><a href="#quiz">이해도 점검 퀴즈</a></li>
+  </ol>
+  <p class="small" style="margin:12px 0 0">
+    📝 읽다가 궁금한 게 생기면 곳곳의 <b>질문 메모</b> 칸에 바로 적으세요.
+    타이핑하는 대로 이 브라우저에 자동 저장되고, 맨 아래 <b>질문 저장</b> 버튼을 누르면
+    질문이 박힌 사본이 <b>같은 파일명으로</b> 내려받아집니다. 그 파일로 원본을 덮어쓴 뒤
+    Claude 에게 "질문에 답해줘"라고 하면 됩니다.
+  </p>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="bg1">1. 배경 ① — "에이전트"라는 말이 실제로 가리키는 것</h2>
+
+<div class="skip">이미 에이전트 아키텍처에 익숙하시다면 <a href="#bg2">2장</a>으로 건너뛰세요.</div>
+
+<p>
+"AI 에이전트"는 마케팅 용어가 되어 버려서 뜻이 흐려졌다. 기술적으로는 아주 좁은 것을 가리킨다.
+<b>LLM 을 호출한다고 에이전트가 아니다.</b> 에이전트가 되려면 네 가지가 있어야 한다.
+</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>구성요소</th><th>뜻</th><th>없으면</th></tr></thead>
+<tbody>
+<tr><td><b>루프</b></td><td>같은 단계로 되돌아가는 화살표</td><td>그냥 파이프라인(DAG)이다</td></tr>
+<tr><td><b>상태</b></td><td>반복 사이에 누적되는 것 — 지금까지 뭘 했고 뭘 알아냈나</td><td>매 반복이 처음부터 다시 한다</td></tr>
+<tr><td><b>종료 조건</b></td><td>언제 멈출지의 신호</td><td>무한루프거나, 그냥 N회 반복(=루프가 아님)</td></tr>
+<tr><td><b>행동</b></td><td>바깥 세상을 읽거나 바꾸는 수단(툴)</td><td>생각만 하고 아무것도 못 한다</td></tr>
+</tbody>
+</table>
+</div>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 840 250" role="img" aria-label="DAG 와 루프의 차이">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6570"/></marker>
+    <marker id="arRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c62828"/></marker>
+    <style>
+      .n{font:600 12px sans-serif;fill:#1a1a1a}
+      .cap{font:700 12.5px sans-serif;fill:#37424e}
+      .sm{font:11px sans-serif;fill:#5b6570}
+      .red{font:600 11.5px sans-serif;fill:#c62828}
+    </style>
+  </defs>
+
+  <text x="14" y="22" class="cap">지금 — 고정 DAG (되돌아가는 화살표가 없다)</text>
+  <rect x="14" y="34" width="112" height="38" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="34" y="58" class="n">읽기</text>
+  <rect x="158" y="34" width="112" height="38" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="176" y="58" class="n">fact 추출</text>
+  <rect x="302" y="34" width="112" height="38" rx="7" fill="#fdf0e3" stroke="#e65100"/>
+  <text x="316" y="58" class="n">개념 판정</text>
+  <rect x="446" y="34" width="112" height="38" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="466" y="58" class="n">값 대조</text>
+  <rect x="590" y="34" width="112" height="38" rx="7" fill="#f7f9fb" stroke="#455a64"/>
+  <text x="614" y="58" class="n">리포트</text>
+  <path d="M126 53 L152 53" stroke="#5b6570" marker-end="url(#ar)"/>
+  <path d="M270 53 L296 53" stroke="#5b6570" marker-end="url(#ar)"/>
+  <path d="M414 53 L440 53" stroke="#5b6570" marker-end="url(#ar)"/>
+  <path d="M558 53 L584 53" stroke="#5b6570" marker-end="url(#ar)"/>
+  <text x="14" y="94" class="sm">한 번 지나가면 끝. 뒷단계에서 뭘 알아내도 앞단계는 다시 하지 않는다.</text>
+
+  <line x1="14" y1="112" x2="826" y2="112" stroke="#dfe4ea"/>
+
+  <text x="14" y="140" class="cap">에이전트 — 되돌아가는 화살표 + 종료 조건</text>
+  <rect x="14" y="152" width="112" height="38" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="34" y="176" class="n">읽기</text>
+  <rect x="158" y="152" width="112" height="38" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="176" y="176" class="n">fact 추출</text>
+  <rect x="302" y="152" width="112" height="38" rx="7" fill="#fdf0e3" stroke="#e65100"/>
+  <text x="316" y="176" class="n">개념 판정</text>
+  <rect x="446" y="152" width="112" height="38" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="466" y="176" class="n">값 대조</text>
+  <rect x="590" y="152" width="112" height="38" rx="7" fill="#f7f9fb" stroke="#455a64"/>
+  <text x="614" y="176" class="n">리포트</text>
+  <path d="M126 171 L152 171" stroke="#5b6570" marker-end="url(#ar)"/>
+  <path d="M270 171 L296 171" stroke="#5b6570" marker-end="url(#ar)"/>
+  <path d="M414 171 L440 171" stroke="#5b6570" marker-end="url(#ar)"/>
+  <path d="M558 171 L584 171" stroke="#5b6570" marker-end="url(#ar)"/>
+
+  <path d="M358 190 C358 216 214 216 214 194" stroke="#c62828" fill="none" stroke-width="1.8"
+        stroke-dasharray="5 4" marker-end="url(#arRed)"/>
+  <text x="228" y="232" class="red">"이 블록에서 fact 가 안 나왔다 → 다시 훑어"</text>
+
+  <path d="M358 152 C358 128 358 128 358 128" stroke="none"/>
+  <path d="M414 140 C452 122 330 118 348 148" stroke="#c62828" fill="none" stroke-width="1.8"
+        stroke-dasharray="5 4" marker-end="url(#arRed)"/>
+  <text x="392" y="128" class="red">"인용이 원문에 없다 → 다시 인용해"</text>
+</svg>
+</div>
+<figcaption>그림 1. 이 글 전체에서 재사용할 다이어그램 형태. <b>빨간 점선</b>이 새로 추가되는 되돌아가는 화살표다. 화살표마다 <b>트리거</b>(무엇을 보고 되돌아가나)와 <b>종료 조건</b>이 붙어야 한다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="t">용어 — credit assignment</span>
+  "결과가 나빴는데, <b>어느 단계를 고쳐야 하나</b>"를 정하는 문제.
+  강화학습에서 온 말이지만 에이전트 설계의 핵심이다.
+  검증(무엇이 잘못됐나)만 있고 이것이 없으면 루프는 그냥 <b>재시도</b>가 된다.
+  이 글의 7장이 통째로 이 얘기다.
+</div>
+
+<div class="qmemo" data-qid="bg1-agent-definition" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="bg2">2. 배경 ② — 지금 파이프라인은 어떻게 생겼나</h2>
+
+<p>
+지금 구조는 <b>고정 DAG</b> 다. <code>F1 프로파일 → F2 스키마/레코드 → F3 fact 추출 →
+F7 개념 그래프 → F5 값 대조 → 리포트</code>. 분기는 있지만 되돌아가는 화살표가 없다.
+LLM 은 정해진 자리에서 <b>아주 좁은 질문</b>만 받는다 — "이 두 항목이 같은 것인가?"
+"이 후보들과 기준을 대조하면?"
+</p>
+
+<h3>2.1 이건 미완성이 아니라 선택이었다</h3>
+
+<p>
+코드 곳곳에 그 선택의 흔적이 있다. 네 가지만 꼽으면:
+</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>제약</th><th>어디에</th><th>무엇을 막는가</th></tr></thead>
+<tbody>
+<tr><td>단위를 모르면 <code>None</code> 을 돌려주고 물러난다</td><td><code>_compare_attribute()</code></td><td>코드가 추측으로 등가를 단정하는 것</td></tr>
+<tr><td>후보 밖 <code>fact_id</code> 는 드롭한다</td><td><code>_parse_findings()</code></td><td>LLM 이 없는 대상을 지목하는 것</td></tr>
+<tr><td>인용이 원문에 없으면 <code>same_as</code> 를 강등한다</td><td><code>verify_evidence()</code></td><td>근거 없는 연결이 성립하는 것</td></tr>
+<tr><td>예산이 끝나면 코드 판정으로 되돌아가지 않고 보류한다</td><td><code>_fallback(multi=True)</code></td><td>고치려던 오판이 조용히 남는 것</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout good">
+  <span class="t">✅ 먼저 인정하고 시작할 것</span>
+  <b>이 시스템의 정확도는 LLM 이 뭘 할 수 있느냐가 아니라, 코드가 뭘 못 하게 막느냐에서 나왔다.</b>
+  <br>
+  실측이 그것을 그대로 보여준다(<code>docs/FACT_F3_5_LIVE_REPORT.md</code> §9.1) —
+  골든셋 27항목 정확도가 <b>85% → 89% → 93%</b> 로 올라갔는데,
+  올린 두 변경이 전부 "코드가 언제 단정해도 되는가"의 규칙이었다:
+  <br>① 양쪽 속성이 하나씩이면 키 이름이 달라도 값으로 판정한다
+  <br>② 문자열은 <b>같을 때만</b> 단정하고, 다르면 LLM 에 넘긴다
+</div>
+
+<p>
+그러니 에이전트로 만든다는 건 <b>이 제약을 푸는 게 아니다.</b>
+제약을 그대로 둔 채 <b>되돌아가는 화살표를 추가</b>하는 것이다.
+이 문장이 이 글의 나머지 전부를 결정한다.
+</p>
+
+<h3>2.2 그리고 이미 갖춰진 것들</h3>
+
+<p>
+에이전트를 만들 때 보통 제일 귀찮은 것들이 이 저장소엔 이미 있다.
+</p>
+
+<div class="cols">
+  <div class="card">
+    <h4>상태 저장 (사실상 checkpointer)</h4>
+    <p class="small" style="margin:0">
+      각 단계가 <code>artifacts/&lt;문서&gt;/&lt;단계&gt;.json</code> 에 결과를 남기고,
+      <code>&lt;단계&gt;.fingerprint</code> 사이드카로 캐시 유효성을 판정한다
+      (<code>ArtifactStore.cached_or_compute</code>). 입력이 같으면 재계산하지 않는다.
+      <b>재개 가능한 상태 그래프의 핵심 부품이 이미 있다.</b>
+    </p>
+  </div>
+  <div class="card">
+    <h4>평가 데이터</h4>
+    <p class="small" style="margin:0">
+      <code>golden/자표준_골든셋.jsonl</code> 27건,
+      <code>golden/spec_en_골든셋.jsonl</code> 104건.
+      루프를 넣고 나서 <b>좋아졌는지 나빠졌는지</b>를 숫자로 답할 수 있다.
+      이게 없으면 에이전트 개발은 그냥 느낌으로 하는 일이 된다.
+    </p>
+  </div>
+  <div class="card">
+    <h4>계측</h4>
+    <p class="small" style="margin:0">
+      <code>run_stats.json</code> 에 LLM 호출·재시도·파싱 실패·드롭 사유·블록 커버리지가
+      쌓인다. <code>decided_by</code> 로 판정 주체가, <code>result_changed</code> 로
+      뒤집힘이 남는다. <b>루프의 종료 조건 후보가 이미 파일로 존재한다.</b>
+    </p>
+  </div>
+  <div class="card">
+    <h4>원인 분류기</h4>
+    <p class="small" style="margin:0">
+      <code>fact/missing_trace.py</code> 가 <span class="v v-none">⚪ 대상에 없음</span> 의
+      원인을 6갈래로 가르고 <b>각각의 조치</b>까지 명시한다.
+      LLM 을 안 부르므로 비용 0. <b>이 표가 곧 루프 정책의 초안이다.</b>
+    </p>
+  </div>
+</div>
+
+<div class="qmemo" data-qid="bg2-what-exists" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"이미 갖춰진 것" 중 실제로 그런지 의심되는 게 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="intuition">3. 직관 — 루프를 넣는다는 것의 본질</h2>
+
+<p>
+루프 하나를 추가한다는 건 세 가지를 정하는 일이다.
+</p>
+
+<ol>
+  <li><b>트리거</b> — 무엇을 보고 되돌아가나? (관측 가능한 신호여야 한다)</li>
+  <li><b>조치</b> — 되돌아가서 <b>무엇을 다르게</b> 하나? (같은 걸 또 하면 재시도일 뿐)</li>
+  <li><b>종료</b> — 언제 멈추나? (그리고 멈췄을 때 결과를 어떻게 처리하나)</li>
+</ol>
+
+<p>
+장난감 예제로 한 바퀴 돌려 보자. <b>근거 재인용 루프</b>다.
+</p>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 840 330" role="img" aria-label="근거 재인용 루프 한 바퀴 예시">
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6570"/></marker>
+    <marker id="arR2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c62828"/></marker>
+    <style>
+      .st{font:700 12px sans-serif}
+      .tx{font:11.5px ui-monospace,monospace;fill:#1a1a1a}
+      .sm2{font:11px sans-serif;fill:#5b6570}
+      .rd{font:600 11.5px sans-serif;fill:#c62828}
+    </style>
+  </defs>
+
+  <!-- 1회차 -->
+  <rect x="14" y="14" width="812" height="120" rx="9" fill="#fff" stroke="#dfe4ea"/>
+  <text x="28" y="34" class="st" fill="#37424e">1회차 — 지금 일어나는 일</text>
+
+  <rect x="28" y="44" width="240" height="74" rx="7" fill="#fdf0e3" stroke="#e65100"/>
+  <text x="42" y="63" class="st" fill="#e65100">🤖 LLM 이 same_as 를 주장</text>
+  <text x="42" y="82" class="tx">left_text: "Standard Charging</text>
+  <text x="42" y="98" class="tx">              Current"</text>
+  <text x="42" y="113" class="sm2">기준 쪽 인용인데 <tspan font-weight="700">영어로 썼다</tspan></text>
+
+  <path d="M268 81 L300 81" stroke="#5b6570" marker-end="url(#ar2)"/>
+
+  <rect x="306" y="44" width="240" height="74" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="320" y="63" class="st" fill="#1565c0">⚙️ verify_evidence()</text>
+  <text x="320" y="82" class="tx">기준 원문 = "표준충전전류"</text>
+  <text x="320" y="98" class="tx">커버리지 0.0 &lt; 0.8</text>
+  <text x="320" y="113" class="sm2">→ 거부</text>
+
+  <path d="M546 81 L578 81" stroke="#5b6570" marker-end="url(#ar2)"/>
+
+  <rect x="584" y="44" width="228" height="74" rx="7" fill="#eceff1" stroke="#455a64"/>
+  <text x="598" y="63" class="st" fill="#455a64">unknown 으로 강등</text>
+  <text x="598" y="82" class="tx">rejected_by: "evidence"</text>
+  <text x="598" y="101" class="sm2">→ 병합 안 됨 → 후보 0건</text>
+  <text x="598" y="117" class="sm2">→ ⚪ 대상에 없음 <tspan font-weight="700">(끝)</tspan></text>
+
+  <!-- 되돌아가는 화살표 -->
+  <path d="M698 118 C698 150 300 150 148 150 L148 168" stroke="#c62828" fill="none"
+        stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arR2)"/>
+  <text x="330" y="146" class="rd">트리거: rejected_by == "evidence" &nbsp;·&nbsp; 예산: 재시도 1회</text>
+
+  <!-- 2회차 -->
+  <rect x="14" y="176" width="812" height="140" rx="9" fill="#fffdf7" stroke="#b26a00"/>
+  <text x="28" y="196" class="st" fill="#b26a00">2회차 — 루프가 추가하는 것</text>
+
+  <rect x="28" y="206" width="240" height="94" rx="7" fill="#fdf0e3" stroke="#e65100"/>
+  <text x="42" y="225" class="st" fill="#e65100">🤖 조치: 다르게 묻는다</text>
+  <text x="42" y="244" class="sm2">"인용은 <tspan font-weight="700">그 문서의 언어 그대로</tspan></text>
+  <text x="42" y="260" class="sm2">복사하세요. 번역하지 마세요."</text>
+  <text x="42" y="279" class="sm2">+ 실패한 인용과 실제 원문을</text>
+  <text x="42" y="294" class="sm2">&nbsp;&nbsp;나란히 보여준다</text>
+
+  <path d="M268 253 L300 253" stroke="#5b6570" marker-end="url(#ar2)"/>
+
+  <rect x="306" y="206" width="240" height="94" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="320" y="225" class="st" fill="#1565c0">⚙️ 같은 검증기로 재검사</text>
+  <text x="320" y="244" class="tx">left_text: "표준충전전류"</text>
+  <text x="320" y="262" class="tx">커버리지 1.0 ≥ 0.8</text>
+  <text x="320" y="281" class="sm2">→ 통과 · 검증 규칙은 <tspan font-weight="700">무변경</tspan></text>
+
+  <path d="M546 253 L578 253" stroke="#5b6570" marker-end="url(#ar2)"/>
+
+  <rect x="584" y="206" width="228" height="94" rx="7" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="598" y="225" class="st" fill="#2e7d32">종료 — 통과 or 1회 소진</text>
+  <text x="598" y="244" class="sm2">통과 → 병합 → 값 대조로</text>
+  <text x="598" y="262" class="sm2">실패 → 그대로 unknown</text>
+  <text x="598" y="283" class="sm2"><tspan font-weight="700">계측:</tspan> repair_attempted / _fixed</text>
+</svg>
+</div>
+<figcaption>그림 2. 루프 한 바퀴. 중요한 건 <b>검증기를 건드리지 않았다</b>는 점이다 — 같은 <code>verify_evidence()</code> 로 다시 검사한다. 루프가 하는 일은 "통과할 때까지 기준을 낮추는 것"이 아니라 "제대로 답할 기회를 한 번 더 주는 것"이다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="t">⚠️ 여기서 유혹을 하나 짚고 가자</span>
+  루프를 넣다 보면 "검증기가 너무 빡빡해서 자꾸 막히네, 임계값을 0.8 에서 0.6 으로 낮추자"는
+  생각이 든다. <b>그 순간 루프는 정확도 장치가 아니라 통과율 장치가 된다.</b>
+  <br>
+  검증기를 고칠 거면 루프와 <b>따로</b> 고치고, 골든셋으로 따로 측정해야 한다.
+  두 변경을 한 커밋에 넣으면 어느 쪽이 효과를 냈는지 영영 모른다.
+</div>
+
+<div class="qmemo" data-qid="intuition-loop-example" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">그림 2의 루프 한 바퀴에서 헷갈리는 부분을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="where">4. 루프를 넣을 자리는 이미 정해져 있다</h2>
+
+<p>
+이게 이 저장소를 읽으며 가장 인상적이었던 부분이다.
+<code>missing_trace.py</code> 가 <span class="v v-none">⚪</span> 의 원인을 6갈래로 가르고,
+<b>각각 사람이 할 일이 다르다</b>고 표로 적어 놨다.
+그 표를 다시 읽으면 — 이건 <b>루프 정책(policy)의 초안</b>이다.
+</p>
+
+<pre class="light">원인                            사람이 할 일                    →  루프가 할 일
+① recall 실패                   임계/후보수 조정 · 온톨로지 승격  →  쿼리를 바꿔 재검색
+② LLM 미판정                    예산 증대 · 재실행               →  (예산 문제 — 루프 아님)
+③ 근거 게이트 강등              인용 확인 후 승격                →  다시 인용시키기
+④ F3 추출 누락                  배치 축소 · 추출 프롬프트 점검    →  미인용 블록만 재추출
+⑤ 의도된 차단                   differs_by 재검토                →  (정상 — 건드리지 않음)
+⑥ F5 LLM 판정                   판정 근거 확인                   →  (사람 검수 영역)</pre>
+
+<p>
+루프 후보는 <b>①③④ 셋뿐</b>이다. ②는 설정 문제고, ⑤는 정상 동작이고, ⑥은 사람이 봐야 한다.
+셋으로 좁혀지는 것 자체가 좋은 신호다 — 에이전트가 손댈 곳이 명확하다는 뜻이다.
+</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>루프</th><th>트리거 (관측 가능)</th><th>조치</th><th>종료 조건</th><th>이미 있는 검증기</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>③ 근거 재인용</b><br>(설계상 F4b)</td>
+  <td><code>rejected_by == "evidence"</code><br><span class="small">실측 17건 / 한 실행</span></td>
+  <td>실패한 인용 + 실제 원문을 보여주고 재요청</td>
+  <td>재시도 1회 · 통과 여부</td>
+  <td><code>verify_evidence()</code></td>
+</tr>
+<tr>
+  <td><b>① recall 재질의</b></td>
+  <td><code>missing_trace</code> 가 ①로 분류</td>
+  <td>쿼리 변형 2~3개<br><span class="small">(이름만 / 값만 / 번역해서)</span></td>
+  <td>후보가 생겼는가 · 변형 소진</td>
+  <td><code>candidate_pairs.json</code></td>
+</tr>
+<tr>
+  <td><b>④ 미인용 블록 재추출</b></td>
+  <td><code>facts_by_block.json</code> 의<br><code>cited == false</code></td>
+  <td>그 블록만 작은 배치로 다시 추출</td>
+  <td>커버리지 목표 · 1회</td>
+  <td>블록 커버리지 계측</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <span class="t">💡 종료 조건이 이미 파일로 존재한다는 것의 의미</span>
+  루프에서 가장 어려운 게 "언제 멈추나"인데, 이 셋은 전부
+  <b>기존 산출물에 이미 답이 적혀 있다</b>. 새로 지표를 발명할 필요가 없다.
+  이건 우연이 아니라, 이 프로젝트가 "오판을 추적할 수 있게 계측을 남긴다"는 원칙을
+  일관되게 지켜 온 결과다.
+</div>
+
+<h3>4.1 실측이 이미 F4b 의 대상을 특정해 놨다</h3>
+
+<p>
+<code>docs/FACT_F3_5_LIVE_REPORT.md</code> §7 에 <b>"F4b (Repair Loop) — 관측된 실패 모드"</b> 라는
+절이 있다. 사변이 아니라 실제 실행에서 본 것들이다:
+</p>
+
+<blockquote>
+• <b>정성 문장에서 fact 미추출</b>(<code>w_b004</code>) — 정량 값이 없는 문장을 LLM 이 건너뛴다.<br>
+• <b><code>entity_name</code> 을 슬라이드/문단 제목으로 대체</b>하고 실제 항목을 attribute 로 흡수
+(<code>충전 규격 상세조건.공칭전압</code>). repair 대상: entity 승격.<br>
+• JSON 준수도는 양호(<code>parse_failures = 0</code>) → <b>JSON 교정형 repair 는 우선순위가 낮다.</b>
+</blockquote>
+
+<p>
+마지막 줄이 특히 좋다. 보통 "LLM 이 JSON 을 잘 못 뱉으니 교정 루프를 만들자"에서 시작하는데,
+<b>측정해 보니 그건 문제가 아니었다</b>는 것을 확인하고 우선순위를 내렸다.
+이런 판단이 에이전트 개발에서 시간을 가장 많이 아낀다.
+</p>
+
+<p>
+그리고 §9.1 의 남은 오답 2건 중 하나도 F4b 대상으로 지목돼 있다 —
+<code>최대충전전류 → match</code>(정답 <code>unknown</code>). 프롬프트에 "값이 배수 관계라
+단위에 따라 달라지면 unknown" 이라고 <b>명시했는데 LLM 이 따르지 않았다</b>.
+</p>
+
+<div class="callout warn">
+  <span class="t">⚠️ 그런데 이건 루프로 고칠 수 있는 종류인가?</span>
+  솔직히 애매하다. "지시를 안 따랐다"를 재시도로 고치려면 <b>같은 지시를 더 크게 말하는 것</b> 외에
+  할 게 별로 없고, 그건 효과가 불확실하다. 오히려 <b>코드가 사후에 잡는 편</b>이 낫다 —
+  <code>_is_decimal_scaled()</code> 로 십진 배수 관계를 이미 감지하고 있으니,
+  LLM 이 그 상황에서 <code>match</code> 를 냈으면 코드가 <code>unknown</code> 으로 되돌리면 된다.
+  <br><br>
+  <b>모든 문제가 루프의 문제는 아니다.</b> 루프 전에 "이건 코드 규칙 하나로 끝나지 않나?"를
+  먼저 물어야 한다.
+</div>
+
+<div class="qmemo" data-qid="where-loop-candidates" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">세 루프 후보 중 궁금한 것, 혹은 "이것도 루프로 되지 않나?" 하는 아이디어를 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="graph">5. "그래프 엔지니어링"의 두 가지 의미</h2>
+
+<p>
+이 말이 두 가지를 가리키는데, 혼동하면 대화가 산으로 간다.
+</p>
+
+<div class="cols">
+  <div class="card" style="border-color:var(--emb)">
+    <h4 style="color:var(--emb)">(a) 데이터 그래프</h4>
+    <p style="margin:0">
+      노드 = 개념, 엣지 = fact 쌍의 관계. <b>이미 하고 있는 것</b>이다.
+      <code>concept_graph.json</code> 이 그거고, LangGraph 같은 프레임워크와는 아무 상관이 없다.
+    </p>
+    <p class="small" style="margin:10px 0 0">
+      더 밀면 → 문서 3개 이상 통합 · 온톨로지 자동 성장 ·
+      엔티티 단위 배치 판정(상위 설계 Phase 6).
+    </p>
+  </div>
+  <div class="card" style="border-color:var(--code)">
+    <h4 style="color:var(--code)">(b) 제어 그래프</h4>
+    <p style="margin:0">
+      노드 = 실행 단계, 엣지 = <b>조건부 전이</b>, 상태 = 반복 사이에 누적되는 것.
+      "에이전트로 만든다"의 실체는 이쪽이다.
+    </p>
+    <p class="small" style="margin:10px 0 0">
+      LangGraph · 자체 상태머신 · 그냥 while 루프 — 도구는 아무거나 되고,
+      <b>중요한 건 전이 조건을 명시적으로 쓰는 것</b>이다.
+    </p>
+  </div>
+</div>
+
+<h3>5.1 (b)로 옮기기에 지금 구조가 아주 유리하다</h3>
+
+<p>
+각 단계가 <code>artifacts/&lt;문서&gt;/&lt;단계&gt;.json</code> 에 상태를 남기고,
+<code>&lt;단계&gt;.fingerprint</code> 사이드카로 "입력이 같으면 재계산 안 함"을 판정한다:
+</p>
+
+<pre>def cached_or_compute(self, stage, compute, *, fingerprint=None):
+    if self.cache and self.exists(stage) and self._fingerprint_ok(stage, fingerprint):
+        cached = self.load(stage)
+        if cached is not None:
+            return cached          # ← 재계산 없이 디스크 산출물을 그대로
+    data = compute()
+    if fingerprint is not None:
+        self._write_fingerprint(stage, fingerprint)
+    ...</pre>
+
+<div class="callout good">
+  <span class="t">✅ 이건 사실상 checkpointer 다</span>
+  상태 그래프 프레임워크가 제공하는 "중단 지점부터 재개" 기능을,
+  이 저장소는 <b>이미 자기 방식으로 구현해 뒀다</b>.
+  제어 그래프로 옮길 때 노드 함수는 지금 함수를 거의 그대로 쓰고,
+  state 는 <code>RunSnapshot</code>(<code>fact/artifact_reader.py</code>)이 된다.
+</div>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 840 300" role="img" aria-label="지금 구조를 상태 그래프로 재기술">
+  <defs>
+    <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6570"/></marker>
+    <style>
+      .k{font:600 12px sans-serif;fill:#1a1a1a}
+      .kk{font:11px ui-monospace,monospace;fill:#5b6570}
+      .cp{font:700 12.5px sans-serif;fill:#37424e}
+    </style>
+  </defs>
+
+  <text x="14" y="22" class="cp">지금 있는 것</text>
+  <text x="470" y="22" class="cp">상태 그래프로 부르면</text>
+
+  <rect x="14" y="34" width="380" height="40" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="28" y="52" class="k">파이프라인 함수 (_compare_from_store 등)</text>
+  <text x="28" y="68" class="kk">for target: for ref_fact: compare_code → gate → finalize</text>
+
+  <path d="M400 54 L446 54" stroke="#5b6570" marker-end="url(#ar3)"/>
+  <rect x="452" y="34" width="374" height="40" rx="7" fill="#fff" stroke="#455a64"/>
+  <text x="466" y="58" class="k">노드 (node) — 상태를 받아 상태를 돌려주는 함수</text>
+
+  <rect x="14" y="88" width="380" height="40" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="28" y="106" class="k">artifacts/&lt;문서&gt;/&lt;단계&gt;.json</text>
+  <text x="28" y="122" class="kk">+ &lt;단계&gt;.fingerprint 사이드카</text>
+  <path d="M400 108 L446 108" stroke="#5b6570" marker-end="url(#ar3)"/>
+  <rect x="452" y="88" width="374" height="40" rx="7" fill="#fff" stroke="#455a64"/>
+  <text x="466" y="112" class="k">체크포인터 (checkpointer) — 재개 지점</text>
+
+  <rect x="14" y="142" width="380" height="40" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="28" y="160" class="k">RunSnapshot (artifact_reader.py)</text>
+  <text x="28" y="176" class="kk">한 실행의 산출물을 통째로 읽어 들인 뷰</text>
+  <path d="M400 162 L446 162" stroke="#5b6570" marker-end="url(#ar3)"/>
+  <rect x="452" y="142" width="374" height="40" rx="7" fill="#fff" stroke="#455a64"/>
+  <text x="466" y="166" class="k">상태 (state) — 노드 사이를 흐르는 것</text>
+
+  <rect x="14" y="196" width="380" height="40" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="28" y="214" class="k">missing_trace 의 원인 6분류</text>
+  <text x="28" y="230" class="kk">cause → next_action 매핑</text>
+  <path d="M400 216 L446 216" stroke="#5b6570" marker-end="url(#ar3)"/>
+  <rect x="452" y="196" width="374" height="40" rx="7" fill="#fdf0e3" stroke="#e65100"/>
+  <text x="466" y="220" class="k">조건부 엣지 (conditional edge) — 어디로 되돌아갈지</text>
+
+  <rect x="14" y="250" width="380" height="40" rx="7" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="28" y="268" class="k">golden/*.jsonl + run_stats.json</text>
+  <text x="28" y="284" class="kk">정답지 131건 + 실행 계측</text>
+  <path d="M400 270 L446 270" stroke="#5b6570" marker-end="url(#ar3)"/>
+  <rect x="452" y="250" width="374" height="40" rx="7" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="466" y="274" class="k">평가 하네스 — 루프가 이득인지 판정</text>
+</svg>
+</div>
+<figcaption>그림 3. 이름만 바꾸면 대부분이 이미 있다. <b>새로 만들어야 하는 것은 주황색 한 줄</b>(조건부 엣지)뿐이고, 그 재료조차 <code>missing_trace</code> 에 있다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="graph-two-meanings" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">데이터 그래프 / 제어 그래프 구분, 혹은 그림 3의 대응 관계에 대해 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="tools">6. 툴을 많이 쥐어주면 되나</h2>
+
+<p>
+아니다. 그리고 이건 취향 문제가 아니라 <b>이 저장소의 코드가 이미 증명한 것</b>이다.
+</p>
+
+<h3>6.1 행동 공간이 커지면 검증 부담은 제곱으로 는다</h3>
+
+<p>
+지금 LLM 이 할 수 있는 행동은 놀랄 만큼 좁다:
+</p>
+
+<ul>
+  <li>개념 판정: <code>same_as</code> / <code>differs_by</code> / <code>unknown</code> <b>셋 중 하나</b> + 인용 두 개</li>
+  <li>값 대조: <code>findings[]</code> 배열 + 종합 <code>result</code> 하나</li>
+</ul>
+
+<p>
+좁기 때문에 <b>코드가 전수 검증할 수 있다</b>. 관계는 셋 중 하나인지 확인하고,
+인용은 원문에 있는지 확인하고, <code>fact_id</code> 는 후보 안에 있는지 확인한다.
+툴 10개를 쥐어주면 이 전수 검증이 불가능해진다 —
+"파일을 읽었다"의 결과가 옳은지 코드가 어떻게 알겠는가.
+</p>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 840 240" role="img" aria-label="행동 공간과 검증 가능성">
+  <defs><style>
+    .ax{font:11.5px sans-serif;fill:#5b6570}
+    .lb{font:600 12px sans-serif;fill:#1a1a1a}
+    .tt{font:700 12.5px sans-serif;fill:#37424e}
+  </style></defs>
+
+  <text x="14" y="22" class="tt">행동 공간이 넓어질수록 "코드가 검증할 수 있는 비율"이 떨어진다</text>
+
+  <!-- 좁은 행동공간 -->
+  <rect x="24" y="44" width="150" height="150" rx="9" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="38" y="66" class="lb">지금</text>
+  <rect x="38" y="76" width="122" height="100" rx="6" fill="#2e7d32" opacity=".82"/>
+  <text x="52" y="122" class="lb" fill="#fff">검증 가능</text>
+  <text x="52" y="140" class="lb" fill="#fff">100%</text>
+  <text x="24" y="212" class="ax">행동 3~4가지 · 전수 검증</text>
+
+  <!-- 중간 -->
+  <rect x="230" y="44" width="150" height="150" rx="9" fill="#fff8e1" stroke="#b26a00"/>
+  <text x="244" y="66" class="lb">+ 읽기 툴 3개</text>
+  <rect x="244" y="76" width="122" height="66" rx="6" fill="#b26a00" opacity=".8"/>
+  <text x="258" y="115" class="lb" fill="#fff">검증 가능</text>
+  <rect x="244" y="142" width="122" height="34" rx="6" fill="#e0e0e0"/>
+  <text x="258" y="164" class="ax">결과만 확인</text>
+  <text x="230" y="212" class="ax">읽기 전용 · 되돌릴 필요 없음</text>
+
+  <!-- 넓은 -->
+  <rect x="436" y="44" width="150" height="150" rx="9" fill="#ffebee" stroke="#c62828"/>
+  <text x="450" y="66" class="lb">+ 쓰기 툴 다수</text>
+  <rect x="450" y="76" width="122" height="30" rx="6" fill="#c62828" opacity=".8"/>
+  <text x="464" y="97" class="lb" fill="#fff">검증 가능</text>
+  <rect x="450" y="106" width="122" height="70" rx="6" fill="#e0e0e0"/>
+  <text x="464" y="136" class="ax">검증 불가 —</text>
+  <text x="464" y="154" class="ax">"그럴듯한지"만</text>
+  <text x="464" y="170" class="ax">볼 수 있음</text>
+  <text x="436" y="212" class="ax">부작용이 남고 되돌리기 어려움</text>
+
+  <!-- 화살표 -->
+  <path d="M614 118 L644 118" stroke="#5b6570" stroke-width="1.5"/>
+  <text x="654" y="98" class="lb">결론</text>
+  <text x="654" y="120" class="ax">툴은 "많이"가 아니라</text>
+  <text x="654" y="138" class="ax">"검증 가능한 것만"</text>
+</svg>
+</div>
+<figcaption>그림 4. 툴을 늘릴 때 실제로 늘어나는 건 능력이 아니라 <b>검증 부담</b>이다.</figcaption>
+</figure>
+
+<h3>6.2 좋은 툴의 세 조건</h3>
+
+<ol>
+  <li><b>되돌릴 수 있는가</b> — 읽기 전용이면 최고다</li>
+  <li><b>결과를 코드가 검증할 수 있는가</b> — 스키마·범위·실재 여부</li>
+  <li><b>실패가 관측되는가</b> — 조용히 실패하면 없는 것만 못하다</li>
+</ol>
+
+<p>이 기준으로 보면 저장소에 이미 좋은 툴 후보가 있다. 전부 읽기 전용이고 LLM 비용이 0이다.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>툴 후보</th><th>돌려주는 것</th><th>에이전트가 쓸 곳</th></tr></thead>
+<tbody>
+<tr><td><code>scripts/why_missing.py</code></td><td><span class="v v-none">⚪</span> 한 건의 원인 6분류 + 근거 포인터</td><td>어느 루프로 갈지 결정</td></tr>
+<tr><td><code>candidate_pairs.json</code> 조회</td><td>후보 랭킹 + 탈락 사유(<code>min_score</code>/<code>top_k</code>)</td><td>recall 재질의가 의미 있는지 판단</td></tr>
+<tr><td><code>facts_by_block.json</code> 조회</td><td>블록 → fact 매핑, <code>cited</code> 여부</td><td>재추출할 블록 특정</td></tr>
+<tr><td><code>concept_graph.json</code> 조회</td><td>엣지의 <code>relation</code>·<code>rejected_by</code>·인용</td><td>재인용 대상 특정</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>6.3 절대 주면 안 되는 툴</h3>
+
+<div class="callout bad">
+  <span class="t">🚨 <code>knowledge/ontology.yaml</code> 쓰기</span>
+  사람이 온톨로지에 승격한 관계는 <b>LLM 판정과 근거 검증을 전부 건너뛰고 영구 적용</b>된다
+  (<code>resolve_known()</code> 이 최우선으로 읽는다).
+  에이전트에게 여기 쓰기 권한을 주면 <b>게이트를 스스로 우회하는 길</b>을 만드는 셈이다.
+  <br><br>
+  이건 가상의 걱정이 아니다. <code>concept_assembler._demote()</code> 의 주석이 정확히 이 시나리오를
+  경계하고 있다 — 거부된 엣지의 사유를 그대로 두면 사람이 그걸 믿고 승격해서
+  "게이트를 사람 손으로 우회"시킨다고. 에이전트는 그 사람보다 훨씬 빠르게, 훨씬 많이 그렇게 할 수 있다.
+  <br><br>
+  <b>대안:</b> 에이전트는 <code>ontology_suggestions.jsonl</code> 같은 <b>제안 큐</b>에만 쓰고,
+  사람이 검토해 승격한다. 제안에는 반드시 근거(양쪽 원문 인용)를 달게 한다.
+</div>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 840 210" role="img" aria-label="권한 경계">
+  <defs><style>
+    .zt{font:700 12.5px sans-serif}
+    .zi{font:11.5px sans-serif;fill:#37424e}
+  </style></defs>
+  <text x="14" y="22" class="zt" fill="#37424e">권한 경계 — 누가 무엇을 확정할 수 있나</text>
+
+  <rect x="14" y="34" width="264" height="156" rx="9" fill="#fdf0e3" stroke="#e65100"/>
+  <text x="30" y="56" class="zt" fill="#e65100">🤖 에이전트 / LLM</text>
+  <text x="30" y="80" class="zi">• 관계를 <tspan font-weight="700">제안</tspan>한다</text>
+  <text x="30" y="102" class="zi">• 인용을 <tspan font-weight="700">가져온다</tspan></text>
+  <text x="30" y="124" class="zi">• 진단 툴을 <tspan font-weight="700">읽는다</tspan></text>
+  <text x="30" y="146" class="zi">• 재시도를 <tspan font-weight="700">요청</tspan>한다</text>
+  <text x="30" y="174" class="zi" fill="#c62828">— 확정 권한은 없다</text>
+
+  <rect x="290" y="34" width="264" height="156" rx="9" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="306" y="56" class="zt" fill="#1565c0">⚙️ 코드</text>
+  <text x="306" y="80" class="zi">• 인용이 원문에 있나 <tspan font-weight="700">검증</tspan></text>
+  <text x="306" y="102" class="zi">• 후보 밖 id <tspan font-weight="700">드롭</tspan></text>
+  <text x="306" y="124" class="zi">• differs_by 위반 <tspan font-weight="700">차단</tspan></text>
+  <text x="306" y="146" class="zi">• 값·단위 <tspan font-weight="700">대조</tspan> (확실할 때만)</text>
+  <text x="306" y="174" class="zi" fill="#c62828">— 단독으로 거부할 수 있다</text>
+
+  <rect x="566" y="34" width="260" height="156" rx="9" fill="#f4e9f7" stroke="#6a1b9a"/>
+  <text x="582" y="56" class="zt" fill="#6a1b9a">👤 사람</text>
+  <text x="582" y="80" class="zi">• 온톨로지 <tspan font-weight="700">승격</tspan> (영구)</text>
+  <text x="582" y="102" class="zi">• 도메인 지식 작성</text>
+  <text x="582" y="124" class="zi">• 정답지 라벨링</text>
+  <text x="582" y="146" class="zi">• enforce 를 켤지 결정</text>
+  <text x="582" y="174" class="zi" fill="#c62828">— 에이전트가 넘어오면 안 되는 선</text>
+</svg>
+</div>
+<figcaption>그림 5. <b>제안은 LLM, 차단은 코드, 영구 확정은 사람.</b> 이 비대칭은 이미 F7 설계의 원칙이다 — 에이전트를 얹을 때도 그대로 유지해야 한다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="tools-boundary" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">툴 설계나 권한 경계(그림 5)에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="verify">7. 검증을 정의하면 되나</h2>
+
+<p>
+<b>절반 맞다.</b> 검증 정의는 필요조건이지만 충분하지 않다.
+</p>
+
+<p>
+빠진 절반이 <b>credit assignment</b> — "검증이 실패했을 때 무엇을 바꿀 것인가"다.
+이게 없으면 루프는 그냥 <b>재시도</b>가 되고,
+재시도는 확신을 만들지 않는다. <b>표현만 바꾼다.</b>
+</p>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 840 250" role="img" aria-label="재시도 루프 vs 교정 루프">
+  <defs>
+    <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6570"/></marker>
+    <style>
+      .h2t{font:700 12.5px sans-serif}
+      .b{font:12px sans-serif;fill:#1a1a1a}
+      .s{font:11px sans-serif;fill:#5b6570}
+    </style>
+  </defs>
+
+  <rect x="14" y="14" width="400" height="216" rx="9" fill="#fff6e5" stroke="#b26a00"/>
+  <text x="30" y="36" class="h2t" fill="#b26a00">❌ 재시도 루프 (검증만 있음)</text>
+  <rect x="30" y="48" width="164" height="34" rx="6" fill="#fff" stroke="#dfe4ea"/>
+  <text x="44" y="70" class="b">LLM 에 같은 질문</text>
+  <path d="M212 65 L246 65" stroke="#5b6570" marker-end="url(#ar4)"/>
+  <rect x="252" y="48" width="146" height="34" rx="6" fill="#fff" stroke="#dfe4ea"/>
+  <text x="266" y="70" class="b">검증 실패</text>
+  <path d="M325 82 C325 108 112 108 112 88" stroke="#b26a00" fill="none" stroke-dasharray="4 3" marker-end="url(#ar4)"/>
+  <text x="140" y="106" class="s">그냥 다시</text>
+
+  <text x="30" y="140" class="s">• 입력이 같으므로 출력 분포도 같다</text>
+  <text x="30" y="160" class="s">• 통과하면 "고쳐진 것"이 아니라 <tspan font-weight="700">주사위가 다르게 나온 것</tspan></text>
+  <text x="30" y="180" class="s">• N회 재시도는 사실상 <tspan font-weight="700">"검증을 통과할 때까지 뽑기"</tspan></text>
+  <text x="30" y="206" class="s" fill="#c62828">→ 정확도가 아니라 통과율이 올라간다</text>
+
+  <rect x="426" y="14" width="400" height="216" rx="9" fill="#e8f5e9" stroke="#2e7d32"/>
+  <text x="442" y="36" class="h2t" fill="#2e7d32">✅ 교정 루프 (검증 + credit assignment)</text>
+  <rect x="442" y="48" width="164" height="34" rx="6" fill="#fff" stroke="#dfe4ea"/>
+  <text x="456" y="70" class="b">원인 분류</text>
+  <path d="M624 65 L658 65" stroke="#5b6570" marker-end="url(#ar4)"/>
+  <rect x="664" y="48" width="146" height="34" rx="6" fill="#fff" stroke="#dfe4ea"/>
+  <text x="678" y="70" class="b">원인별 조치</text>
+  <path d="M737 82 C737 108 524 108 524 88" stroke="#2e7d32" fill="none" stroke-dasharray="4 3" marker-end="url(#ar4)"/>
+  <text x="546" y="106" class="s">입력을 바꿔서</text>
+
+  <text x="442" y="140" class="s">• 실패한 인용 + 실제 원문을 <tspan font-weight="700">함께</tspan> 보여준다</text>
+  <text x="442" y="160" class="s">• 쿼리를 다르게 만든다(이름만 / 값만 / 번역)</text>
+  <text x="442" y="180" class="s">• 배치를 작게 쪼갠다</text>
+  <text x="442" y="206" class="s" fill="#2e7d32">→ 입력이 달라졌으므로 결과가 달라질 <tspan font-weight="700">이유</tspan>가 있다</text>
+</svg>
+</div>
+<figcaption>그림 6. 같은 루프처럼 보이지만 완전히 다르다. 왼쪽은 통과율을, 오른쪽은 정확도를 올린다.</figcaption>
+</figure>
+
+<div class="callout good">
+  <span class="t">✅ 그런데 당신은 이걸 이미 갖고 있다</span>
+  <code>missing_trace</code> 의 <b>"원인 → 사람이 할 일"</b> 표가 정확히 credit assignment 다.
+  지금은 그 조치를 사람이 하고, 에이전트는 그걸 자동화하는 것뿐이다.
+  <br>
+  대부분의 팀은 여기서 막힌다 — 검증은 만드는데 "그래서 뭘 고치지?"를 정의하지 못해
+  재시도 루프에 머문다.
+</div>
+
+<div class="qmemo" data-qid="verify-credit-assignment" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">재시도 vs 교정의 구분, credit assignment 에 대해 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="roadmap">8. 구현 로드맵 — 0·1·2·3 단계</h2>
+
+<p>기존 시스템을 크게 흔들지 않는 순서다.</p>
+
+<h3>0단계 — 리팩터링 없이 상태 그래프로 재기술</h3>
+
+<p>
+노드 = 기존 함수, 상태 = <code>RunSnapshot</code>. 코드는 그대로 두고 오케스트레이션만 갈아끼운다.
+</p>
+
+<pre class="light">graph = StateGraph(RunState)
+graph.add_node("extract",  lambda s: run_f3(s))       # 기존 함수 그대로
+graph.add_node("concept",  lambda s: run_f7(s))
+graph.add_node("compare",  lambda s: run_f5(s))
+graph.add_node("report",   lambda s: render(s))
+
+graph.add_edge("extract", "concept")
+graph.add_edge("concept", "compare")
+graph.add_edge("compare", "report")</pre>
+
+<div class="callout warn">
+  <span class="t">⚠️ 여기서 아무것도 좋아지지 않아야 정상이다</span>
+  0단계의 목적은 <b>동작이 동일함을 확인하는 것</b>이다.
+  골든셋 정확도가 그대로여야 하고, <code>run_stats.json</code> 숫자가 그대로여야 한다.
+  달라졌다면 재기술 과정에서 뭔가를 흘린 것이다 — 루프를 넣기 전에 그것부터 찾아야 한다.
+</div>
+
+<h3>1단계 — 가장 작은 루프 하나: 근거 재인용 (F4b)</h3>
+
+<pre class="light">graph.add_node("repair_quote", repair_rejected_quotes)
+
+def route_after_concept(state):
+    rejected = [e for e in state.graph.edges if e.rejected_by == "evidence"]
+    if rejected and state.repair_round &lt; 1:      # ← 종료 조건: 1회
+        return "repair_quote"
+    return "compare"
+
+graph.add_conditional_edges("concept", route_after_concept)
+graph.add_edge("repair_quote", "concept")        # ← 되돌아가는 화살표</pre>
+
+<p><b>이걸 첫 타자로 고른 이유 네 가지:</b></p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>조건</th><th>충족 여부</th></tr></thead>
+<tbody>
+<tr><td>입력이 명확한가</td><td>✅ <code>rejected_by == "evidence"</code> 엣지. 실측 <b>17건</b></td></tr>
+<tr><td>종료 조건이 명확한가</td><td>✅ 재시도 1회, 통과 or 그대로 강등</td></tr>
+<tr><td>검증기가 이미 있는가</td><td>✅ <code>verify_evidence()</code> — <b>새로 만들 것 없음</b></td></tr>
+<tr><td>측정할 정답지가 있는가</td><td>✅ <code>spec_en_골든셋.jsonl</code> 104건 (교차언어라 이 실패가 집중된다)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+이 하나만으로 <b>"루프가 실제로 이득인가"</b>를 숫자로 답할 수 있다.
+안 되면 여기서 멈추면 된다 — 그리고 그건 실패가 아니라 <b>싸게 얻은 답</b>이다.
+</p>
+
+<h3>2단계 — recall 재질의</h3>
+
+<p>
+<code>missing_trace</code> 가 ①로 분류한 것만 대상. 쿼리 변형 2~3개를 만들어 재검색한다.
+1단계보다 어려운 이유는 <b>"변형을 몇 개까지 시도할 것인가"</b>가 열려 있기 때문이다 —
+종료 조건을 설계로 정해야 한다.
+</p>
+
+<h3>3단계 — 전역 루프 (마지막에)</h3>
+
+<p>
+리포트 전체를 보고 자기 비평 → 재실행. 여기가 제일 위험하다:
+비용이 문서 크기 × 반복 횟수로 곱해지고, 무엇이 좋아졌는지 귀속시키기가 가장 어렵다.
+1·2단계에서 배운 것 없이 여기부터 시작하면 거의 확실히 실패한다.
+</p>
+
+<div class="qmemo" data-qid="roadmap-stages" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">로드맵 순서나 각 단계 구현에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="skills">9. 당신에게 중요한 역량</h2>
+
+<h3>9.1 이미 갖고 있고, 이게 제일 희소하다</h3>
+
+<div class="scroll">
+<table>
+<thead><tr><th>역량</th><th>이 저장소의 증거</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>실패를 숫자로 바꾸는 습관</b></td>
+  <td><code>llm_budget_exceeded</code> 를 <code>llm_failures</code> 와 갈라 센 판단 —
+      "파급 범위가 다르니 한 숫자에 섞으면 <b>왜 갑자기 전부 보류인가</b>를 설명할 수 없다".
+      기존 키의 의미는 유지한 채 부분집합으로 추가한 것도 같은 감각이다.</td>
+</tr>
+<tr>
+  <td><b>자기 지표를 의심하는 능력</b></td>
+  <td><code>unsafe_match_rate</code> 0.88 이 실제 순증가 10%(2건)를 <b>3.5배 부풀렸다</b>는 것을
+      발견하고 <code>enforce_new_llm_count</code> 를 새로 만든 일.
+      대부분은 자기가 만든 지표를 그대로 믿는다.</td>
+</tr>
+<tr>
+  <td><b>LLM 에게 무엇을 <i>묻지 않을지</i> 정하는 능력</b></td>
+  <td>F7/F5 분리. <i>"값이 다른 것은 differs_by 의 근거가 아닙니다"</i> 한 문장이
+      시스템 전체를 구한다. 에이전트 설계에서 가장 자주 실패하는 지점이 바로
+      "LLM 에게 너무 많은 것을 한꺼번에 묻는 것"이다.</td>
+</tr>
+<tr>
+  <td><b>평가 데이터를 직접 만드는 능력</b></td>
+  <td>골든셋 27건 + 104건. 특히 후자는 <b>대상 문서와 정답을 한 테이블에서 생성</b>해
+      드리프트를 구조적으로 막았다. 이게 없으면 에이전트 개발은 느낌으로 하는 일이 된다.</td>
+</tr>
+<tr>
+  <td><b>측정 결과에 따라 기능을 안 켜는 결단</b></td>
+  <td>Acceptance Gate <code>enforce</code> 를 켜지 않기로 한 결정.
+      순증가 2건을 열어 보니 <b>둘 다 올바른 match</b> 였고, 잡아낸 오판은 0건이었다.
+      "만들었으니 켜자"를 이겨낸 판단이다.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3>9.2 앞으로 필요할 것</h3>
+
+<div class="scroll">
+<table>
+<thead><tr><th>역량</th><th>왜 지금은 부족할 수 있나</th><th>어디서 연습하나</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>수렴 판단</b></td>
+  <td>지금 시스템엔 반복이 없어 "언제 멈추나"를 정할 일이 없었다.
+      단순 N회 반복은 꼬리를 놓치고, "새로운 게 없을 때까지"는 발산할 수 있다.</td>
+  <td>1단계에서 <b>재시도 1회 고정</b>으로 시작 —
+      그리고 "2회로 늘리면 뭐가 더 잡히나"를 숫자로 확인</td>
+</tr>
+<tr>
+  <td><b>루프 안에서의 비용 관측</b></td>
+  <td>지금도 개념 단계가 120쌍/6호출이다. 문서가 5배 커지고 루프가 2회 돌면 60배.
+      예산 고갈로 이미 한 번 데였으니 감은 있으실 것이다.</td>
+  <td>루프마다 별도 예산을 두고, 소진을 <code>llm_budget_exceeded</code> 처럼 <b>따로</b> 센다</td>
+</tr>
+<tr>
+  <td><b>반복 단위 실패 격리</b></td>
+  <td>문서 단위 격리는 이미 있다. 루프가 들어오면 "3회차에서 터졌을 때
+      1·2회차 결과를 살릴 것인가"라는 새 질문이 생긴다.</td>
+  <td>각 반복의 산출물을 <code>&lt;단계&gt;.round-N.json</code> 처럼 따로 남기기</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout def">
+  <span class="t">한 줄로 줄이면</span>
+  에이전트 개발에서 희소한 역량은 <b>프롬프트 작성</b>도 <b>툴 제작</b>도 아니다.
+  <b>① 문제를 검증 가능한 단위로 쪼개는 것, ② 실패를 숫자로 바꾸는 것,
+  ③ 인간과 기계의 권한 경계를 설계하는 것</b> — 이 셋이다.
+  그리고 이 저장소는 셋 다에 대해 이미 증거를 갖고 있다.
+</div>
+
+<div class="qmemo" data-qid="skills-what-matters" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">역량 진단에 동의하지 않는 부분이나, 더 알고 싶은 것을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="risk">10. 가장 큰 위험 하나</h2>
+
+<p>
+지금 시스템의 미덕은 <b>"확신 없으면 보류"</b> 다.
+<code>unknown</code> 이 1급 상태이고, 예산이 끝나도 되돌아가지 않고 보류한다.
+</p>
+
+<p>
+루프는 이것을 <b>"확신할 때까지 재시도"</b> 로 바꾸려는 압력이다.
+그런데 앞에서 봤듯 재시도가 확신을 만드는 게 아니라 <b>표현만 바꿀 때가 많다</b>.
+같은 LLM 이 같은 데이터를 보고 다르게 말한 것뿐인데,
+두 번째 답이 첫 번째보다 옳다고 볼 근거는 없다.
+</p>
+
+<div class="callout bad">
+  <span class="t">🚨 루프마다 반드시 함께 세야 하는 두 숫자</span>
+  <ol style="margin:8px 0 0">
+    <li>재시도로 <b>뒤집힌 건수</b> (<code>result_changed</code> 와 같은 패턴)</li>
+    <li>그중 <b>정답지 기준 개선 / 악화</b> 건수</li>
+  </ol>
+  <p style="margin:10px 0 0">
+  이 둘이 갈라져 있지 않으면 루프는 오판을 지우는 게 아니라 <b>오판을 그럴듯하게 만든다.</b>
+  </p>
+</div>
+
+<p>
+이건 새로운 교훈이 아니다. <b>이미 한 번 겪었다.</b>
+Acceptance Gate <code>enforce</code> 를 검토했을 때, 지표(<code>unsafe_match_rate</code> 0.88)만
+보면 켜야 할 것 같았지만 실제 순증가는 2건이었고, 그 2건을 <b>열어 보니 둘 다 올바른 match</b> 였다.
+켰다면 정상 판정 2건을 LLM 에 보내 <code>unknown</code> 으로 뒤집을 위험만 만들었을 것이다.
+</p>
+
+<div class="callout">
+  <span class="t">💡 그때 배운 것을 루프에 그대로 적용하면</span>
+  <b>건수가 늘었다는 사실만으로 좋아졌다고 하지 않는다. 표본을 열어 본다.</b>
+  루프를 켰을 때 <span class="v v-none">⚪</span> 가 76건에서 40건으로 줄었다면,
+  줄어든 36건 중 <b>몇 건이 정말 맞는 연결이었는지</b> 골든셋으로 확인해야 한다.
+  36건이 전부 오연결이었다면 루프는 상황을 악화시킨 것이다.
+</div>
+
+<div class="qmemo" data-qid="risk-loop-plausibility" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"루프가 오판을 그럴듯하게 만든다"에 대해 궁금하거나 반박하고 싶은 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="quiz">11. 이해도 점검 퀴즈</h2>
+
+<p>다섯 문제다. 답을 고르면 바로 채점되고 해설이 나온다.</p>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q1. 이 파이프라인을 에이전트로 만들 때 <b>가장 먼저</b> 해야 할 일은?</div>
+  <button class="opt">LLM 에게 파일 읽기·쓰기 툴을 여러 개 쥐어준다</button>
+  <button class="opt">근거 검증 임계값(0.8)을 낮춰 루프가 통과하기 쉽게 만든다</button>
+  <button class="opt">코드는 그대로 두고 오케스트레이션만 상태 그래프로 재기술해 동작 동일함을 확인한다</button>
+  <button class="opt">리포트 전체를 보고 자기 비평하는 전역 루프부터 만든다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q2. "재시도 루프"와 "교정 루프"를 가르는 결정적 차이는?</div>
+  <button class="opt">반복 횟수의 상한이 있는지 여부</button>
+  <button class="opt">되돌아갈 때 <b>입력을 다르게 만드는지</b> 여부 (credit assignment)</button>
+  <button class="opt">LLM 모델을 더 큰 것으로 바꾸는지 여부</button>
+  <button class="opt">검증기를 쓰는지 여부</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="4">
+  <div class="q">Q3. 에이전트에게 <code>knowledge/ontology.yaml</code> 쓰기 권한을 주면 안 되는 이유는?</div>
+  <button class="opt">YAML 문법을 LLM 이 자주 틀리기 때문에</button>
+  <button class="opt">파일이 커지면 프롬프트 토큰이 늘어나기 때문에</button>
+  <button class="opt">동시 쓰기 충돌이 발생할 수 있기 때문에</button>
+  <button class="opt">온톨로지 승격은 LLM 판정과 근거 검증을 <b>건너뛰고 영구 적용</b>되므로, 에이전트가 자기 게이트를 우회하는 길이 되기 때문에</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q4. 근거 재인용 루프(F4b)를 첫 타자로 고른 이유로 <b>가장 약한</b> 것은?</div>
+  <button class="opt">LLM 호출을 줄여 비용을 절감할 수 있어서</button>
+  <button class="opt">트리거가 명확해서 (<code>rejected_by == "evidence"</code>)</button>
+  <button class="opt">검증기(<code>verify_evidence</code>)가 이미 있어서</button>
+  <button class="opt">측정할 정답지(spec_en 골든셋 104건)가 있어서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q5. 루프를 켰더니 <span class="v v-none">⚪ 대상에 없음</span> 이 76건 → 40건으로 줄었다. 무엇을 확인해야 하나?</div>
+  <button class="opt">아무것도. 36건이 줄었으니 명백한 개선이다</button>
+  <button class="opt">LLM 호출이 몇 배 늘었는지만 확인하면 된다</button>
+  <button class="opt">줄어든 36건 중 <b>정답지 기준으로 몇 건이 실제로 맞는 연결</b>이었는지 — 전부 오연결이면 악화다</button>
+  <button class="opt">리포트 렌더링 시간이 늘지 않았는지 확인한다</button>
+  <div class="fb"></div>
+</div>
+
+<!-- ================================================================= -->
+<h2 id="wrap">12. 한 문단 요약</h2>
+
+<p>
+이 파이프라인은 에이전트로 만들 수 있다. 다만 그 작업의 본질은
+<b>툴을 쥐어주는 게 아니라, 이미 만들어 둔 계측을 종료 조건으로 승격시키는 일</b>이다.
+<code>missing_trace</code> 의 원인 6분류는 그대로 루프 정책이 되고,
+<code>artifacts/*.fingerprint</code> 는 그대로 체크포인터가 되고,
+골든셋 131건은 그대로 평가 하네스가 된다. 새로 만들어야 하는 것은
+<b>조건부 엣지 하나</b>뿐이다. 그리고 그 과정에서 지켜야 할 선은 이미 이 저장소가 정해 놨다 —
+<b>제안은 LLM, 차단은 코드, 영구 확정은 사람.</b>
+루프는 이 비대칭을 푸는 장치가 아니라, 비대칭을 유지한 채 LLM 에게
+<b>제대로 답할 기회를 한 번 더 주는 장치</b>여야 한다.
+그 구분을 놓치는 순간 루프는 정확도가 아니라 통과율을 올리기 시작하고,
+그때부터는 오판이 사라지는 게 아니라 그럴듯해진다.
+</p>
+
+<div class="qmemo" data-qid="wrap-final" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">전체를 읽고 남은 질문, 혹은 "이걸 실제로 시작하려면?" 같은 질문을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="small" style="margin-top:40px">
+관련 문서 —
+<a href="2026-08-14-explanation-missing-and-same-as.html">missing 은 어떻게 정해지는가</a>(이 글의 전제가 되는 판정 경로) ·
+<code>docs/FACT_PIPELINE_PLAN.md</code>(F4b 가 미구현으로 남아 있는 계획) ·
+<code>docs/FACT_F3_5_LIVE_REPORT.md</code> §7·§9(F4b 관측된 실패 모드 · 골든셋 정확도 추이) ·
+<code>docs/FACT_F7_DESIGN.md</code>(비대칭 권한 원칙) ·
+<code>docs/superpowers/specs/2026-08-10-fact-acceptance-gate-phase1.md</code>(enforce 를 켜지 않은 판단)
+</p>
+
+</div>
+
+<!-- uh-nav:bottom:start -->
+<div class="uh-nav uh-bottom"><div class="uh-row"><a href="index.html">← 전체 목차로</a></div><div class="uh-row uh-pn"><a href="2026-08-13-explanation-run-stats-anatomy-followup.html">◀ 이전 · missing 76건은 정상인가</a></div><div class="uh-row uh-rel">관련 · <a href="2026-08-14-explanation-missing-and-same-as.html">⚪ 대상에 없음 은 어떻게 정해지는가</a> · <a href="2026-08-13-explanation-run-stats-anatomy.html">실행 통계 읽는 법</a> · <a href="2026-08-17-explanation-why-missing-explainability.html">왜 AI는 ‘틀렸는지’ 말할 수 있어야 하는가</a></div></div>
+<!-- uh-nav:bottom:end -->
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-14-explanation-pipeline-to-agent.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-14-explanation-pipeline-to-agent.html';
+  });
+})();
+
+(function () {
+  var FB = {
+    1: {
+      good: '맞습니다. 0단계의 목적은 "아무것도 좋아지지 않는 것"을 확인하는 겁니다 — 골든셋 정확도와 run_stats 숫자가 그대로여야 재기술 과정에서 아무것도 흘리지 않은 것입니다. 이 기준선 없이 루프를 넣으면 나중에 변화가 루프 덕인지 재기술 부작용인지 구분할 수 없습니다.',
+      bad: '아닙니다. 툴을 늘리면 검증 부담이 먼저 늘고, 임계값을 낮추면 루프가 정확도 대신 통과율을 올리게 되며, 전역 루프는 귀속이 가장 어려워 마지막에 와야 합니다. 먼저 할 일은 동작을 바꾸지 않는 재기술로 기준선을 잡는 것입니다.'
+    },
+    2: {
+      good: '정확합니다. 같은 입력으로 다시 물으면 출력 분포도 같으므로, 통과했다면 고쳐진 게 아니라 주사위가 다르게 나온 것뿐입니다. 교정 루프는 실패한 인용과 실제 원문을 함께 보여주거나, 쿼리를 변형하거나, 배치를 쪼개는 식으로 입력 자체를 바꿉니다.',
+      bad: '아닙니다. 상한이 있어도 입력이 같으면 재시도이고, 모델을 키우는 건 루프와 별개이며, 검증기는 양쪽 다 씁니다. 결정적 차이는 되돌아갈 때 무엇을 다르게 하느냐 — credit assignment 입니다.'
+    },
+    3: {
+      good: '맞습니다. resolve_known() 이 온톨로지를 최우선으로 읽고, 승격된 관계는 LLM 판정도 근거 검증도 거치지 않고 영구 적용됩니다. concept_assembler._demote() 의 주석이 이미 "사람이 거부된 주장을 믿고 승격하면 게이트를 우회한다"고 경계하는데, 에이전트는 그걸 훨씬 빠르고 많이 할 수 있습니다. 대안은 제안 큐입니다.',
+      bad: '아닙니다. 문법이나 토큰, 동시성은 부차적입니다. 핵심은 권한입니다 — 온톨로지는 검증 단계를 통째로 건너뛰는 통로라, 여기에 쓰기를 허용하면 에이전트가 자기 검증을 무력화할 수 있습니다.'
+    },
+    4: {
+      good: '정확합니다. 이 루프는 비용을 줄이지 않고 늘립니다 — 지금은 거부된 엣지를 그냥 unknown 으로 두고 끝내지만, 루프는 거기에 LLM 호출을 추가합니다. 첫 타자로 고른 이유는 비용이 아니라 트리거·종료조건·검증기·정답지가 모두 갖춰져 있어 "이득인지"를 싸게 판정할 수 있기 때문입니다.',
+      bad: '아닙니다. 나머지 셋은 실제 선정 이유입니다. 비용 절감은 이유가 아닙니다 — 오히려 지금 그냥 강등하고 끝내던 17건에 LLM 호출을 추가하므로 비용은 늘어납니다. (Acceptance Gate 도 같은 성격이라 기본값이 shadow 였습니다.)'
+    },
+    5: {
+      good: '맞습니다. 건수 감소만으로는 개선인지 알 수 없습니다. 줄어든 36건이 전부 오연결이었다면 루프는 상황을 악화시킨 것입니다. enforce 검토 때 순증가 2건을 열어 보니 둘 다 올바른 match 였던 경험이 정확히 이 교훈입니다 — 표본을 열어 봐야 합니다.',
+      bad: '아닙니다. 숫자가 줄었다는 사실 자체는 방향을 말해 주지 않습니다. 루프는 "맞는 연결을 되살릴" 수도 있고 "틀린 연결을 통과시킬" 수도 있으며 둘 다 ⚪ 를 줄입니다. 골든셋으로 개선/악화를 갈라 세야 합니다.'
+    }
+  };
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = quiz.querySelectorAll('.opt');
+    var fb = quiz.querySelector('.fb');
+    opts.forEach(function (opt, i) {
+      opt.addEventListener('click', function () {
+        if (quiz.dataset.done) return;
+        quiz.dataset.done = '1';
+        var ok = (i + 1) === answer;
+        opts.forEach(function (o, j) {
+          o.classList.add('locked');
+          if ((j + 1) === answer) o.classList.add('correct');
+          else if (j === i) o.classList.add('wrong');
+        });
+        var msg = FB[qi + 1];
+        fb.textContent = (ok ? '✅ 정답입니다. ' : '❌ 아쉽네요. ') + (ok ? msg.good : msg.bad);
+        fb.className = 'fb show ' + (ok ? 'good' : 'bad');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

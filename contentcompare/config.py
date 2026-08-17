@@ -309,6 +309,24 @@ class KnowledgeConfig:
 
 
 @dataclass
+class FastPathConfig:
+    """F5 Acceptance Gate — 코드 판정 ``match`` 를 믿어도 되는지 채점한다.
+
+    기본값이 shadow(``enforce=False``)인 것은 게이트가 LLM 호출을 **늘리기**
+    때문이다. 오늘도 코드 ``match`` 는 LLM 을 안 부르므로(``fact_comparator``
+    ``finalize()``), 게이트의 실제 효과는 지금까지 조용히 확정되던 unsafe match 를
+    LLM 으로 보내는 것이다. 얼마나 늘어날지는 ``unsafe_match_rate`` 를 실측하기
+    전에는 알 수 없고, 모르는 채로 켜면 비용 회귀를 게이트 탓으로 돌리지 못한다.
+    """
+
+    enabled: bool = True
+    """게이트 채점과 계측. False 면 게이트를 실행하지 않는다(도입 전과 동일)."""
+
+    enforce: bool = False
+    """True 면 게이트가 거부한 code ``match`` 를 LLM 판정으로 강등한다."""
+
+
+@dataclass
 class FactConfig:
     """신규 fact 파이프라인 설정(엔진=fact 일 때만 사용). 현행 RAG 와 무관.
 
@@ -324,8 +342,13 @@ class FactConfig:
     cache: bool = True
     """단계별 산출물 캐싱(같은 입력이면 재계산/재호출 0 — 결정 #2)."""
 
-    max_llm_calls_per_doc: int = 50
-    """문서당 LLM 호출 예산(결정 #2). F1+ 단계에서 사용."""
+    max_llm_calls_per_doc: int = 500
+    """문서당 LLM 호출 예산(결정 #2). F1+ 단계에서 사용.
+
+    이 값들은 **비용 목표가 아니라 폭주 방지선**이다. 실제 비용은 문서 크기가 정하고,
+    분당 한도는 ``llm.max_calls_per_minute`` 이 따로 막는다. 낮게 잡으면 큰 문서에서
+    조용히 고갈돼 뒤쪽 항목이 통째로 보류되는데, 그건 절약이 아니라 **결과 손실**이다.
+    """
 
     record_batch_rows: int = 30
     """F2 Record Normalizer 의 행 배치 크기(한 LLM 호출당 처리 행 수)."""
@@ -354,15 +377,37 @@ class FactConfig:
     compare_use_llm: bool = True
     """False 면 코드 결정적 판정만 한다(애매한 건 전부 ``unknown``). 재현성·비용 우선일 때."""
 
-    max_llm_calls_per_compare: int = 100
-    """비교 단계 전체의 LLM 호출 예산(문서 처리 예산과 별도)."""
+    max_llm_calls_per_compare: int = 1000
+    """비교 단계 전체의 LLM 호출 예산(문서 처리 예산과 별도).
+
+    소요량은 대략 ``애매한 기준 항목 수 × 대상 문서 수`` 다. 1:N 판정(후보 2건 이상은
+    무조건 LLM)이 들어오면서 소요가 늘었으므로 여유를 크게 둔다 — 고갈되면 그 시점
+    이후가 전부 ``unknown`` 이 되고, 리포트가 🚨 경고로 그것을 알린다.
+    """
 
     # --- F7 개념 그래프 ------------------------------------------------- #
     use_concept_graph: bool = True
     """False 면 F5 가 기존 유사도 매칭으로 동작한다(롤백 스위치)."""
 
-    concept_recall_top_k: int = 5
-    """기준 fact 당 개념 판정에 올릴 후보 수."""
+    concept_recall_top_k: int = 10
+    """기준 fact 당 개념 판정에 올릴 후보 수.
+
+    **5 는 "한 기준 항목의 진짜 짝 후보가 5개 이하"라는 가정이었고, 규격표에서 그
+    가정은 자주 깨진다.** 한 항목이 조건별로 쪼개지면(충전 온도 4~5구간, 온도별
+    충전전류…) 형제 fact 만으로 자리가 다 차고, 거기에 다른 온도·전류 항목까지 같은
+    자리를 두고 경쟁한다. 실측에서 정답 후보가 6위로 밀려 ``cut_by: top_k`` 로
+    탈락했고, 그 기준 항목은 비교 자체가 일어나지 않아 ``missing`` 이 됐다.
+
+    올려도 정확도 위험이 낮은 이유는 이 값이 **판정이 아니라 recall** 이기 때문이다
+    (:attr:`concept_recall_min` 주석과 같은 근거). 후보가 늘어도 연결은 여전히 LLM
+    제안 → 코드 인용 검증 → ``differs_by`` 병합 차단을 거친다. 반대로 작게 잡아
+    놓치면 리포트에 "대상에 없다"는 **확신에 찬 거짓**이 실린다 — 실패 방향이
+    비대칭이라 넉넉한 쪽이 안전하다.
+
+    대가는 LLM 호출이다(:attr:`max_llm_calls_per_concept` 참고). ⚠️ 정규화 이름이
+    완전히 일치하면 :meth:`FactMatcher.search` 가 **조기 종료로 1건만** 돌려주므로,
+    같은 언어 문서쌍에서는 이 값을 올려도 후보가 늘지 않는다.
+    """
 
     concept_recall_min: float = 0.3
     """후보 생성 최소 유사도. **판정이 아니라 계산량 제한**이라 느슨해도 안전하다.
@@ -374,11 +419,20 @@ class FactConfig:
     concept_batch_pairs: int = 20
     """한 LLM 호출당 판정할 쌍 수."""
 
-    max_llm_calls_per_concept: int = 30
-    """개념 단계 LLM 호출 예산(문서 처리·비교 예산과 별도)."""
+    max_llm_calls_per_concept: int = 300
+    """개념 단계 LLM 호출 예산(문서 처리·비교 예산과 별도).
+
+    소요량은 ``기준 fact 수 × concept_recall_top_k ÷ concept_batch_pairs`` 로 커진다 —
+    200행 문서에 기본값(top_k 10 · batch 20)이면 100회다. 뒤집으면 이 예산은 기준
+    fact **600개**까지 감당한다. 여기서 고갈되면 남은 쌍이 ``unknown`` → 연결 없음 →
+    **전 항목 ``missing``** 으로 귀결돼 피해가 가장 크다.
+    """
 
     ontology_path: str = "knowledge/ontology.yaml"
     """사람이 승격한 개념 관계 파일. 없으면 빈 온톨로지로 시작한다."""
+
+    # --- Fast Path 게이트(Phase 1) ---------------------------------------- #
+    fast_path: FastPathConfig = field(default_factory=FastPathConfig)
 
     # --- 진단 계측(디버깅 뷰어 입력) ------------------------------------- #
     # ``missing`` 판정의 원인은 여섯 가지인데(recall 실패·LLM 미판정·근거 게이트 강등·
@@ -443,13 +497,16 @@ class AppConfig:
         internal = InternalConfig(**llm_raw.pop("internal", {}) or {})
         langfuse = LangfuseConfig(**llm_raw.pop("langfuse", {}) or {})
         llm = LLMConfig(ollama=ollama, internal=internal, langfuse=langfuse, **llm_raw)
+        # fact 도 중첩 섹션을 갖는다 — pop 하지 않으면 dict 인 채로 필드에 박힌다.
+        fact_raw = dict(data.get("fact", {}) or {})
+        fast_path = FastPathConfig(**fact_raw.pop("fast_path", {}) or {})
         return cls(
             llm=llm,
             excel=ExcelConfig(**data.get("excel", {}) or {}),
             similarity=SimilarityConfig(**data.get("similarity", {}) or {}),
             report=ReportConfig(**data.get("report", {}) or {}),
             knowledge=KnowledgeConfig(**data.get("knowledge", {}) or {}),
-            fact=FactConfig(**data.get("fact", {}) or {}),
+            fact=FactConfig(fast_path=fast_path, **fact_raw),
             logging=LoggingConfig(**data.get("logging", {}) or {}),
         )
 

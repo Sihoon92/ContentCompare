@@ -33,7 +33,8 @@ from ..llm.tracing import stage
 from ..raw import compact_raw, extract_raw
 from ..readers import close_all_office
 from .artifacts import ArtifactStore
-from .fact_comparator import FactComparator, FactComparison
+from .fact_comparator import MATCH, UNKNOWN, FactComparator, FactComparison
+from .review_router import AcceptanceGate, gate_stats
 from .fact_extractor import build_facts_by_block, extract_facts
 from .fact_matcher import FactMatcher
 from .fact_models import FactSet
@@ -179,6 +180,7 @@ class FactPipeline:
         ref_doc = store.reference
         assert ref_doc is not None  # store.ready 가 보장
 
+        gate = AcceptanceGate(self.fact.fast_path)
         for target in store.targets:
             matcher = self._matcher_for(graph, ref_doc, target)
             # 후보가 없을 때의 사유는 매칭 전략이 안다(개념 경로 = '연결 없음').
@@ -186,7 +188,7 @@ class FactPipeline:
             with stage(f"F5 값 대조 · {target.doc_name}"):
                 for ref_fact in ref_doc.facts.facts:
                     candidates = matcher.search(ref_fact)
-                    result.comparisons.append(comparator.compare(
+                    probe = comparator.compare_code(
                         ref_fact,
                         candidates,
                         target,
@@ -194,14 +196,36 @@ class FactPipeline:
                         missing_reason=(
                             "" if candidates or explain is None else explain(ref_fact)
                         ),
-                    ))
+                    )
+                    reasons = gate.evaluate(probe)
+                    # 게이트가 거부한 코드 match 만 강등한다. mismatch/unknown 은
+                    # finalize 가 이미 LLM 으로 보내므로 여기서 또 밀 필요가 없다.
+                    unsafe_match = bool(reasons) and probe.code_result == MATCH
+                    comparison = comparator.finalize(
+                        probe, force_llm=gate.enforce and unsafe_match
+                    )
+                    comparison.initial_result = probe.code_result or UNKNOWN
+                    comparison.review_triggers = reasons
+                    comparison.attribute_coverage = probe.attribute_coverage
+                    result.comparisons.append(comparison)
 
+        # 1:N 계측 — ``multi_candidate_overridden`` 이 "1:1 축약이 만들던 오판 건수"다.
+        # 0 이면 축약이 애초에 오판을 만들지 않았다는 뜻이므로 그 자체가 유효한 정보다.
+        multi = [c for c in result.comparisons if c.candidate_count >= 2]
         result.compare_stats = {
             "comparisons": len(result.comparisons),
             "decided_by_llm": sum(1 for c in result.comparisons if c.decided_by == "llm"),
             "llm_calls": comparator.llm_calls,
             "llm_failures": comparator.llm_failures,
+            "llm_budget_exceeded": comparator.llm_budget_exceeded,
+            "multi_candidate_comparisons": len(multi),
+            "multi_candidate_overridden": sum(1 for c in multi if c.result_changed),
+            "quote_unverified": comparator.quote_unverified,
+            "dropped_findings": comparator.dropped_findings,
             "concept": dict(graph.stats) if graph is not None else {},
+            # 게이트가 꺼져 있으면 키를 아예 넣지 않는다 — 0 으로 채우면
+            # "게이트가 아무것도 안 잡았다"로 오독된다.
+            **(gate_stats(result.comparisons) if self.fact.fast_path.enabled else {}),
         }
         self._save_comparison(ref_doc, result)
         # 지연 import — report 패키지가 fact 결과 모델을 참조하므로 모듈 최상단에서
@@ -378,14 +402,18 @@ class FactPipeline:
                         compact, profile=profile, runner=runner,
                         store=store, batch_blocks=self.fact.fact_batch_blocks,
                         stats=fact_stats,
+                        lines_by_block=raw_obj.to_dict(),
                     )
             stages.append("facts")
 
             # 블록 ↔ fact 매핑(진단). 추출 결과에서 역산하므로 캐시 히트에도 남는다.
+            # physical_raw 를 함께 넘겨 **줄 단위** 커버리지까지 낸다 — 블록 단위만
+            # 보면 한 문단에 조건이 넷인데 첫 줄만 인용해도 cited 로 보인다(§12.3).
             if self.fact.save_facts_by_block:
                 try:
-                    store.save("facts_by_block",
-                               build_facts_by_block(compact, facts, fact_stats))
+                    store.save("facts_by_block", build_facts_by_block(
+                        compact, facts, fact_stats, lines_by_block=raw_obj.to_dict(),
+                    ))
                 except OSError:
                     logger.warning("[Fact] facts_by_block 저장 실패: %s", path)
 

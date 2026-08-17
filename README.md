@@ -10,6 +10,7 @@ LLM 으로 분석·서술해 주는 에이전트 서비스입니다.
 > 단계별 진행 현황은 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md), 사용법은
 > [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) 참고.
 > 차세대(fact 기반) 비교 방식 구현 계획은 [`docs/FACT_PIPELINE_PLAN.md`](docs/FACT_PIPELINE_PLAN.md) 참고(현행 방식과 비교·공존).
+> 설계 결정과 사건의 사후 설명(왜 그렇게 됐는가)은 [`docs/understanding/`](docs/understanding/README.md) 참고 — 전체 흐름은 `docs/understanding/index.html` 을 브라우저로 열면 된다.
 
 ## 핵심 설계 포인트 (기획 대응)
 

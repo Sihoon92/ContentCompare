@@ -35,9 +35,41 @@ def test_system_prompt_requires_quotes_for_same_as():
     assert "인용" in CONCEPT_SYSTEM
 
 
-def test_system_prompt_does_not_fix_axis_vocabulary():
-    """축 이름은 도메인마다 다르므로 목록을 고정하지 않는다."""
-    assert "정해진 목록은 없" in CONCEPT_SYSTEM
+def test_system_prompt_forbids_notation_difference_as_axis():
+    """표기 차이(단일값 ↔ 범위)는 differs_by 사유가 아니다.
+
+    원칙 1 은 "값이 다르다"만 금지했는데, LLM 이 같은 추론을 "측정 대상이 다르다"로
+    바꿔 말해 빠져나갔다(실측: 중량 ↔ Weight Range 를 '서로 다른 물리량'으로 차단,
+    12b 에서도 재현). 그 구멍을 막는 문단이 있어야 한다.
+    """
+    assert "표기" in CONCEPT_SYSTEM
+    assert "min/typ/max" in CONCEPT_SYSTEM
+    # 정보량 차이도 개념 차이가 아니라는 단서
+    assert "정보량" in CONCEPT_SYSTEM
+
+
+def test_system_prompt_fixes_axis_vocabulary():
+    """축 이름을 고정 4종으로 제한한다 — 자유 서술을 뒤집은 결정.
+
+    예전에는 "정해진 목록은 없습니다 — 이름을 지으세요"였다. 실측에서 differs_by
+    767건에 축 이름이 46종류 난립했고(측정대상/측정 대상/측정물/측정물리량/측정항목…
+    같은 말이 20종), 이는 LLM 이 차단을 먼저 정하고 이유를 지어낸다는 신호였다.
+    """
+    for axis in ("대상", "조건", "기간", "방식"):
+        assert axis in CONCEPT_SYSTEM
+    # 자유 서술 허용 문구는 사라져야 한다
+    assert "정해진 목록은 없" not in CONCEPT_SYSTEM
+
+
+def test_system_prompt_requires_both_sides_on_axis():
+    """축 위에서 왼쪽·오른쪽이 각각 무엇인지 적게 한다.
+
+    축 이름만 요구하면 지어내기가 공짜다. 양쪽 값을 적게 하면 표기 차이가 스스로
+    드러나 규칙 A 에 걸린다 — 이것이 고정 목록의 실효를 만드는 장치다.
+    """
+    assert "vs" in CONCEPT_SYSTEM
+    # 양쪽 값을 못 적으면 differs_by 가 아니라 unknown 이라는 탈출구 지정
+    assert "적을 수 없으면" in CONCEPT_SYSTEM
 
 
 def test_user_prompt_contains_both_facts_and_ids():
