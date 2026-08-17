@@ -159,7 +159,8 @@ CATALOG = [
       "`same_as` 에서 `findings` 까지 판정 경로 전체. 이 계층의 정본.",
       "compare", "deep",
       related=["2026-08-05-explanation-ontology-concept-graph.html",
-               "2026-08-13-explanation-run-stats-anatomy-followup.html"]),
+               "2026-08-13-explanation-run-stats-anatomy-followup.html",
+               "2026-08-17-explanation-why-missing-explainability.html"]),
     D("2026-08-10-explanation-fact-acceptance-gate.html",
       "Acceptance Gate — 코드의 '일치' 판정을 믿어도 되는가",
       "조용한 오판을 막는 라우팅 게이트 7규칙과, 왜 기본값이 shadow 인가.",
@@ -191,6 +192,13 @@ CATALOG = [
       "실행이 남기는 JSON 산출물 지도, 그리고 '왜 LLM 위임이 2건뿐인가'.",
       "ops", "deep",
       related=["2026-08-13-explanation-run-stats-anatomy.html"]),
+    D("2026-08-17-explanation-why-missing-explainability.html",
+      "왜 AI는 ‘틀렸는지’ 말할 수 있어야 하는가",
+      "why_missing.py 를 판단 블랙박스 판독기·교정 라우터로 읽는 설명 가능성 전략.",
+      "ops", "deep",
+      related=["2026-08-14-explanation-missing-and-same-as.html",
+               "2026-08-14-explanation-pipeline-to-agent.html",
+               "2026-08-05-explanation-fact-pipeline-artifacts.html"]),
     D("2026-08-13-explanation-run-stats-anatomy.html",
       "실행 통계 읽는 법",
       "run stats 의 스무 개 숫자가 각각 무엇을 분모로 무엇을 세는가.",
@@ -207,7 +215,8 @@ CATALOG = [
       "루프 · 그래프 엔지니어링 · 권한 경계, 그리고 무엇이 중요한 역량인가.",
       "strategy", "strategy",
       related=["2026-08-14-explanation-missing-and-same-as.html",
-               "2026-08-13-explanation-run-stats-anatomy.html"]),
+               "2026-08-13-explanation-run-stats-anatomy.html",
+               "2026-08-17-explanation-why-missing-explainability.html"]),
 ]
 
 BY_FILE = {d["file"]: d for d in CATALOG}
@@ -371,7 +380,8 @@ def inject(entry, source: str, eol: str) -> str:
 SYMPTOMS = [
     ("<span class='v v-none'>⚪ 대상에 없음</span> 이 너무 많다",
      "후보가 아예 없었는지, 후보는 있었는데 LLM 이 없다고 했는지부터 가른다.",
-     ["2026-08-14-explanation-missing-and-same-as.html",
+     ["2026-08-17-explanation-why-missing-explainability.html",
+      "2026-08-14-explanation-missing-and-same-as.html",
       "2026-08-13-explanation-run-stats-anatomy-followup.html",
       "2026-08-06-explanation-cross-language-recall-bottleneck.html"]),
     ("영어(외국어) 문서에서 매칭이 안 된다",
@@ -417,6 +427,7 @@ PATHS = [
      ["2026-08-13-explanation-run-stats-anatomy.html",
       "2026-08-13-explanation-run-stats-anatomy-followup.html",
       "2026-08-14-explanation-missing-and-same-as.html",
+      "2026-08-17-explanation-why-missing-explainability.html",
       "2026-08-05-explanation-fact-pipeline-artifacts.html"]),
     ("왜 이렇게 설계했나", "#6a1b9a",
      "결정과 그 근거를 시간 순으로.",
@@ -488,8 +499,10 @@ def build_index() -> str:
         rows.append(f"<tr><td><b>{symptom}</b><div class='sn'>{note}</div></td>"
                     f"<td>{links}</td></tr>")
 
-    return head + "\n".join(body) + _INDEX_PATHS_OPEN + "".join(paths) \
+    html = head + "\n".join(body) + _INDEX_PATHS_OPEN + "".join(paths) \
         + _INDEX_SYMPTOM_OPEN + "".join(rows) + _INDEX_TAIL
+    # 편수는 카탈로그에서 파생한다 — 문서를 추가하고 숫자를 못 고치는 일을 없앤다.
+    return html.replace("{{N}}", str(len(CATALOG)))
 
 
 def _md_inline(text: str) -> str:
@@ -697,7 +710,7 @@ _INDEX_HEAD = """<!doctype html>
 <p class="lede">
 이 폴더는 <b>무엇이 왜 그렇게 됐는가</b>를 남기는 곳이다.
 <code>docs/FACT_*_DESIGN.md</code> 가 "무엇을 만들 것인가"라면, 여기는 그 결과 실제로 무슨 일이
-벌어졌고 어디서 어긋났는지를 사후에 설명한다. 지금 19편이 있다.
+벌어졌고 어디서 어긋났는지를 사후에 설명한다. 지금 {{N}}편이 있다.
 </p>
 
 <h2 id="what">30초 요약 <span class="tag">이 시스템은 무엇을 하는가</span></h2>
@@ -796,7 +809,7 @@ _INDEX_HEAD = """<!doctype html>
 _INDEX_PATHS_OPEN = """
 <h2 id="paths">읽기 경로 <span class="tag">목적에 따라 골라 읽기</span></h2>
 
-<p>19편을 순서대로 읽을 필요는 없다. 무엇을 하려는지에 따라 세 갈래를 권한다.</p>
+<p>{{N}}편을 순서대로 읽을 필요는 없다. 무엇을 하려는지에 따라 세 갈래를 권한다.</p>
 
 <div class="paths">
 """

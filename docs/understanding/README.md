@@ -76,6 +76,8 @@
 
 - [fact 파이프라인 해부 — 생성되는 파일들](2026-08-05-explanation-fact-pipeline-artifacts.html)  
   실행이 남기는 JSON 산출물 지도, 그리고 '왜 LLM 위임이 2건뿐인가'. <sub>심화 · 2026-08-05</sub>
+- [왜 AI는 ‘틀렸는지’ 말할 수 있어야 하는가](2026-08-17-explanation-why-missing-explainability.html)  
+  why_missing.py 를 판단 블랙박스 판독기·교정 라우터로 읽는 설명 가능성 전략. <sub>심화 · 2026-08-17</sub>
 - [실행 통계 읽는 법](2026-08-13-explanation-run-stats-anatomy.html)  
   run stats 의 스무 개 숫자가 각각 무엇을 분모로 무엇을 세는가. <sub>심화 · 2026-08-13</sub>
 - [missing 76건은 정상인가](2026-08-13-explanation-run-stats-anatomy-followup.html)  
@@ -102,7 +104,8 @@
 1. [실행 통계 읽는 법](2026-08-13-explanation-run-stats-anatomy.html)
 2. [missing 76건은 정상인가](2026-08-13-explanation-run-stats-anatomy-followup.html)
 3. [⚪ 대상에 없음 은 어떻게 정해지는가](2026-08-14-explanation-missing-and-same-as.html)
-4. [fact 파이프라인 해부 — 생성되는 파일들](2026-08-05-explanation-fact-pipeline-artifacts.html)
+4. [왜 AI는 ‘틀렸는지’ 말할 수 있어야 하는가](2026-08-17-explanation-why-missing-explainability.html)
+5. [fact 파이프라인 해부 — 생성되는 파일들](2026-08-05-explanation-fact-pipeline-artifacts.html)
 
 **왜 이렇게 설계했나** — 결정과 그 근거를 시간 순으로.
 
