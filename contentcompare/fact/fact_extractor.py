@@ -18,6 +18,12 @@ from .fact_types import FT_DESCRIPTIVE, FT_QUALITATIVE, FT_QUANTITATIVE
 from .llm_stage import fingerprint_for
 from .prompts import FACT_SYSTEM, FACT_VERSION, build_fact_user
 from .record_models import RecordSet
+from .validator import _NUM_RE  # 수치 판정을 numeric_coverage 와 한 곳에 묶는다
+
+
+# search_text 보강 모드. config 의 ``fact.search_text_augment`` 가 그대로 들어온다.
+OFF, NUMBERS, FULL = "off", "numbers", "full"
+AUGMENT_MODES = (OFF, NUMBERS, FULL)
 
 
 def extract_facts(
@@ -30,6 +36,7 @@ def extract_facts(
     batch_blocks: int = 20,
     stats: Optional[dict] = None,
     lines_by_block: Optional[dict] = None,
+    search_text_augment: str = OFF,
 ) -> FactSet:
     """compact(+records) → ``FactSet``. doc_type 으로 Excel(코드)/Word·PPT(LLM) 분기.
 
@@ -51,22 +58,24 @@ def extract_facts(
 
         def compute() -> dict:
             computed["ran"] = True
-            return _facts_from_records(rs).to_dict()
+            return _facts_from_records(rs, search_text_augment).to_dict()
 
-        fp = fingerprint_for(json.dumps(rs.to_dict(), ensure_ascii=False)) if store else None
+        payload = json.dumps(rs.to_dict(), ensure_ascii=False) + _augment_key(search_text_augment)
+        fp = fingerprint_for(payload) if store else None
     else:
 
         def compute() -> dict:
             computed["ran"] = True
             return _facts_from_blocks(
                 compact, profile, runner, batch_blocks, drops,
-                lines_by_block=lines_by_block,
+                lines_by_block=lines_by_block, augment=search_text_augment,
             ).to_dict()
 
         lines_payload = _lines_index(lines_by_block)
         payload = json.dumps(compact, ensure_ascii=False)
         if lines_payload:
             payload += json.dumps(lines_payload, ensure_ascii=False, sort_keys=True)
+        payload += _augment_key(search_text_augment)
         fp = fingerprint_for(payload, FACT_VERSION) if store else None
 
     if store is not None:
@@ -86,7 +95,7 @@ def extract_facts(
 # --------------------------------------------------------------------------- #
 # Excel 경로 — records → facts (코드 결정적, 무 LLM)
 # --------------------------------------------------------------------------- #
-def _facts_from_records(records: RecordSet) -> FactSet:
+def _facts_from_records(records: RecordSet, augment: str = OFF) -> FactSet:
     facts: list[Fact] = []
     for rec in records.records:
         entity_name = rec.entity.display_name or (
@@ -101,7 +110,9 @@ def _facts_from_records(records: RecordSet) -> FactSet:
                 entity_name=entity_name,
                 entity_path=list(rec.entity.path),
                 attributes=attrs,
-                search_text=_build_search_text(entity_name, rec.entity.path, attrs),
+                search_text=_build_search_text(
+                    entity_name, rec.entity.path, attrs,
+                    rec.evidence_text, augment),
                 source={"doc_type": "excel", **rec.source.to_dict()},
                 evidence_text=rec.evidence_text,
                 confidence=rec.confidence,
@@ -133,20 +144,68 @@ def _fact_type_of(attrs: dict) -> str:
     return FT_DESCRIPTIVE
 
 
-def _build_search_text(entity_name: str, entity_path, attributes: dict) -> str:
-    """entity + path + 속성 값/단위를 공백 결합(중복 제거). F5 후보 검색용."""
+def _build_search_text(entity_name: str, entity_path, attributes: dict,
+                       evidence_text: str = "", augment: str = OFF) -> str:
+    """entity + path + 속성 값/단위를 공백 결합(중복 제거). F5 후보 검색용.
+
+    ``augment`` 는 **근거 원문으로 이 문자열을 보강할지**를 정한다. 기본 ``off`` 는
+    기존 동작 그대로다.
+
+    보강이 필요한 이유는 이 함수가 원문이 아니라 **속성에서 재조립**하기 때문이다.
+    속성 이름은 넣지 않고 값이 ``None`` 이면 건너뛰므로, F3 가 속성 칸만 만들고 값을
+    채우지 않으면 그 fact 의 검색 문자열에는 **숫자가 하나도 없다**. 같은 표의 옆
+    항목은 값이 채워져 숫자가 들어가므로 순위 경쟁이 조용히 기울어진다(실측: 정답
+    후보가 16위로 밀렸다가 근거 원문을 붙이자 1위).
+
+    ``numbers`` 는 그 구멍만 메우고(수치가 하나도 없는 fact 에 근거의 숫자만),
+    ``full`` 은 근거 전문을 붙인다. 둘을 가른 것은 ``-5~5℃`` 처럼 **값·단위가 붙은
+    형태**가 통째로 살아 있느냐가 검색 정확도를 가르기 때문이다 — ``numbers`` 는 그
+    형태를 ``-5``/``5`` 로 분해한다. 어느 쪽이 이득인지는 데이터마다 다르므로
+    ``scripts/sweep_recall.py`` 로 재고 정할 것.
+
+    ``fact_text`` 의 ``search_text or evidence_text`` 폴백으로는 이 문제를 못 잡는다 —
+    그 폴백은 ``search_text`` 가 **완전히 빈 문자열**일 때만 걸리고, 여기서는 이름과
+    단위가 남아 비어 있지 않다.
+    """
     tokens = [entity_name, *entity_path]
     for a in attributes.values():
         if a.value is not None:
             tokens.append(str(a.value))
         if a.unit:
             tokens.append(a.unit)
+    extra = _augment_tokens(attributes, evidence_text, augment)
+    if extra:
+        tokens.append(extra)
     seen: list[str] = []
     for t in tokens:
         t = str(t).strip()
         if t and t not in seen:
             seen.append(t)
     return " ".join(seen)
+
+
+def _augment_key(augment: str) -> str:
+    """캐시 지문에 섞을 조각. ``off`` 는 빈 문자열이라 **기존 캐시가 그대로 유효**하다.
+
+    이걸 빼먹으면 모드를 바꿔도 ``facts`` 단계가 캐시 히트라 옛 문자열이 그대로 나온다 —
+    실험이 조용히 아무 일도 안 하게 되는 최악의 실패다.
+    """
+    return "" if augment == OFF else f"|search_text_augment={augment}"
+
+
+def _augment_tokens(attributes: dict, evidence_text: str, augment: str) -> str:
+    """보강분 문자열. 모드가 ``off`` 이거나 붙일 것이 없으면 빈 문자열."""
+    if augment == OFF or not evidence_text:
+        return ""
+    if augment == FULL:
+        return evidence_text
+    if augment != NUMBERS:
+        return ""
+    # 수치가 이미 있으면 손대지 않는다 — validator.numeric_coverage 와 같은 판정이다.
+    # 두 곳이 갈리면 "경고는 뜨는데 보강은 안 되는" 짝이 생긴다.
+    if any(_NUM_RE.search(str(a.value)) for a in (attributes or {}).values()):
+        return ""
+    return " ".join(_NUM_RE.findall(evidence_text))
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +219,7 @@ def _facts_from_blocks(
     drops: Optional[dict] = None,
     *,
     lines_by_block: Optional[dict] = None,
+    augment: str = OFF,
 ) -> FactSet:
     doc_type = compact.get("doc_type")
     groups, unit_index = _units_by_group(compact, lines_by_block=lines_by_block)
@@ -192,7 +252,8 @@ def _facts_from_blocks(
             fact.fact_id = f"fact-{doc_type}-{seq}"
             fact.source = _build_source(doc_type, valid_ids, unit_index)
             fact.search_text = _build_search_text(
-                fact.entity_name, fact.entity_path, fact.attributes
+                fact.entity_name, fact.entity_path, fact.attributes,
+                fact.evidence_text, augment,
             )
             inherited += 1 if fact.inherited_from else 0
             facts.append(fact)

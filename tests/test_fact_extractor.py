@@ -509,3 +509,77 @@ def test_facts_inherited_is_counted():
     _facts_from_blocks(compact, None, _Runner(), 20, drops)
 
     assert drops["facts_inherited"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# search_text 보강 (fact.search_text_augment)
+#
+# 재조립된 search_text 는 속성 **값**만 담으므로, F3 가 칸만 만들고 값을 null 로 두면
+# 숫자가 통째로 빠진다. 옆 항목은 값이 채워져 숫자가 들어가므로 순위 경쟁이 기울어진다.
+# --------------------------------------------------------------------------- #
+def _null_valued_records():
+    return RecordSet(
+        records=[
+            Record(
+                record_id="row-9",
+                entity=Entity(display_name="충전온도범위", path=["충전온도범위"]),
+                attributes={"charge_temp_range_1": Attribute(None, "℃"),
+                            "charge_temp_range_2": Attribute(None, "℃")},
+                source=RecordSource(row=9),
+                evidence_text="충전온도범위: -5~5℃, 0.1C(4.55V) 12~15℃, 0.8C(4.55V)",
+            )
+        ]
+    )
+
+
+def test_augment_off_leaves_search_text_without_numbers():
+    fs = extract_facts({"doc_type": "excel"}, records=_null_valued_records())
+    st = fs.facts[0].search_text
+    assert "℃" in st
+    assert "0.1" not in st and "4.55" not in st   # 값이 null 이라 넣을 숫자가 없다
+
+
+def test_augment_numbers_fills_only_the_numeric_gap():
+    fs = extract_facts({"doc_type": "excel"}, records=_null_valued_records(),
+                       search_text_augment="numbers")
+    st = fs.facts[0].search_text
+    assert "0.1" in st and "4.55" in st
+    assert "0.1C(4.55V)" not in st                # 숫자만 — 원문 형태는 오지 않는다
+
+
+def test_augment_full_keeps_the_original_shape():
+    fs = extract_facts({"doc_type": "excel"}, records=_null_valued_records(),
+                       search_text_augment="full")
+    st = fs.facts[0].search_text
+    assert "-5~5℃, 0.1C(4.55V)" in st             # 값·단위가 붙은 형태가 보존된다
+
+
+def test_augment_numbers_skips_facts_that_already_have_values():
+    """이미 수치가 있으면 손대지 않는다 — validator.numeric_coverage 와 같은 판정."""
+    records = RecordSet(
+        records=[
+            Record(
+                record_id="row-4",
+                entity=Entity(display_name="표준환경온도", path=["표준환경온도"]),
+                attributes={"lower_limit": Attribute(21, "℃"), "upper_limit": Attribute(29, "℃")},
+                source=RecordSource(row=4),
+                evidence_text="표준환경온도 21 ~ 29 (중심 25) ℃",
+            )
+        ]
+    )
+    off = extract_facts({"doc_type": "excel"}, records=records).facts[0].search_text
+    num = extract_facts({"doc_type": "excel"}, records=records,
+                        search_text_augment="numbers").facts[0].search_text
+    assert off == num
+    assert "25" not in num          # 중심치는 속성에 없으니 numbers 로도 안 들어온다
+
+
+def test_augment_mode_changes_the_facts_cache_fingerprint(tmp_path):
+    """모드를 바꾸면 재추출돼야 한다 — 지문에 안 섞으면 실험이 조용히 무효가 된다."""
+    records = _null_valued_records()
+    store = ArtifactStore(str(tmp_path), "doc.xlsx")
+    a = extract_facts({"doc_type": "excel"}, records=records, store=store)
+    b = extract_facts({"doc_type": "excel"}, records=records, store=store,
+                      search_text_augment="full")
+    assert "0.1C(4.55V)" not in a.facts[0].search_text
+    assert "0.1C(4.55V)" in b.facts[0].search_text

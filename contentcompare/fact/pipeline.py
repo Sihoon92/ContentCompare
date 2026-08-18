@@ -394,7 +394,10 @@ class FactPipeline:
                     )
                 stages.append("records")
                 # F3: records → facts (코드 결정적, 무 LLM)
-                facts = extract_facts(compact, records=records, store=store, stats=fact_stats)
+                facts = extract_facts(
+                    compact, records=records, store=store, stats=fact_stats,
+                    search_text_augment=self.fact.search_text_augment,
+                )
             else:
                 # F3: Word/PPT 는 블록/도형 → facts 직행 (LLM)
                 with stage(f"F3 facts · {doc_label}"):
@@ -403,6 +406,7 @@ class FactPipeline:
                         store=store, batch_blocks=self.fact.fact_batch_blocks,
                         stats=fact_stats,
                         lines_by_block=raw_obj.to_dict(),
+                        search_text_augment=self.fact.search_text_augment,
                     )
             stages.append("facts")
 
