@@ -38,6 +38,7 @@ from contentcompare.fact.fact_matcher import (  # noqa: E402
     fact_text,
 )
 from contentcompare.fact.fact_models import Fact  # noqa: E402
+from contentcompare.fact.validator import _NUM_RE  # noqa: E402  (수치 판정을 검증기와 일치시킨다)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,6 +55,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=30, help="출력할 상위 건수(기본 30)")
     p.add_argument("--grep", default="",
                    help="이 문자열을 포함하는 대상 fact 를 ◀ 로 표시하고 순위를 따로 알린다")
+    p.add_argument("--augment", choices=("off", "numbers", "full"), default="off",
+                   help="search_text 보강 실험(산출물은 안 바뀜). "
+                        "numbers=수치 없는 fact 에 근거의 숫자만 / full=전 fact 에 근거 전문")
     return p
 
 
@@ -86,15 +90,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"기준 항목을 찾지 못했습니다: {args.entity}")
         return 1
 
+    n_ref = _augment_facts(refs, args.augment)
+    n_tgt = _augment_facts(targets, args.augment)
+
     top_k, min_score = cfg.fact.concept_recall_top_k, cfg.fact.concept_recall_min
     print(f"실행: {snap.label}  |  기준: {snap.reference.doc_name}  |  대상: {target_name}")
     print(f"대상 fact {len(targets)}건 · 설정 top_k={top_k} min_score={min_score}")
-    print("임베딩만 사용합니다(chat 호출 없음). 캐시가 비면 임베더를 한 번 호출합니다.\n")
+    print("임베딩만 사용합니다(chat 호출 없음). 캐시가 비면 임베더를 한 번 호출합니다.")
+    if args.augment != "off":
+        print(f"⚗ search_text 보강 실험 --augment {args.augment} "
+              f"(기준 {n_ref}건 · 대상 {n_tgt}건 변경, 산출물은 그대로)")
+    print()
 
-    matcher = FactMatcher(
-        targets, embedder=_embedder(cfg),
-        top_k=len(targets), min_score=0.0, review_score=0.0,
-    )
+    try:
+        matcher = FactMatcher(
+            targets, embedder=_embedder(cfg),
+            top_k=len(targets), min_score=0.0, review_score=0.0,
+        )
+    except Exception as e:  # noqa: BLE001 — 백엔드 종류마다 예외가 달라 넓게 잡는다
+        # --augment 는 **새 문자열**이라 캐시가 없다. 실행 때와 달리 임베더가 꺼져
+        # 있으면 여기서만 죽는데, 트레이스백만 보면 스크립트 버그로 오해한다.
+        print(f"임베더 호출에 실패했습니다: {type(e).__name__}: {e}")
+        print("  --augment off 는 캐시로 되지만 numbers/full 은 새 문자열이라 "
+              "임베더가 살아 있어야 합니다.")
+        print(f"  설정: backend={cfg.llm.embed_backend or cfg.llm.backend} "
+              f"model={cfg.llm.embed_model}")
+        return 1
     for ref in hits:
         _report(matcher, ref, top_k, min_score, args)
     return 0
@@ -102,6 +123,38 @@ def main(argv: list[str] | None = None) -> int:
 
 def _facts(snap, doc_name: str) -> list[Fact]:
     return [Fact.from_dict(d) for d in snap.facts_of(doc_name).values()]
+
+
+def _augment_facts(facts: list[Fact], mode: str) -> int:
+    """``search_text`` 를 근거 원문으로 보강한다 — **실험용, 산출물은 그대로다.**
+
+    ``_build_search_text`` 는 속성의 **값**만 넣는다. 그래서 F3 가 속성을 만들고도
+    값을 ``null`` 로 두면 그 fact 의 검색 문자열에는 숫자가 하나도 없다 — 같은 표의
+    옆 항목은 값이 채워져 숫자가 들어가므로 순위 경쟁이 불공정해진다.
+
+    ``numbers`` 는 그 구멍만 메운다(수치가 하나도 없는 fact 에 근거의 숫자를 덧붙임).
+    ``full`` 은 전 fact 에 근거 전문을 붙이는 상한 대조군이다 — 길어진 문장이 임베딩을
+    희석해 **더 나빠질 수도** 있어서, 둘을 같이 재야 어느 쪽이 이득인지 알 수 있다.
+    """
+    if mode == "off":
+        return 0
+    changed = 0
+    for f in facts:
+        if not f.evidence_text:
+            continue
+        if mode == "full":
+            extra = f.evidence_text
+        else:
+            has_num = any(_NUM_RE.search(str(a.value))
+                          for a in (f.attributes or {}).values())
+            if has_num:
+                continue
+            extra = " ".join(_NUM_RE.findall(f.evidence_text))
+        if not extra.strip():
+            continue
+        f.search_text = f"{f.search_text} {extra}".strip()
+        changed += 1
+    return changed
 
 
 def _embedder(cfg: AppConfig):
