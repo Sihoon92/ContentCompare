@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>검색 문자열은 원문이 아니다 — search_text 재조립과 임베딩 정확도</title>
+<style>
+  :root{
+    --code:#1565c0; --llm:#e65100; --embed:#00796b; --human:#6a1b9a;
+    --ink:#1a1a1a; --muted:#5f6b7a; --line:#dfe4ea; --bg:#fff; --soft:#f7f9fb;
+    --ok:#2e7d32; --bad:#c62828; --warn:#ef6c00;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+    line-height:1.75;font-size:16.5px;}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 140px;}
+  header.top{border-bottom:3px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  h1{font-size:2em;line-height:1.25;margin:0 0 10px}
+  .sub{color:var(--muted);margin:0;font-size:1.02em}
+  h2{font-size:1.42em;margin:52px 0 14px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:1.13em;margin:30px 0 10px}
+  p{margin:14px 0}
+  code{background:var(--soft);padding:1px 5px;border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;
+    overflow-x:auto;white-space:pre;font-family:"Cascadia Mono",Consolas,monospace;
+    font-size:.86em;line-height:1.6;margin:14px 0}
+  pre .c{color:#7dd3fc}
+  pre .g{color:#86efac}
+  pre .r{color:#fca5a5}
+  pre .m{color:#94a3b8}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:.93em}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600}
+  .tag{display:inline-block;font-size:.68em;padding:2px 8px;border-radius:99px;
+    border:1px solid currentColor;vertical-align:middle;font-weight:600}
+  .t-code{color:var(--code)} .t-llm{color:var(--llm)}
+  .t-embed{color:var(--embed)} .t-human{color:var(--human)}
+  .callout{border-left:4px solid var(--code);background:var(--soft);
+    padding:12px 16px;border-radius:0 8px 8px 0;margin:18px 0}
+  .callout.warn{border-left-color:var(--warn);background:#fff8f0}
+  .callout.bad{border-left-color:var(--bad);background:#fff5f5}
+  .callout.ok{border-left-color:var(--ok);background:#f4faf5}
+  .callout .ct{font-weight:700;display:block;margin-bottom:4px}
+  nav.toc{background:var(--soft);border:1px solid var(--line);border-radius:10px;
+    padding:16px 20px;margin:24px 0}
+  nav.toc ol{margin:8px 0 0;padding-left:22px}
+  nav.toc a{color:var(--code);text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+  figure{margin:22px 0;padding:16px;border:1px solid var(--line);border-radius:10px;
+    background:#fff;overflow-x:auto}
+  figcaption{color:var(--muted);font-size:.88em;margin-top:10px;text-align:center}
+  .strings{display:grid;gap:10px;margin:16px 0}
+  .srow{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .srow .sh{padding:6px 12px;font-weight:700;font-size:.85em;color:#fff}
+  .srow .sb{padding:10px 12px;font-family:"Cascadia Mono",Consolas,monospace;
+    font-size:.83em;white-space:pre-wrap;word-break:break-all;background:var(--soft)}
+  .num{color:var(--bad);font-weight:700}
+  .ranklist{display:grid;gap:3px;font-family:"Cascadia Mono",Consolas,monospace;font-size:.84em}
+  .rk{display:grid;grid-template-columns:38px 66px 1fr;gap:8px;padding:4px 8px;
+    border-radius:5px;background:var(--soft)}
+  .rk.hit{background:#e8f5e9;font-weight:700;outline:2px solid var(--ok)}
+  .rk.cut{opacity:.5}
+  .quiz{border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:18px 0;
+    background:#fff}
+  .quiz .q{font-weight:700;margin-bottom:10px}
+  .opt{display:block;width:100%;text-align:left;padding:9px 12px;margin:6px 0;
+    border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer;
+    font:inherit;font-size:.95em;transition:.12s}
+  .opt:hover{background:var(--soft)}
+  .opt.right{background:#e8f5e9;border-color:var(--ok);font-weight:600}
+  .opt.wrong{background:#ffebee;border-color:var(--bad)}
+  .fb{margin-top:10px;padding:10px 12px;border-radius:7px;font-size:.93em;display:none}
+  .fb.show{display:block}
+  .fb.good{background:#e8f5e9;border-left:3px solid var(--ok)}
+  .fb.bad{background:#ffebee;border-left:3px solid var(--bad)}
+  .qmemo{border:2px dashed #c3ccd8;background:#fcfdfe;border-radius:10px;
+    padding:12px 14px;margin:20px 0}
+  .qmemo[data-status="answered"]{border:2px solid var(--human);background:#faf6fe}
+  .qmemo-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
+  .qmemo-label{font-weight:700;font-size:.82em;color:var(--human)}
+  .qmemo-hint{font-size:.78em;color:var(--muted)}
+  .qmemo-question{min-height:2.1em;padding:8px 10px;border-radius:6px;background:#fff;
+    border:1px solid var(--line);outline:none}
+  .qmemo-question:empty:before{content:attr(data-placeholder);color:#aab4c0}
+  .qmemo-answer{margin-top:10px;padding:10px 12px;background:#fff;border-radius:6px;
+    border-left:3px solid var(--human)}
+  #qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:#fff;
+    border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:12px;
+    align-items:center;flex-wrap:wrap;box-shadow:0 -2px 10px rgba(0,0,0,.06);z-index:50}
+  #qmemo-save-btn{padding:8px 16px;border-radius:7px;border:1px solid var(--human);
+    background:var(--human);color:#fff;font:inherit;font-size:.9em;cursor:pointer}
+  #qmemo-saymsg{font-size:.78em;color:var(--muted);word-break:break-all}
+  .skip{font-size:.88em;color:var(--muted);font-style:italic}
+  @media(max-width:640px){
+    body{font-size:15.5px} .wrap{padding:20px 14px 150px} h1{font-size:1.55em}
+    .rk{grid-template-columns:32px 58px 1fr;font-size:.78em}
+  }
+</style>
+</head>
+<body>
+
+<!-- uh-nav:top:start -->
+<style>
+.uh-nav{max-width:920px;margin:0 auto;padding:10px 20px;font-size:.86rem;line-height:1.7;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+  color:#5b6570;border-bottom:1px solid #e3e8ee}
+.uh-nav a{color:#1565c0;text-decoration:none}
+.uh-nav a:hover{text-decoration:underline}
+.uh-sep{opacity:.45;margin:0 6px}
+.uh-cur{color:#1a1a1a;font-weight:600}
+.uh-bottom{border-bottom:0;border-top:1px solid #e3e8ee;margin-top:44px;padding-top:16px;padding-bottom:26px}
+.uh-row{margin:5px 0}
+.uh-pn{display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+.uh-pn a{display:inline-block;max-width:46%}
+.uh-banner{max-width:920px;margin:14px auto 0;padding:11px 16px;border-radius:8px;font-size:.9rem;
+  line-height:1.65;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif}
+.uh-banner a{color:inherit;font-weight:600}
+.uh-legacy{background:#fff6e5;border-left:4px solid #b26a00;color:#4a3520}
+.uh-implemented{background:#e8f5e9;border-left:4px solid #2e7d32;color:#1b3a20}
+.uh-revised{background:#e8f1fb;border-left:4px solid #1565c0;color:#12324f}
+@media (prefers-color-scheme:dark){
+  .uh-nav{color:#9aa8b6;border-color:#2a3441}
+  .uh-nav a{color:#6ea8fe}
+  .uh-cur{color:#e6edf3}
+  .uh-legacy{background:#3a2f18;color:#f0e2c8}
+  .uh-implemented{background:#1c3423;color:#d6ecd9}
+  .uh-revised{background:#17293d;color:#d6e6f7}
+}
+@media (max-width:640px){ .uh-pn a{max-width:100%} }
+</style>
+<div class="uh-nav uh-top"><a href="index.html">📚 understanding</a><span class="uh-sep">›</span><a href="index.html#concept">3. F7 개념 그래프</a><span class="uh-sep">›</span><span class="uh-cur">검색 문자열은 원문이 아니다</span></div>
+<!-- uh-nav:top:end -->
+<div class="wrap">
+
+<header class="top">
+  <h1>검색 문자열은 원문이 아니다</h1>
+  <p class="sub">재조립된 <code>search_text</code> 가 숫자를 잃을 때 — 그리고 그것을 재느라 발견한 세 겹의 착각</p>
+</header>
+
+<p>
+어떤 항목이 대상 문서에 분명히 있는데 시스템은 <b>⚪ 대상에 없음</b> 이라고 답했다.
+원인을 쫓아 들어가니 임베딩에 들어가는 문자열에서 <b>숫자가 통째로 빠져</b> 있었다.
+숫자를 넣어 보니 순위가 16위에서 1위로 뛰었다. 여기까지는 깔끔한 성공담이다.
+</p>
+<p>
+그런데 그 성공을 <i>검증</i>하려고 측정 도구를 만들면서 세 가지가 차례로 뒤집혔다.
+정답이라 믿던 fact 가 정답이 아니었고, 기존 채점 도구의 정답 판별이 새고 있었고,
+마지막엔 <b>기준 문서 자체가 틀려 있었다.</b> 이 글은 그 과정 전체의 기록이다.
+</p>
+
+<nav class="toc">
+  <b>목차</b>
+  <ol>
+    <li><a href="#bg">배경 — 문서 두 개를 어떻게 견주는가</a></li>
+    <li><a href="#intuition">직관 — 세 개의 문자열</a></li>
+    <li><a href="#code">코드 — 무엇이 버려지는가</a></li>
+    <li><a href="#experiment">실험 — 고치기 전에 재기</a></li>
+    <li><a href="#twists">세 번의 반전</a></li>
+    <li><a href="#tools">남은 것 — 도구 세 개</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+  <p style="margin:12px 0 0;font-size:.86em;color:var(--muted)">
+    페이지 곳곳의 <b style="color:var(--human)">질문 메모</b> 칸에 궁금한 점을 적어두세요.
+    입력하는 즉시 이 브라우저에 자동 저장되고, 맨 아래 <b>질문 저장</b> 버튼을 누르면
+    질문이 그대로 박힌 사본이 <b>같은 파일명</b>으로 내려받아집니다. 안내된 경로에 덮어쓴 뒤
+    Claude 에게 답을 요청하면 됩니다.
+  </p>
+</nav>
+
+<h2 id="bg">1. 배경 — 문서 두 개를 어떻게 견주는가</h2>
+
+<h3>아주 처음부터 <span class="skip">(이미 아신다면 건너뛰세요)</span></h3>
+
+<p>
+이 시스템이 하는 일은 한 문장으로 말할 수 있다. <b>기준 문서(엑셀 규격서) 한 개</b>와
+<b>대상 문서(워드·PPT) N개</b>를 받아, 기준의 각 항목이 대상에도 같은 내용으로 적혀 있는지
+한 줄씩 판정한다. 결과는 네 가지다 — ✅ 일치, ❌ 불일치, ⚪ 대상에 없음, ❓ 판단보류.
+</p>
+
+<p>
+문제는 문서를 통째로 LLM 에 던질 수 없다는 것이다. 규격서는 길고, 항목은 수백 개이고,
+LLM 은 한 번에 볼 수 있는 양이 정해져 있다. 그래서 파이프라인은 문서를 잘게 부수어
+<b>fact</b> 라는 단위로 만든다. fact 하나는 대략 "무엇에 대해, 값이 얼마다" 한 조각이다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 240" width="100%" style="max-width:880px">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#5f6b7a"/>
+    </marker>
+  </defs>
+  <rect x="8" y="70" width="120" height="64" rx="8" fill="#fff" stroke="#5f6b7a"/>
+  <text x="68" y="96" text-anchor="middle" font-size="13" font-weight="700">📄 문서</text>
+  <text x="68" y="115" text-anchor="middle" font-size="11" fill="#5f6b7a">워드 · 엑셀 · PPT</text>
+
+  <line x1="130" y1="102" x2="168" y2="102" stroke="#5f6b7a" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <rect x="172" y="70" width="128" height="64" rx="8" fill="#fff3e0" stroke="#e65100"/>
+  <text x="236" y="92" text-anchor="middle" font-size="13" font-weight="700" fill="#e65100">🤖 F3 추출</text>
+  <text x="236" y="110" text-anchor="middle" font-size="11" fill="#e65100">fact 로 쪼갠다</text>
+  <text x="236" y="125" text-anchor="middle" font-size="10.5" fill="#8a5a2b">LLM</text>
+
+  <line x1="302" y1="102" x2="340" y2="102" stroke="#5f6b7a" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <rect x="344" y="58" width="150" height="88" rx="8" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="419" y="80" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">⚙️ search_text</text>
+  <text x="419" y="98" text-anchor="middle" font-size="11" fill="#1565c0">검색용 문자열 조립</text>
+  <text x="419" y="116" text-anchor="middle" font-size="10.5" fill="#1565c0">코드가 한다</text>
+  <text x="419" y="134" text-anchor="middle" font-size="10.5" fill="#c62828" font-weight="700">← 이 글의 주인공</text>
+
+  <line x1="496" y1="102" x2="534" y2="102" stroke="#5f6b7a" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <rect x="538" y="70" width="132" height="64" rx="8" fill="#e0f2f1" stroke="#00796b"/>
+  <text x="604" y="92" text-anchor="middle" font-size="13" font-weight="700" fill="#00796b">🔢 recall</text>
+  <text x="604" y="110" text-anchor="middle" font-size="11" fill="#00796b">닮은 후보 10개</text>
+  <text x="604" y="125" text-anchor="middle" font-size="10.5" fill="#00796b">임베딩</text>
+
+  <line x1="672" y1="102" x2="710" y2="102" stroke="#5f6b7a" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <rect x="714" y="58" width="158" height="88" rx="8" fill="#fff3e0" stroke="#e65100"/>
+  <text x="793" y="80" text-anchor="middle" font-size="13" font-weight="700" fill="#e65100">🤖 F7 → F5</text>
+  <text x="793" y="98" text-anchor="middle" font-size="11" fill="#e65100">이어도 되나?</text>
+  <text x="793" y="114" text-anchor="middle" font-size="11" fill="#e65100">값이 같나?</text>
+  <text x="793" y="134" text-anchor="middle" font-size="10.5" fill="#8a5a2b">LLM + 코드</text>
+
+  <rect x="344" y="176" width="528" height="46" rx="7" fill="#fafbfc" stroke="#dfe4ea"/>
+  <text x="360" y="196" font-size="11.5" fill="#5f6b7a">
+    후보에 못 들면 뒤 단계는 아예 실행되지 않는다 →
+  </text>
+  <text x="360" y="213" font-size="11.5" font-weight="700" fill="#c62828">
+    결과는 "⚪ 대상에 없음". 시스템은 못 찾은 게 아니라 "없다"고 단언한다.
+  </text>
+</svg>
+<figcaption>fact 파이프라인의 다섯 걸음. 색은 프로젝트 공용 규약을 따른다 —
+<span class="tag t-code">⚙️ 코드</span>
+<span class="tag t-llm">🤖 LLM</span>
+<span class="tag t-embed">🔢 임베딩</span></figcaption>
+</figure>
+
+<div class="qmemo" data-qid="bg-pipeline-overview" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>이 글에 필요한 좁은 배경</h3>
+
+<p>
+위 그림에서 <b>recall</b> 단계를 확대해 보자. 기준 fact 하나를 들고 대상 문서의 fact
+수십~수백 개 중에서 <b>닮은 것 10개</b>를 골라내는 일이다. 이때 "닮았다"를 재는 방법이
+<b>임베딩</b>이다. 문장을 숫자 벡터로 바꾸고, 두 벡터가 이루는 각도로 비슷함을 잰다.
+</p>
+
+<div class="callout">
+  <span class="ct">임베딩(embedding)이란</span>
+  문장을 고차원 숫자 배열로 바꾸는 것. 뜻이 비슷한 문장은 비슷한 방향의 벡터가 되도록
+  학습돼 있어서, <b>한국어 "충전온도범위"와 영어 "Charge Temperature Ranges"가 가깝게</b>
+  나온다. 이 프로젝트가 한↔영 문서를 견줄 수 있는 근거가 이것이다.
+</div>
+
+<p>
+여기서 이 글의 핵심 질문이 나온다. <b>그래서, 정확히 어떤 문자열을 임베딩하는가?</b>
+</p>
+
+<p>
+직관적으로는 "문서 원문"일 것 같다. 그런데 아니다. 파이프라인은 fact 마다
+<code>search_text</code> 라는 <b>별도의 검색용 문자열을 따로 조립</b>해 두고 그것을 임베딩한다.
+그리고 바로 이 조립 과정에서 사고가 났다.
+</p>
+
+<div class="callout warn">
+  <span class="ct">recall 이 실패하면 조용하다</span>
+  후보에 못 들면 F7·F5 는 실행조차 되지 않는다. 리포트에는 <b>⚪ 대상에 없음</b> 이 찍히는데,
+  이건 "못 찾았다"가 아니라 <b>"없다"는 단언</b>으로 읽힌다. 실패 방향이 비대칭이라
+  recall 은 넉넉한 쪽이 안전하다 — 이 설계 원칙이 뒤에서 여러 번 다시 등장한다.
+</div>
+
+<div class="qmemo" data-qid="bg-what-is-embedded" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"왜 원문을 그대로 안 쓰지?" 같은 의문이 들었다면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="intuition">2. 직관 — 세 개의 문자열</h2>
+
+<p>
+문제를 발견한 실제 fact 로 보자. 영문 사양서에 이런 문장이 있다.
+</p>
+
+<pre>Charge temperature ranges: -5~5℃, 0.1C(4.55V) 5~12℃, 0.3C(4.55V)
+                           12~15℃, 0.7C(4.55V) 15~45℃, 1.2C(4.20V)</pre>
+
+<p>
+F3 가 이걸 fact 하나로 뽑았다. 이름은 <code>Charge Temperature Ranges and C-rates</code>,
+속성은 네 구간이다. 그런데 <b>속성 값이 전부 <code>null</code></b> 이었다. 칸은 만들었는데
+숫자를 안 채운 것이다.
+</p>
+
+<p>
+그 결과, 임베딩에 실제로 들어간 문자열은 이랬다.
+</p>
+
+<div class="strings">
+  <div class="srow">
+    <div class="sh" style="background:#607d8b">off — 현재 동작</div>
+    <div class="sb">Charge Temperature Ranges and C-rates Charge temperature ranges ℃</div>
+  </div>
+</div>
+
+<p>
+<b>숫자가 하나도 없다.</b> 이름을 두 번 되풀이하고 단위 <code>℃</code> 하나가 붙어 있을 뿐이다.
+반면 이 fact 가 겨뤄야 하는 기준 쪽 질의는 이랬다.
+</p>
+
+<div class="strings">
+  <div class="srow">
+    <div class="sh" style="background:var(--human)">기준(질의) — 충전온도범위(-5~5℃)</div>
+    <div class="sb">충전온도범위(-5~5℃) 기본사양 <span class="num">-5.0</span> ℃ <span class="num">5.0</span></div>
+  </div>
+</div>
+
+<p>
+질의에는 <code>-5.0</code>, <code>5.0</code> 이 들어 있는데 상대에는 맞댈 숫자가 없다.
+교차언어 검색에서 숫자는 <b>언어를 타지 않는 가장 강한 신호</b>인데, 그 신호가
+한쪽에서만 사라진 것이다.
+</p>
+
+<div class="callout bad">
+  <span class="ct">불공정한 경쟁</span>
+  같은 문서의 옆 항목 <code>Standard Ambient Temperature Range</code> 는 속성 값이
+  <code>['21','29','25']</code> 로 채워져 있어서 <code>… Range Key Specification Table
+  <b>21 °C 29 25</b></code> 처럼 숫자가 들어갔다. <b>숫자가 똑같이 닮은 두 항목인데
+  한쪽만 그 신호를 못 쓴다.</b> 순위 경쟁이 조용히 기울어져 있었다.
+</div>
+
+<h3>그래서 넣어 보기로 했다 — 두 가지 방법</h3>
+
+<p>
+숫자가 없는 게 문제라면 넣으면 된다. 그런데 <b>어떻게</b> 넣느냐에 두 갈래가 있었고,
+이 갈래가 결과를 갈랐다.
+</p>
+
+<div class="strings">
+  <div class="srow">
+    <div class="sh" style="background:var(--embed)">numbers — 근거에서 숫자만 뽑아 덧붙임</div>
+    <div class="sb">Charge Temperature Ranges and C-rates Charge temperature ranges ℃ <span class="num">-5 5 0.1 4.55 5 12 0.3 4.55 12 15 0.7 4.55 15 45 1.2 4.20</span></div>
+  </div>
+  <div class="srow">
+    <div class="sh" style="background:var(--code)">full — 근거 원문을 통째로 덧붙임</div>
+    <div class="sb">Charge Temperature Ranges and C-rates Charge temperature ranges ℃ Charge temperature ranges: <span class="num">-5~5℃</span>, 0.1C(4.55V) 5~12℃, 0.3C(4.55V) 12~15℃, 0.7C(4.55V) 15~45℃, 1.2C(4.20V)</div>
+  </div>
+</div>
+
+<p>
+실측 결과, <code>full</code> 에서 이 fact 는 <b>16위에서 1위로</b> 올라갔다.
+왜 이렇게까지 차이가 났을까? 두 문자열을 질의와 나란히 놓으면 보인다.
+</p>
+
+<figure>
+<svg viewBox="0 0 860 250" width="100%" style="max-width:860px">
+  <rect x="10" y="14" width="840" height="52" rx="7" fill="#faf6fe" stroke="#6a1b9a"/>
+  <text x="24" y="34" font-size="11.5" font-weight="700" fill="#6a1b9a">질의 (기준 엑셀)</text>
+  <text x="24" y="54" font-size="13" font-family="monospace">충전온도범위(<tspan fill="#c62828" font-weight="700">-5~5℃</tspan>) 기본사양 -5.0 ℃ 5.0</text>
+
+  <rect x="10" y="86" width="840" height="52" rx="7" fill="#e0f2f1" stroke="#00796b"/>
+  <text x="24" y="106" font-size="11.5" font-weight="700" fill="#00796b">numbers — 숫자를 낱개로 분해</text>
+  <text x="24" y="126" font-size="13" font-family="monospace">… ℃ <tspan fill="#c62828" font-weight="700">-5</tspan> <tspan fill="#c62828" font-weight="700">5</tspan> 0.1 4.55 5 12 0.3 …</text>
+  <text x="470" y="126" font-size="11.5" fill="#c62828">← "-5~5℃" 라는 <tspan font-weight="700">형태</tspan>가 깨졌다</text>
+
+  <rect x="10" y="158" width="840" height="52" rx="7" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="24" y="178" font-size="11.5" font-weight="700" fill="#1565c0">full — 원문 그대로</text>
+  <text x="24" y="198" font-size="13" font-family="monospace">… ranges: <tspan fill="#2e7d32" font-weight="700">-5~5℃</tspan>, 0.1C(4.55V) 5~12℃ …</text>
+  <text x="470" y="198" font-size="11.5" fill="#2e7d32">← <tspan font-weight="700">글자 그대로 같은 토큰</tspan>이 양쪽에 있다</text>
+
+  <text x="24" y="236" font-size="12" fill="#5f6b7a">
+    한국어·영어를 가로지를 필요조차 없다. <tspan font-weight="700" fill="#1a1a1a">"-5~5℃" 는 두 문서에서 동일한 문자열이다.</tspan>
+  </text>
+</svg>
+<figcaption>같은 정보를 세 방식으로 표현했을 때, 질의와 맞물리는 정도가 달라진다.</figcaption>
+</figure>
+
+<div class="callout ok">
+  <span class="ct">이번 실험이 진짜 말한 것</span>
+  <b>"숫자를 넣어라"가 아니라 "원문 형태를 보존하라"에 가깝다.</b>
+  <code>numbers</code> 는 <code>-5~5℃</code> 를 <code>-5</code> 와 <code>5</code> 로 분해해
+  그 형태를 깨뜨린다. 값과 단위가 붙어 있고 <code>0.1C(4.55V)</code> 같은 묶음이 살아 있는
+  쪽이 이겼다.
+</div>
+
+<div class="qmemo" data-qid="intuition-why-full-wins" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"그럼 그냥 항상 full 로 하면 되는 것 아닌가?" — 그 의문은 4장에서 다룹니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="code">3. 코드 — 무엇이 버려지는가</h2>
+
+<p>
+이제 <code>search_text</code> 가 어떻게 만들어지는지 실제 코드를 보자.
+<code>contentcompare/fact/fact_extractor.py:136</code> 이다.
+</p>
+
+<pre><span class="m">def</span> _build_search_text(entity_name: str, entity_path, attributes: dict) -> str:
+    <span class="m">"""entity + path + 속성 값/단위를 공백 결합(중복 제거). F5 후보 검색용."""</span>
+    tokens = [entity_name, *entity_path]
+    <span class="m">for</span> a <span class="m">in</span> attributes.values():
+        <span class="m">if</span> a.value <span class="m">is not None</span>:
+            tokens.append(str(a.value))   <span class="c"># 값</span>
+        <span class="m">if</span> a.unit:
+            tokens.append(a.unit)          <span class="c"># 단위</span>
+    seen: list[str] = []
+    <span class="m">for</span> t <span class="m">in</span> tokens:
+        t = str(t).strip()
+        <span class="m">if</span> t <span class="m">and</span> t <span class="m">not in</span> seen:   <span class="c"># 중복 제거</span>
+            seen.append(t)
+    <span class="m">return</span> <span class="g">" "</span>.join(seen)</pre>
+
+<p>
+짧은 함수인데, 여기서 다섯 가지가 빠진다.
+</p>
+
+<table>
+  <thead><tr><th style="width:26%">빠지는 것</th><th>왜</th><th style="width:30%">이 fact 에서 구체적으로</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>속성 이름(key)</b></td>
+      <td>루프가 <code>attributes.values()</code> 만 돈다. key 는 쳐다보지도 않는다.</td>
+      <td><code>charge_temp_range_1~4</code> — <b>이름 자체가 "충전 온도 범위"인데</b> 통째로 버려짐</td>
+    </tr>
+    <tr>
+      <td><b>값이 <code>null</code> 인 속성</b></td>
+      <td><code>if a.value is not None</code> 에서 걸러진다.</td>
+      <td>네 구간 값이 전부 <code>null</code> → <b>숫자 0개</b></td>
+    </tr>
+    <tr>
+      <td><b>값·단위의 결합</b></td>
+      <td>값과 단위를 <b>따로</b> append 한다.</td>
+      <td><code>-5~5℃</code> 가 <code>"-5.0"</code>, <code>"℃"</code>, <code>"5.0"</code> 으로 분해</td>
+    </tr>
+    <tr>
+      <td><b>반복</b></td>
+      <td><code>seen</code> 중복 제거.</td>
+      <td>네 번 나오는 <code>℃</code> 가 1개로 접힘</td>
+    </tr>
+    <tr>
+      <td><b>어순·문장 구조</b></td>
+      <td>토큰 나열이라 원문의 배치가 사라진다.</td>
+      <td><code>0.1C(4.55V)</code> 같은 묶음이 소실</td>
+    </tr>
+  </tbody>
+</table>
+
+<figure>
+<svg viewBox="0 0 860 268" width="100%" style="max-width:860px">
+  <text x="14" y="20" font-size="12.5" font-weight="700">fact 하나가 가진 정보</text>
+
+  <rect x="14" y="30" width="250" height="30" rx="5" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="26" y="50" font-size="12">entity_name / entity_path</text>
+  <rect x="14" y="66" width="250" height="30" rx="5" fill="#fff" stroke="#dfe4ea"/>
+  <text x="26" y="86" font-size="12">속성 <tspan font-weight="700">이름</tspan> (charge_temp_range_1…)</text>
+  <rect x="14" y="102" width="250" height="30" rx="5" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="26" y="122" font-size="12">속성 <tspan font-weight="700">값</tspan> (여기선 전부 null)</text>
+  <rect x="14" y="138" width="250" height="30" rx="5" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="26" y="158" font-size="12">속성 <tspan font-weight="700">단위</tspan> (℃)</text>
+  <rect x="14" y="174" width="250" height="30" rx="5" fill="#fff" stroke="#dfe4ea"/>
+  <text x="26" y="194" font-size="12">evidence_text (<tspan font-weight="700">원문</tspan>)</text>
+
+  <path d="M270,45 L340,110" stroke="#1565c0" stroke-width="1.6" fill="none"/>
+  <path d="M270,117 L340,118" stroke="#1565c0" stroke-width="1.6" fill="none"/>
+  <path d="M270,153 L340,126" stroke="#1565c0" stroke-width="1.6" fill="none"/>
+  <path d="M270,81 L318,88" stroke="#c62828" stroke-width="1.6" stroke-dasharray="4 3" fill="none"/>
+  <path d="M270,189 L318,182" stroke="#c62828" stroke-width="1.6" stroke-dasharray="4 3" fill="none"/>
+  <text x="322" y="86" font-size="16" fill="#c62828">✕</text>
+  <text x="322" y="188" font-size="16" fill="#c62828">✕</text>
+
+  <rect x="352" y="96" width="180" height="46" rx="7" fill="#1565c0"/>
+  <text x="442" y="116" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">⚙️ _build_search_text</text>
+  <text x="442" y="133" text-anchor="middle" font-size="11" fill="#cfe4fb">값 + 단위만 통과</text>
+
+  <path d="M534,119 L578,119" stroke="#5f6b7a" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <defs><marker id="ar2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0,0 L9,4.5 L0,9 z" fill="#5f6b7a"/></marker></defs>
+
+  <rect x="582" y="90" width="264" height="58" rx="7" fill="#f7f9fb" stroke="#00796b"/>
+  <text x="596" y="110" font-size="11.5" font-weight="700" fill="#00796b">🔢 임베딩에 들어가는 것</text>
+  <text x="596" y="131" font-size="11" font-family="monospace">…and C-rates …ranges ℃</text>
+
+  <rect x="352" y="200" width="494" height="52" rx="7" fill="#fff5f5" stroke="#c62828"/>
+  <text x="368" y="221" font-size="12" font-weight="700" fill="#c62828">
+    값이 null 이면 통과할 게 단위뿐이다
+  </text>
+  <text x="368" y="240" font-size="11.5" fill="#5f6b7a">
+    숫자는 evidence_text 에 멀쩡히 있는데, 그 문은 애초에 열려 있지 않다.
+  </text>
+</svg>
+<figcaption>점선 ✕ 는 <code>_build_search_text</code> 가 아예 보지 않는 정보. 원문(evidence_text)이 여기 포함된다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="code-build-search-text" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 다이어그램에서 막히는 부분이 있으면 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>폴백은 왜 작동하지 않았나</h3>
+
+<p>
+사실 코드에는 원문으로 되돌아가는 안전장치가 이미 있다.
+<code>fact_matcher.py:50</code> 이다.
+</p>
+
+<pre><span class="m">def</span> fact_text(fact: Fact) -> str:
+    <span class="m">"""검색에 쓰는 문자열 — ``search_text`` 가 비면 근거 원문으로 폴백."""</span>
+    <span class="m">return</span> fact.search_text <span class="m">or</span> fact.evidence_text <span class="m">or</span> fact.entity_name</pre>
+
+<p>
+그런데 이 폴백은 <code>search_text</code> 가 <b>완전히 빈 문자열일 때만</b> 걸린다.
+우리 fact 의 <code>search_text</code> 는 <code>"…and C-rates …ranges ℃"</code> 로
+<b>비어 있지 않다.</b> 빈약할 뿐이다. 파이썬의 <code>or</code> 는 "쓸모없음"을 모른다.
+</p>
+
+<div class="callout">
+  <span class="ct">이미 이 상황을 잡는 검사가 있었다</span>
+  <code>validator.py:197</code> 의 <code>numeric_coverage</code> 는
+  "근거에는 숫자가 여럿인데 속성에 수치가 <b>하나도</b> 없는가"를 센다. 우리 fact 에 돌려보니
+  정확히 걸렸다 — <code>근거에 숫자가 11개인데 속성에 수치가 없음(축약 의심)</code>.
+  <b>진단은 이미 작동하고 있었고, 그 경고가 recall 로 연결돼 있지 않았을 뿐이다.</b>
+</div>
+
+<h3>이름은 왜 중요한가</h3>
+
+<p>
+<code>search_text</code> 의 <b>첫 성분이 <code>entity_name</code></b> 이다. 그래서 F3 가 같은 블록에
+매번 다른 이름을 붙이면 검색 결과가 흔들린다. 실제로 그랬다 — 같은 코드·같은 문서인데
+한 실행은 <code>Charge Temperature Ranges and C-rates</code>, 다른 실행은
+<code>Charge Temperature Protocol</code> 로 나왔다. 한국어 "충전온도범<b>위</b>"와 맞물리던
+"<b>Ranges</b>" 가 "Protocol" 로 바뀌면 그 대응이 끊긴다.
+</p>
+
+<p>
+이름이 recall 에 관여하는 지점이 하나 더 있다. <code>fact_matcher.py:124</code> 의
+<b>이름 완전일치 조기 종료</b>다. 정규화한 이름이 딱 맞으면 후보를 <b>1건만</b> 돌려주고
+임베딩 계산을 아예 건너뛴다. 한↔영 문서쌍에서는 걸릴 일이 없지만, 같은 언어 문서끼리는
+이것 때문에 후보가 1건으로 접힌다.
+</p>
+
+<h2 id="experiment">4. 실험 — 고치기 전에 재기</h2>
+
+<p>
+"16위 → 1위"를 보고 곧장 <code>_build_search_text</code> 를 고치고 싶어진다.
+그런데 이 저장소에는 그러지 말아야 할 이유가 실측으로 남아 있다.
+</p>
+
+<div class="callout warn">
+  <span class="ct">전례 — 형식만 먹은 개정</span>
+  F7 차단 축을 4종으로 고정하는 프롬프트 개정을 한 적이 있다. 결과는
+  <b>축 형식 준수율 98.5%</b> 인데 실제 차단은 <b>35건만</b> 줄었다. LLM 이 같은 값을 양쪽에
+  적어 형식만 채운 것이다. <b>그럴듯한 변경이 실제로 먹었는지는 재봐야 안다.</b>
+</div>
+
+<p>
+그래서 추출기를 건드리기 전에, <b>산출물만 읽어 순위를 다시 계산하는</b> 실험 장치를 만들었다.
+recall 은 임베딩만 쓰므로 <code>facts.json</code> 과 임베더만 있으면 재현된다 — chat LLM 은
+한 번도 부르지 않는다.
+</p>
+
+<h3>세 모드</h3>
+
+<table>
+  <thead><tr><th style="width:16%">모드</th><th style="width:34%">무엇을 하나</th><th>왜 이 갈래인가</th></tr></thead>
+  <tbody>
+    <tr><td><code>off</code></td><td>현행 그대로</td><td><b>대조군.</b> 비교 기준이 없으면 개선을 말할 수 없다</td></tr>
+    <tr><td><code>numbers</code></td><td>수치가 하나도 없는 fact 에만 근거의 <b>숫자만</b> 덧붙임</td><td><b>제안 정책.</b> 구멍만 좁게 메운다</td></tr>
+    <tr><td><code>full</code></td><td>전 fact 에 근거 <b>전문</b>을 덧붙임</td><td><b>상한 대조군.</b> 긴 문장이 임베딩을 희석해 <b>더 나빠질 수도</b> 있다</td></tr>
+  </tbody>
+</table>
+
+<p>
+<code>numbers</code> 와 <code>full</code> 을 굳이 나눈 이유가 있다. 둘의 결과가 갈리면
+처방 범위가 정해지기 때문이다.
+</p>
+
+<figure>
+<svg viewBox="0 0 860 176" width="100%" style="max-width:860px">
+  <rect x="10" y="12" width="270" height="150" rx="8" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="26" y="36" font-size="12.5" font-weight="700">numbers 도 1위권이면</text>
+  <text x="26" y="60" font-size="11.5" fill="#5f6b7a">숫자만으로 충분하다는 뜻</text>
+  <text x="26" y="82" font-size="11.5" fill="#5f6b7a">→ 처방: 수치 없는 fact 에만</text>
+  <text x="26" y="100" font-size="11.5" fill="#5f6b7a">　　숫자를 덧붙이는 <tspan font-weight="700">좁은 폴백</tspan></text>
+  <text x="26" y="128" font-size="11.5" fill="#2e7d32" font-weight="700">파급 최소 · 위험 낮음</text>
+
+  <rect x="294" y="12" width="270" height="150" rx="8" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="310" y="36" font-size="12.5" font-weight="700">numbers 는 중간인데</text>
+  <text x="310" y="54" font-size="12.5" font-weight="700">full 만 1위면</text>
+  <text x="310" y="78" font-size="11.5" fill="#5f6b7a">원문 <tspan font-weight="700">형태</tspan>가 핵심이라는 뜻</text>
+  <text x="310" y="100" font-size="11.5" fill="#5f6b7a">→ 처방: evidence 전문 폴백</text>
+  <text x="310" y="128" font-size="11.5" fill="#ef6c00" font-weight="700">파급 큼 · 전수 재측정 필요</text>
+
+  <rect x="578" y="12" width="270" height="150" rx="8" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="594" y="36" font-size="12.5" font-weight="700">full 이 오히려 나쁘면</text>
+  <text x="594" y="60" font-size="11.5" fill="#5f6b7a">긴 문장이 임베딩을</text>
+  <text x="594" y="78" font-size="11.5" fill="#5f6b7a"><tspan font-weight="700">희석</tspan>한다는 뜻</text>
+  <text x="594" y="100" font-size="11.5" fill="#5f6b7a">→ 이 길은 접고</text>
+  <text x="594" y="118" font-size="11.5" fill="#5f6b7a">　 온톨로지 승격으로</text>
+  <text x="594" y="146" font-size="11.5" fill="#c62828" font-weight="700">가설 기각</text>
+</svg>
+<figcaption>실험을 두 갈래로 설계하면 결과가 곧바로 처방으로 번역된다. 한 갈래만 재면 "좋아졌다"까지밖에 알 수 없다.</figcaption>
+</figure>
+
+<div class="callout bad">
+  <span class="ct">한 항목이 좋아진 것 ≠ 정책이 좋은 것</span>
+  <code>full</code> 은 <b>기준·대상 전 fact</b> 의 검색 문자열을 바꾼다. 우리 항목이 1위가 된
+  만큼 <b>다른 항목의 정답이 밀려났을 수 있다.</b> 지금 본 건 100여 개 중 하나다.
+  그래서 골든셋 전체로 재는 두 번째 도구가 필요했고 — 그걸 만들다가 반전이 시작된다.
+</div>
+
+<div class="qmemo" data-qid="experiment-design" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">실험 설계에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="twists">5. 세 번의 반전</h2>
+
+<p>
+전체를 재려면 "골든셋이 말하는 정답 fact"를 알아야 한다. 그런데 골든셋은
+<code>target_text</code>(대상 문서의 원문 문장)만 주고 fact 의 id 를 주지 않는다.
+그래서 <b>토큰이 겹치는 fact 를 정답으로 간주</b>하는 휴리스틱을 쓴다.
+여기서부터 하나씩 무너졌다.
+</p>
+
+<h3>반전 ① — 채점 도구의 정답 판별이 새고 있었다</h3>
+
+<p>
+기존 <code>score_golden.py</code> 의 토큰화 규칙은 <code>[a-z0-9]+</code> 다.
+이 규칙으로 <code>0.1C(4.55V)</code> 를 자르면 이렇게 된다.
+</p>
+
+<pre><span class="r">['0', '1c', '4', '55v']</span>     <span class="c"># 소수점이 토큰을 쪼갠다</span></pre>
+
+<p>
+그러자 <b><code>Charging Voltage</code> 라는 엉뚱한 fact 가 <code>'4'</code>, <code>'55v'</code>
+두 조각만 공유하고 "정답"으로 판정</b>됐다. 겹침 하한이 2였기 때문이다.
+</p>
+
+<div class="ranklist" style="margin:14px 0">
+  <div class="rk"><span>1.</span><span>겹침5</span><span>Operating Protocol in different Temperatures ★정답판정</span></div>
+  <div class="rk"><span>2.</span><span>겹침2</span><span>Charging Voltage ★정답판정 ← <b style="color:#c62828">오탐</b></span></div>
+  <div class="rk"><span>3.</span><span>겹침3</span><span>Charge Voltage (Standard Charge) ★정답판정 ← <b style="color:#c62828">오탐</b></span></div>
+  <div class="rk hit"><span>4.</span><span>겹침5</span><span>Charge Temperature Ranges and C-rates</span></div>
+</div>
+
+<p>
+이 규칙으로 재면 <code>recall@10 = 74/76</code> 이라는 훌륭한 숫자가 나온다. 허수다.
+소수를 통째로 두고(<code>\d+(?:\.\d+)?</code>) 골든 토큰 대비 <b>비율</b>로 다시 재니
+<code>57/76</code> 이었고, 판별 자체가 안 되는 17건이 분리됐다.
+</p>
+
+<div class="callout warn">
+  <span class="ct">파급</span>
+  같은 규칙이 실측 보고서 §14 의 <b>"정답 상대가 후보에 있었음 39/49건"</b> 을 만들었다.
+  그 수치가 <b>"F7 이 병목이고 recall 은 범인이 아니다"</b> 라는 결론의 근거다.
+  판별이 헐거우면 그 결론도 흔들린다 — 아직 재검토하지 않은 숙제로 남아 있다.
+</div>
+
+<h3>반전 ② — 쫓던 fact 가 정답이 아니었다</h3>
+
+<p>
+정답 판별을 고치고 나서 출력을 눈으로 확인하니, 이 문서에 <b>비슷한 블록이 둘</b> 있었다.
+</p>
+
+<figure>
+<svg viewBox="0 0 860 210" width="100%" style="max-width:860px">
+  <rect x="10" y="14" width="410" height="120" rx="8" fill="#fff5f5" stroke="#c62828"/>
+  <text x="26" y="36" font-size="12.5" font-weight="700" fill="#c62828">블록 w_b010 → fact-word-6</text>
+  <text x="26" y="56" font-size="11.5">"Charge temperature ranges: …"</text>
+  <text x="26" y="80" font-size="12" font-family="monospace">12~15℃ , <tspan font-weight="700" fill="#c62828">0.7C</tspan>(4.55V)</text>
+  <text x="26" y="100" font-size="12" font-family="monospace">15~45℃ , <tspan font-weight="700" fill="#c62828">1.2C(4.20V)</tspan></text>
+  <text x="26" y="122" font-size="11" fill="#5f6b7a">속성 값 전부 null · 우리가 쫓던 fact</text>
+
+  <rect x="440" y="14" width="410" height="120" rx="8" fill="#f4faf5" stroke="#2e7d32"/>
+  <text x="456" y="36" font-size="12.5" font-weight="700" fill="#2e7d32">블록 w_b014 → fact-word-18</text>
+  <text x="456" y="56" font-size="11.5">"Cell charge protocol by different temp…"</text>
+  <text x="456" y="80" font-size="12" font-family="monospace">12~15°C , <tspan font-weight="700" fill="#2e7d32">0.8C</tspan>(4.55V)</text>
+  <text x="456" y="100" font-size="12" font-family="monospace">15~45°C , <tspan font-weight="700" fill="#2e7d32">1.3C(4.10V)</tspan> …</text>
+  <text x="456" y="122" font-size="11" fill="#5f6b7a">속성 값 채워짐 · <tspan font-weight="700" fill="#2e7d32">골든의 정답</tspan></text>
+
+  <rect x="10" y="150" width="840" height="50" rx="7" fill="#faf6fe" stroke="#6a1b9a"/>
+  <text x="26" y="171" font-size="12" font-weight="700" fill="#6a1b9a">골든셋이 말하는 정답: 12~15°C → 0.8C, 15~45°C → 1.3C(4.10V)</text>
+  <text x="26" y="190" font-size="11.5" fill="#5f6b7a">
+    → w_b014 와 일치한다. 그리고 <tspan font-weight="700">w_b014 는 off 모드에서도 이미 1위</tspan>였다.
+  </text>
+</svg>
+<figcaption>같은 충전 프로토콜을 두 블록이 서로 <b>다른 값으로</b> 담고 있었다. 우리는 그중 틀린 쪽을 쫓고 있었다.</figcaption>
+</figure>
+
+<p>
+즉 "충전온도범위가 후보에 안 든다"는 문제의식 자체가 부분적으로 헛짚은 것이었다.
+골든이 원하는 fact 는 처음부터 1위에 있었다.
+</p>
+
+<div class="qmemo" data-qid="twist-two-blocks" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">두 블록이 왜 다른 값을 갖는지 등, 이 대목의 의문을 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>반전 ③ — 기준 문서가 틀려 있었다</h3>
+
+<p>
+여기서 사람이 개입했다. 실제 규격서를 아는 사람이 <b>기준 엑셀이 실제와 다르다</b>고
+지적한 것이다. 확인해 보니 정말 그랬다.
+</p>
+
+<table>
+  <thead><tr><th>항목</th><th>샘플 엑셀에 적혀 있던 것</th><th>실제 문서</th></tr></thead>
+  <tbody>
+    <tr><td>충전환경온도 중심치</td><td>35</td><td><b>25</b></td></tr>
+    <tr><td>충전환경온도 상한치</td><td>85</td><td><b>55</b></td></tr>
+    <tr><td>SPEC 칸</td><td>(비어 있음)</td><td><b>25+-30</b></td></tr>
+    <tr><td>정성규격 칸</td><td>(비어 있음)</td><td><b>충전 프로토콜 5구간 전체</b></td></tr>
+    <tr><td>12~15℃ 구간</td><td>0.7C</td><td><b>0.8C</b></td></tr>
+    <tr><td>15~45℃ 구간</td><td>1.2C(4.20V)</td><td><b>1.3C(4.10V)…</b></td></tr>
+    <tr><td>45~55℃ 구간</td><td>(행 자체가 없음)</td><td><b>0.8C(4.33V)</b></td></tr>
+  </tbody>
+</table>
+
+<p>
+게다가 실제 문서는 구간을 <b>별도 행으로 나누지 않는다.</b> 정성규격 한 칸에 다섯 줄이
+같이 들어 있다. 샘플 엑셀에만 존재하던 구간별 4개 행은 <b>실재하지 않는 형제 fact</b> 로서
+<code>top_k</code> 자리를 차지하며 경쟁을 왜곡하고 있었다.
+</p>
+
+<div class="callout bad">
+  <span class="ct">그래서 지금까지의 mismatch 판정은</span>
+  대상 문서(<code>w_b014</code>)가 실제 값과 맞았고 <b>기준 쪽이 틀려 있었다.</b>
+  시스템은 성실하게 "다르다"고 말했지만, 다른 이유가 우리가 생각한 것과 정반대였다.
+</div>
+
+<p>
+엑셀을 고치고 나면 골든셋도 따라 움직여야 한다. 골든은 <b>물리 행번호</b>를 조인 키로 쓰기
+때문이다. 행 4개를 지우자 뒤의 80건이 4칸씩 어긋났다. 이건 판정을 바꾸는 일이 아니라
+<b>포인터를 다시 맞추는 기계적 작업</b>이므로, 행번호만 옮기고 <code>expected</code> 는
+한 건도 건드리지 않았다. 검증은 간단했다 — 100건 전부에 대해
+"골든의 항목명 == 그 행의 엑셀 항목명"을 확인했다.
+</p>
+
+<div class="callout">
+  <span class="ct">교훈 — 측정 도구를 먼저 의심하라</span>
+  세 반전 중 둘(①②)은 <b>측정 도구를 만들면서</b> 드러났다. 도구가 없었다면
+  "full 로 바꾸니 좋아졌다"에서 멈추고, 실재하지 않는 행과 틀린 기준값 위에
+  <code>_build_search_text</code> 를 고쳤을 것이다. <b>고치기 전에 재려는 습관이
+  코드 변경 자체보다 많은 것을 건졌다.</b>
+</div>
+
+<div class="qmemo" data-qid="twists-lessons" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">세 반전 중 더 파고들고 싶은 것이 있으면 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="tools">6. 남은 것 — 도구 세 개</h2>
+
+<p>
+이 과정에서 만들어진 도구들이다. 셋 다 <b>chat LLM 을 부르지 않아</b> 예산과 무관하고,
+산출물(<code>artifacts/</code>)만 읽는다.
+</p>
+
+<table>
+  <thead><tr><th style="width:26%">도구</th><th>답하는 질문</th><th style="width:18%">비용</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>show_search_text.py</code></td>
+      <td><b>무엇이 임베딩되는가?</b> 세 모드의 문자열을 나란히 출력. 버려지는 속성 이름과
+        "값이 null 이라 숫자가 없음" 경고를 함께 표시</td>
+      <td>0 (임베더도 안 부름)</td>
+    </tr>
+    <tr>
+      <td><code>rank_candidates.py</code></td>
+      <td><b>그래서 몇 위인가?</b> <code>candidate_pairs.json</code> 은 상위
+        <code>top_k+5</code> 만 남겨 "16위인지 60위인지" 구분이 안 된다. 전체 순위를 재계산</td>
+      <td>임베딩만</td>
+    </tr>
+    <tr>
+      <td><code>sweep_recall.py</code></td>
+      <td><b>정책으로 삼을 만한가?</b> 골든 전체에 대해 모드별 recall@k 와
+        항목별 개선·악화. <code>--show-answers</code> 로 정답 판별을 눈으로 확인</td>
+      <td>임베딩만</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><span class="c"># 무엇이 임베딩되는지 보기</span>
+python scripts/show_search_text.py --grep <span class="g">"charge temperature"</span> --doc target
+
+<span class="c"># 전체 순위 — --augment 로 세 모드 비교</span>
+python scripts/rank_candidates.py <span class="g">"충전온도범위(-5~5"</span> --limit 30 \
+    --grep <span class="g">"charge temperature"</span> --augment full
+
+<span class="c"># 정책 판단 — 반드시 --show-answers 로 정답 판별부터 확인</span>
+python scripts/sweep_recall.py --show-answers
+python scripts/sweep_recall.py --modes off,numbers,full --detail</pre>
+
+<div class="callout warn">
+  <span class="ct">아직 결정되지 않은 것</span>
+  이 글은 <b>문제 규명까지의 기록</b>이다. <code>_build_search_text</code> 를 실제로 고칠지,
+  고친다면 <code>numbers</code> 쪽인지 <code>full</code> 쪽인지는 <b>정해지지 않았다.</b>
+  기준 엑셀이 바뀌어 형제 fact 4개가 사라졌으므로, 이전 측정값은 그대로 쓸 수 없고
+  재실행 후 <code>sweep_recall</code> 로 다시 재야 한다.
+</div>
+
+<div class="callout">
+  <span class="ct">그리고 recall 은 필요조건일 뿐이다</span>
+  후보에 들어가도 <b>F7 이 차단하면 여전히 ⚪ 대상에 없음</b> 이다. 실제로 이 fact 는
+  4위로 recall 을 통과하고도 <code>differs_by</code>(<i>"온도 범위와 온도 범위 및 C-rate는
+  서로 다른 정보"</i>)로 막혔다. 그 다음 관문은
+  <a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 승격</a>이 열어야 한다.
+</div>
+
+<div class="qmemo" data-qid="tools-next-steps" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">도구 사용법이나 다음 단계에 대한 질문을 적어주세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="quiz">7. 퀴즈</h2>
+
+<p>다섯 문제다. 답을 고르면 바로 채점되고 해설이 나온다.</p>
+
+<div class="quiz" data-a="1">
+  <div class="q">Q1. <code>_build_search_text</code> 가 만든 문자열에 숫자가 하나도 없었다. 가장 정확한 이유는?</div>
+  <button class="opt">코드가 검색 정확도를 위해 숫자를 일부러 제거한다</button>
+  <button class="opt">속성 값이 전부 <code>null</code> 이라 넣을 숫자가 없었다</button>
+  <button class="opt">임베딩 모델이 숫자를 처리하지 못해 걸러진다</button>
+  <button class="opt">단위(℃)가 있으면 숫자는 중복으로 간주돼 생략된다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-a="2">
+  <div class="q">Q2. <code>fact_text()</code> 에는 <code>search_text or evidence_text</code> 폴백이 이미 있다. 그런데도 원문이 쓰이지 않은 이유는?</div>
+  <button class="opt">폴백이 F5 단계에서만 동작하고 recall 에서는 꺼져 있다</button>
+  <button class="opt"><code>evidence_text</code> 가 비어 있었다</button>
+  <button class="opt"><code>search_text</code> 가 빈약할 뿐 <b>비어 있지는</b> 않아서 <code>or</code> 가 걸리지 않았다</button>
+  <button class="opt">설정에서 폴백이 기본 비활성화되어 있다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-a="2">
+  <div class="q">Q3. <code>numbers</code> 보다 <code>full</code> 이 훨씬 좋았다. 이 결과가 시사하는 바로 가장 적절한 것은?</div>
+  <button class="opt">숫자가 많을수록 임베딩 유사도가 항상 높아진다</button>
+  <button class="opt"><code>-5~5℃</code> 처럼 값·단위가 붙은 <b>형태</b>가 통째로 보존되는 것이 중요하다</button>
+  <button class="opt">문자열이 길수록 임베딩이 정확해진다</button>
+  <button class="opt">영어 문장이 한국어 질의보다 임베딩에 유리하다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-a="3">
+  <div class="q">Q4. 기존 <code>score_golden.py</code> 의 <code>recall@10 = 74/76</code> 이 허수였던 이유는?</div>
+  <button class="opt">골든셋에 중복 항목이 있었다</button>
+  <button class="opt"><code>top_k</code> 를 10 이 아니라 15 로 계산했다</button>
+  <button class="opt">토큰화가 <code>0.1C(4.55V)</code> 를 <code>['0','1c','4','55v']</code> 로 쪼개, 숫자 조각만 공유하는 fact 가 정답으로 잡혔다</button>
+  <button class="opt">스냅샷을 읽어 대상 fact 가 비어 있었다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-a="1">
+  <div class="q">Q5. 기준 엑셀에서 행 4개를 지우자 골든셋 80건이 어긋났다. 근본 원인은?</div>
+  <button class="opt">골든이 <b>물리 행번호</b>를 조인 키로 쓰기 때문에 뒤 행이 전부 밀렸다</button>
+  <button class="opt">골든의 <code>expected</code> 값이 행 순서에 의존한다</button>
+  <button class="opt">엑셀 편집 과정에서 파일이 손상됐다</button>
+  <button class="opt"><code>fact_id</code> 가 실행마다 다시 매겨지기 때문이다</button>
+  <div class="fb"></div>
+</div>
+
+<p style="margin-top:34px;color:var(--muted);font-size:.9em">
+관련 문서 —
+<a href="2026-08-06-explanation-cross-language-recall-bottleneck.html">언어가 다르면 왜 비교가 무너지는가</a> ·
+<a href="2026-08-10-explanation-charge-temperature-merge.html">한 문단, 네 개의 조건</a> ·
+<a href="2026-08-14-explanation-missing-and-same-as.html">⚪ 대상에 없음 은 어떻게 정해지는가</a> ·
+<a href="2026-08-17-explanation-why-missing-explainability.html">왜 AI는 '틀렸는지' 말할 수 있어야 하는가</a>
+</p>
+
+</div>
+
+<!-- uh-nav:bottom:start -->
+<div class="uh-nav uh-bottom"><div class="uh-row"><a href="index.html">← 전체 목차로</a></div><div class="uh-row uh-pn"><a href="2026-08-06-explanation-cross-language-recall-bottleneck.html">◀ 이전 · 언어가 다르면 왜 비교가 무너지는가</a><a href="2026-08-05-explanation-english-document-fix.html">다음 · 영어로 쓴 문서는 왜 비교가 안 됐을까 ▶</a></div><div class="uh-row uh-rel">관련 · <a href="2026-08-06-explanation-cross-language-recall-bottleneck.html">언어가 다르면 왜 비교가 무너지는가</a> · <a href="2026-08-10-explanation-charge-temperature-merge.html">한 문단, 네 개의 조건</a> · <a href="2026-08-14-explanation-missing-and-same-as.html">⚪ 대상에 없음 은 어떻게 정해지는가</a></div></div>
+<!-- uh-nav:bottom:end -->
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (box) {
+    var ans = parseInt(box.dataset.a, 10);
+    var opts = box.querySelectorAll('.opt');
+    var fb = box.querySelector('.fb');
+    var FEED = {
+      1: ['정확합니다. 코드는 <code>if a.value is not None</code> 으로 값을 넣으려 하지만, 그 값이 전부 null 이라 통과할 게 단위뿐이었습니다.',
+          '숫자는 제거되지 않습니다. 같은 문서의 <code>Standard Ambient Temperature Range</code> 는 <code>21 °C 29 25</code> 처럼 숫자가 들어갔습니다 — 그쪽은 값이 채워져 있었기 때문입니다.'],
+      2: ['맞습니다. <code>or</code> 는 "비어 있음"만 알고 "빈약함"은 모릅니다. <code>"…and C-rates …ranges ℃"</code> 는 truthy 라 폴백이 발동하지 않았습니다.',
+          '폴백은 recall 에서도 동작합니다. 문제는 조건입니다 — <code>search_text</code> 가 완전히 빈 문자열일 때만 다음 항으로 넘어갑니다.'],
+      3: ['그렇습니다. <code>numbers</code> 는 같은 숫자를 넣고도 <code>-5</code>, <code>5</code> 로 분해해 형태를 깨뜨렸습니다. 질의의 <code>충전온도범위(-5~5℃)</code> 안에도 <code>-5~5℃</code> 가 그대로 있어 글자 단위로 맞물립니다.',
+          '길이나 숫자 개수 자체가 이득은 아닙니다. 오히려 긴 문자열은 임베딩을 희석할 수 있어서, 그걸 확인하려고 <code>full</code> 을 상한 대조군으로 둔 것입니다.'],
+      4: ['정확합니다. 겹침 하한이 2였던 탓에 <code>Charging Voltage</code> 가 <code>4</code>, <code>55v</code> 두 조각만으로 정답 판정을 받았습니다. 소수를 보존하고 비율로 재니 57/76 이었습니다.',
+          '스냅샷 문제나 top_k 설정과는 무관합니다. 원인은 토큰화 규칙 <code>[a-z0-9]+</code> 가 소수점에서 토큰을 쪼갠 것입니다.'],
+      5: ['맞습니다. 골든의 <code>reference.row</code> 가 엑셀의 물리 행번호입니다. 그래서 행번호만 −4 하는 기계적 보정으로 고쳤고, <code>expected</code> 는 건드리지 않았습니다.',
+          '<code>fact_id</code> 도 실행마다 바뀌긴 하지만, 골든이 쓰는 키는 <code>reference.row</code> 입니다. 행을 지우면 뒤 행이 전부 위로 밀립니다.']
+    };
+    opts.forEach(function (btn, i) {
+      btn.addEventListener('click', function () {
+        if (box.dataset.done) return;
+        box.dataset.done = '1';
+        var ok = (i + 1) === ans;
+        btn.classList.add(ok ? 'right' : 'wrong');
+        if (!ok) opts[ans - 1].classList.add('right');
+        fb.className = 'fb show ' + (ok ? 'good' : 'bad');
+        fb.innerHTML = (ok ? '✅ ' : '❌ ') + FEED[ans][ok ? 0 : 1];
+      });
+    });
+  });
+})();
+
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-18-explanation-search-text-embedding.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-18-explanation-search-text-embedding.html';
+  });
+})();
+</script>
+</body>
+</html>
