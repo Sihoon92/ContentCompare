@@ -18,6 +18,15 @@ from .llm.health import all_ok, check_llm
 from .llm.tracing import get_tracer, run_metadata, trace_run, tracing_enabled
 from .logging_setup import apply_logger_overrides, log_print, setup_logging
 from .report import render_markdown, save_report
+from .timeline import (
+    ERROR_STATUSES,
+    diagnose,
+    format_duration,
+    get_timeline,
+    load_timeline,
+    stage_durations,
+    start_timeline,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--out", default="report.md", help="리포트 출력 경로(.md)")
     p.add_argument("-v", "--verbose", action="store_true", help="상세 로그")
+    p.add_argument(
+        "--quiet",
+        action="store_true",
+        help="실행 타임라인을 화면에 띄우지 않는다(파일 기록은 유지)",
+    )
     return p
 
 
@@ -90,6 +104,34 @@ def _print_fact_summaries(summaries: list[dict]) -> int:
     return failed
 
 
+def _print_stage_durations(top: int = 8) -> None:
+    """단계별 소요를 긴 순으로 출력한다(타임라인이 꺼져 있으면 조용히 넘어간다).
+
+    ``_print_fact_summaries`` 를 **대체하지 않고 덧붙인다** — 그쪽은 fact 수·드롭
+    사유를 담당하고 이쪽은 시간을 담당한다. 둘을 합치면 어느 쪽도 읽히지 않는다.
+    """
+    path = getattr(get_timeline(), "path", "")
+    if not path:
+        return
+    events = load_timeline(path)
+    rows = stage_durations(events)
+    if rows:
+        log_print("\n단계별 소요 (긴 순)")
+        width = max(len(r["name"]) for r in rows[:top])
+        for row in rows[:top]:
+            mark = "  ✗ 실패" if row["status"] in ERROR_STATUSES else ""
+            log_print(f"  {row['name']:<{width}}  "
+                      f"{format_duration(row['duration_ms']):>8}{mark}")
+
+    # 관측된 증상 → 다음 조치. 실패한 자리에서 알려주지 않으면, 사람이 코드를 읽어
+    # 같은 결론에 다시 도달해야 한다(이번 진단이 정확히 그랬다).
+    hints = diagnose(events)
+    if hints:
+        log_print("\n다음에 볼 것")
+        for hint in hints:
+            log_print(f"  · {hint}")
+
+
 def _warn_if_cached(config, summaries: list[dict]) -> None:
     """캐시 적중 단계는 LLM 을 부르지 않아 trace 가 없다는 것을 알린다.
 
@@ -126,6 +168,12 @@ def main(argv: list[str] | None = None) -> int:
     # 기본 잡음 필터 위에 설정 파일의 조정을 얹는다(config 는 여기서야 읽히므로 순서가 이렇다).
     apply_logger_overrides(config.logging.quiet_extra, config.logging.verbose_extra)
 
+    # 실행 타임라인 — **연결 점검을 포함해** 모든 LLM 호출 앞에서 세운다.
+    # ``--quiet`` 는 화면만 끄고 파일 기록은 남긴다(조용한 것과 없는 것은 다르다).
+    timeline_path = start_timeline(config, console=not args.quiet)
+    if timeline_path:
+        log_print(f"타임라인: {timeline_path}")
+
     # 연결 점검 모드: chat/embedding 핑 후 종료.
     if args.check:
         log_print("LLM 연결 점검 중...\n")
@@ -157,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         with trace_run(tracer, run_name, meta):
             result = pipeline.run(args.reference, args.targets, progress=_fact_progress)
         failed = _print_fact_summaries(result.summaries)
+        _print_stage_durations()
         _warn_if_cached(config, result.summaries)
         if not result.markdown:
             log_print("\n비교할 fact 가 부족해 리포트를 만들지 못했습니다(위 오류를 확인하세요).")

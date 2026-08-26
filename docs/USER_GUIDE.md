@@ -158,9 +158,38 @@ xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 �
 | Word `Open.Close`/COM AttributeError | 문서 열기 자체가 실패(DRM/권한) 또는 gen_py 캐시 손상. `logs\` 의 `[Word] 처리 실패` 직전 로그 확인. 캐시 정리: `%LOCALAPPDATA%\Temp\gen_py` 폴더 삭제 후 재시도 |
 | 내부 동작 로그 | 모든 실행은 `logs\contentcompare_<시각>.log` 에 기록(웹 UI 사이드바 '로그 보기'에서도 확인/다운로드) |
 | 사내 LLM 연결 실패 | `unset_proxy`/`base_url`/API 키 env 확인, `log_proxy: true` 로 실제 프록시 확인 |
-| 타임아웃/간헐 실패 | `timeout` 상향, `max_retries` 확인(자동 지수 백오프 재시도) |
+| 타임아웃/간헐 실패 | **⏱ 타임라인 먼저 보기**(아래) — 어느 단계·몇 번째 배치·몇 번째 시도에서 났는지가 나옵니다. 배치당 출력량이 원인이면 `fact.record_batch_rows` 를 줄이는 쪽이 `timeout` 상향보다 확실합니다 |
+| 실행 중 화면이 조용하다 | 정상입니다 — 타임라인이 켜져 있으면 단계·재시도가 실시간으로 찍힙니다. `--quiet` 로 끌 수 있고, 꺼도 파일에는 남습니다 |
 | 임베딩 매번 느림 | `cache_dir` 설정 확인(파일 해시 기반 캐시 재사용) |
 | 표시값과 다른 비교 | `excel.value_as_displayed`(표시문자 vs 원시값) 전환 |
+
+### ⏱ 실행 타임라인 — 실패했을 때 가장 먼저 볼 것
+
+실행 중 화면에 단계·LLM 호출·재시도·대기가 시각과 함께 흐릅니다. 같은 내용이
+`artifacts/_timeline/<실행>.jsonl` 에 남아 나중에 다시 볼 수 있습니다.
+
+```
+17:59:11.1 ▶ F2 records · 자표준원문.xlsx (rows=120, batches=4)
+17:59:11.1   ▶ 배치 2/4 (rows=30)
+17:59:11.8   │  ⚠ 응답 없음(전송 실패·타임아웃) — 재시도 1/2
+17:59:12.6   ✗ F2 records · 자표준원문.xlsx · 배치 2/4 중단 — APITimeoutError (1.5s)
+```
+
+실패 줄 하나에 **어느 문서 · 어느 단계 · 몇 번째 배치 · 왜**가 함께 있습니다.
+
+```bash
+python scripts/show_timeline.py            # 최근 실행 전체
+python scripts/show_timeline.py --errors   # 실패·재시도·대기만
+python scripts/show_timeline.py --slow 60  # 60초 넘게 걸린 것만
+python scripts/show_timeline.py --list     # 남아 있는 실행 목록
+```
+
+웹 UI 에서는 **⏱ 타임라인** 탭에서 같은 내용을 막대그래프로 봅니다.
+실행이 끝나면 CLI 가 **단계별 소요**와 **다음에 볼 것**(증상별 조치)을 함께 출력합니다.
+
+설정은 `logging.timeline`(기본 켬) / `logging.timeline_console` / `logging.timeline_dir`.
+프롬프트 원문은 담기지 않습니다(길이·회차·상태코드만) — 원문이 필요하면
+`llm.trace_local` 을 켜세요.
 
 ## 7. 비용/성능 메모
 
