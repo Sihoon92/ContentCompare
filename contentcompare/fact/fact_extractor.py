@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from ..llm.tracing import substage
 from .fact_models import Fact, FactSet
 from .fact_types import FT_DESCRIPTIVE, FT_QUALITATIVE, FT_QUANTITATIVE
 from .llm_stage import fingerprint_for
@@ -230,10 +231,15 @@ def _facts_from_blocks(
     dropped: dict[str, int] = {"not_dict": 0, "no_valid_source_id": 0}
     samples: list[str] = []  # 드롭된 fact 의 entity_name 예시(원인 진단용)
     cited: set[str] = set()  # 실제로 근거로 쓰인 블록 id(커버리지 계측)
-    for batch in _with_context(_pack_batches(groups, batch_blocks)):
+    batches = _with_context(_pack_batches(groups, batch_blocks))
+    for index, batch in enumerate(batches, start=1):
         # 맥락 블록은 근거 id 로 인정하지 않는다 — 중복 fact 를 원천 차단한다.
         batch_ids = {u["id"] for u in batch if not u.get("context")}
-        obj = runner.complete_json(FACT_SYSTEM, build_fact_user(batch, doc_type, profile))
+        # Word/PPT 도 Excel 과 같은 이유로 배치 번호를 남긴다(record_normalizer 참고).
+        with substage(f"배치 {index}/{len(batches)}", blocks=len(batch_ids)):
+            obj = runner.complete_json(
+                FACT_SYSTEM, build_fact_user(batch, doc_type, profile)
+            )
         for raw in obj.get("facts") or []:
             seen += 1
             if not isinstance(raw, dict):

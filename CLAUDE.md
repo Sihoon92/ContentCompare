@@ -73,7 +73,7 @@ pytest tests/test_pipeline_smoke.py::test_report_renders   # 단일 테스트
 - **HTTP 견고성(`llm/http.py`)**: 일시오류(연결/타임아웃/5xx)는 지수 백오프 재시도, **요청 한도(HTTP 429)는 별도 예산**으로 `rate_limit_wait`(서버 `Retry-After` 우선)만큼 대기 후 재시도.
 - **요청 한도 대응이 두 층인 이유(`llm/ratelimit.py`)**: 위 HTTP 레벨 처리는 `requests` 를 직접 쓰는 `internal`/`ollama` 만 덮는다. `langchain` 백엔드는 SDK 가 자체 재시도를 하는데 백오프가 몇 초 수준이라 **분당 한도 회복에 못 미친다**. 그래서 `factory.build_clients` 가 `max_calls_per_minute > 0` 일 때 클라이언트를 `RateLimitedChat`/`RateLimitedEmbedder` 로 감싼다 — `TracedChat` 과 같은 전략이고 **추적보다 바깥**이라 대기 시간이 `duration_ms` 에 섞이지 않는다. 두 층이 겹쳐 5회×60초가 **두 겹**으로 쌓이는 것(최악 10분)을 막으려고, HTTP 레벨에서 이미 처리하는 백엔드는 `handles_rate_limit = True` 를 선언하고 래퍼가 **사후 재시도만** 건너뛴다(사전 스로틀은 적용). `RateLimiter` 는 고정 창이 아니라 **슬라이딩 창**이며(경계에서 두 배가 몰리는 것 방지) 창이 열릴 만큼만 잔다. chat 과 embed 는 같은 키를 쓰므로 서버가 합산해 세고 → **limiter 를 공유**한다(로컬 임베딩 `fastembed`/`onnx` 는 한도를 안 먹으므로 제외). 한도 예외 감지는 `openai` 를 import 하지 않고 상태코드·클래스명·메시지 마커로 **덕 타이핑**하며, 사내 게이트웨이가 429 를 안 줄 수 있어 `rate_limit_status_codes`/`rate_limit_markers` 로 넓힐 수 있다 — 첫 감지 시 예외 타입·상태코드·본문을 `log_print` 로 남기는 것이 그 조정의 근거다(60초 정지를 행으로 오해하는 것도 막는다).
 - **e5 계열 교차언어 검색**: 검색어/본문에 다른 접두어가 필요 → `embed_query_prefix`(`query: `) / `embed_passage_prefix`(`passage: `), 미지정 시 `embed_prefix` 폴백. `config.llm.embed_prefix_for(kind)` 가 선택한다.
-- **LLM 입출력 추적(`llm/tracing.py`, 선택)**: `llm.langfuse` 에 `host`/`public_key`/`secret_key` 를 **셋 다** 채우면 켜진다(하나라도 비면 조용히 꺼짐). `build_clients` 가 chat 클라이언트를 `TracedChat` 으로 감싸는 방식이라 **fact 6단계·RAG 판정·헤더 추정이 호출부 수정 없이** 전부 잡힌다 — `comparison/`·`readers/` 가 코드 무수정 원칙이라 이 설계가 필수다. 꺼져 있으면 래핑도 import 도 하지 않아 기존 동작과 **동일 객체**다. 단계 이름은 `tracing.stage()` 로 붙이고(fact 파이프라인), 없으면 호출자 모듈명으로 폴백한다. **추적 실패는 절대 실행을 막지 않는다** — 첫 실패에 경고 1회 후 no-op 으로 강등. Langfuse SDK 접촉은 `LangfuseTracer` 한 곳에 가둬 v2↔v3 교체가 이 파일 안에서 끝난다. **사내 사설 인증서**는 기본적으로 `use_os_trust_store()` 가 `truststore`(langfuse extra 에 포함)로 OS 인증서 저장소를 쓰게 해 해결한다 — Python 은 certifi 의 공인 CA 만 믿어 `CERTIFICATE_VERIFY_FAILED` 가 나지만, 브라우저로 Langfuse 웹이 열리는 PC 면 사내 루트가 이미 OS 저장소에 있다. **`SSL_CERT_FILE`/`httpx_client` 만으로는 부족하다** — httpx 는 그 환경변수를 읽지 않고 certifi 로 컨텍스트를 만들어서, SDK 가 내부에서 자기 httpx 클라이언트를 만드는 순간 우리가 넘긴 CA 를 통째로 우회한다(실측: 그래서 순수 httpx 요청은 통과하는데 `auth_check` 만 SSL 로 죽었다). `truststore` 는 `ssl.SSLContext` 자체를 갈아끼우므로 그 경로까지 덮으며, 클라이언트 **생성 전에** 주입해야 효과가 있다. `ssl_cert`(PEM 경로)는 OS 저장소에도 루트가 없는 환경의 탈출구다 — 명시하면 사람의 의도가 우선이라 truststore 대신 그 파일만 신뢰한다. `.cer` 은 DER(바이너리)인 경우가 많아 코드가 형식을 검사해 변환 명령까지 로그로 알려준다. 원인 격리는 `python scripts/langfuse_test.py`(contentcompare 를 안 타는 4단계 바이섹트, `--insecure` 로 인증서 여부 확정). ⚠️ artifacts 캐시가 적중한 단계는 LLM 을 안 불러 trace 가 없다(실행 시 안내 출력).
+- **LLM 입출력 추적(`llm/tracing.py`, 선택)**: `llm.langfuse` 에 `host`/`public_key`/`secret_key` 를 **셋 다** 채우면 켜진다(하나라도 비면 조용히 꺼짐). `build_clients` 가 chat 클라이언트를 `TracedChat` 으로 감싸는 방식이라 **fact 6단계·RAG 판정·헤더 추정이 호출부 수정 없이** 전부 잡힌다 — `comparison/`·`readers/` 가 코드 무수정 원칙이라 이 설계가 필수다. ⚠️ **래핑 조건은 추적 하나가 아니다** — 아래 실행 타임라인도 같은 래퍼를 쓰고 그쪽이 **기본 on** 이라, `build_clients` 는 Langfuse·`trace_local`·`logging.timeline` 중 **하나라도** 켜져 있으면 감싼다(셋 다 꺼야 기존과 동일 객체다). 단계 이름은 `tracing.stage()` 로 붙이고(fact 파이프라인), 없으면 호출자 모듈명으로 폴백한다. **추적 실패는 절대 실행을 막지 않는다** — 첫 실패에 경고 1회 후 no-op 으로 강등. Langfuse SDK 접촉은 `LangfuseTracer` 한 곳에 가둬 v2↔v3 교체가 이 파일 안에서 끝난다. **사내 사설 인증서**는 기본적으로 `use_os_trust_store()` 가 `truststore`(langfuse extra 에 포함)로 OS 인증서 저장소를 쓰게 해 해결한다 — Python 은 certifi 의 공인 CA 만 믿어 `CERTIFICATE_VERIFY_FAILED` 가 나지만, 브라우저로 Langfuse 웹이 열리는 PC 면 사내 루트가 이미 OS 저장소에 있다. **`SSL_CERT_FILE`/`httpx_client` 만으로는 부족하다** — httpx 는 그 환경변수를 읽지 않고 certifi 로 컨텍스트를 만들어서, SDK 가 내부에서 자기 httpx 클라이언트를 만드는 순간 우리가 넘긴 CA 를 통째로 우회한다(실측: 그래서 순수 httpx 요청은 통과하는데 `auth_check` 만 SSL 로 죽었다). `truststore` 는 `ssl.SSLContext` 자체를 갈아끼우므로 그 경로까지 덮으며, 클라이언트 **생성 전에** 주입해야 효과가 있다. `ssl_cert`(PEM 경로)는 OS 저장소에도 루트가 없는 환경의 탈출구다 — 명시하면 사람의 의도가 우선이라 truststore 대신 그 파일만 신뢰한다. `.cer` 은 DER(바이너리)인 경우가 많아 코드가 형식을 검사해 변환 명령까지 로그로 알려준다. 원인 격리는 `python scripts/langfuse_test.py`(contentcompare 를 안 타는 4단계 바이섹트, `--insecure` 로 인증서 여부 확정). ⚠️ artifacts 캐시가 적중한 단계는 LLM 을 안 불러 trace 가 없다(실행 시 안내 출력).
 
 ### 하이브리드 검색 (`similarity/`)
 
@@ -164,3 +164,29 @@ CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [-
 단, **서드파티 저수준 로거**(`urllib3`·`httpcore`·`httpx`·`openai`·`matplotlib` 등 `NOISY_LOGGERS`)는 기본적으로 WARNING 으로 올려 숨긴다 — 소켓 연결/재시도/폰트 캐시 내용이라 오판 추적에 쓸모없으면서 로그의 대부분을 차지했다(실측: 최근 로그의 최다 항목이 `urllib3.connectionpool` DEBUG). 우리 코드(`contentcompare.*`)의 DEBUG 는 그대로 남으므로 위 원칙과 충돌하지 않는다.
 
 조절 지점이 **두 층**인 것은 순서 때문이다 — `setup_logging()` 은 `AppConfig.load()` 보다 먼저 불려야 설정 파일을 읽는 동안의 로그까지 잡는다. 그래서 기본 목록은 코드 상수(`logging_setup.NOISY_LOGGERS`)로 두고, config 의 `logging.quiet_extra`/`verbose_extra` 는 그 뒤에 `apply_logger_overrides()` 로 얹는다(같은 이름이 양쪽에 있으면 **verbose 가 이긴다** — 디버깅하려고 연 것을 덮지 않기 위해). 전체를 한 번에 열려면 환경변수 `CONTENTCOMPARE_LOG_NOISY=1`.
+
+### 실행 타임라인 (`timeline.py`) — "언제 무엇이 왜 멈췄나"
+
+로그 파일은 **무엇이 기록됐나**를 답하지만 **언제 무슨 일이 있었나**를 한 축으로 보여 주지 못한다. 실측에서 100행 엑셀이 `records` 에서 죽었을 때, "몇 번째 배치에서 죽었나"를 `run_stats.json` 의 `llm.calls` 를 세어 역산해야 했고(profile 1 + schema 1 = 2 이므로 calls 3 이면 첫 배치), 그 사이 화면은 8분간 조용했다 — SDK 가 120초씩 네 번 재시도하는 것이 `duration_ms` 하나로 뭉쳐 보이지 않았기 때문이다. **이 모듈이 없애려는 것이 그 역산이다.**
+
+`llm/tracing.py` 와 **역할이 다르다**. 그쪽은 *무엇을 주고받았나*(프롬프트 원문)를 남기고 기본 off 다. 이쪽은 *언제 무슨 일이 있었나*(시각·소요·회차)를 남기고 **기본 on** 이다. 그래서 **원문을 절대 담지 않는다** — 기본 on 인 경로에 원문이 들어가면 평문 유출이 기본값이 된다. 길이·회차·상태코드만 남긴다.
+
+기록은 `artifacts/_timeline/<실행>.jsonl` 에 **append-only** 로 쌓인다(`JsonlTracer` 가 매번 `index.json` 을 다시 쓰는 것과 의도적으로 다르다 — 타임라인은 *죽는 순간*을 보려고 만드는 것이라 죽을 때 살아남아야 하고, 마지막 줄이 잘려도 앞줄은 읽힌다). ⚠️ `fact/artifact_reader.RESERVED_DIRS` 에 `_timeline` 이 들어 있어야 현미경이 이 폴더를 문서로 오인하지 않는다.
+
+이벤트를 흘리는 지점은 **기존 코드에 이미 있던 자리**다 — 새 배선을 깔지 않았다:
+
+| 지점 | 남기는 것 |
+|---|---|
+| `tracing.stage()` | 단계 시작/종료 + **예외로 빠져나가면 어느 단계인지 확정** |
+| `tracing.substage()` | 반복 구간(`배치 1/4`)을 부모 이름에 잇는다 — 역산이 사라지는 자리 |
+| `tracing.TracedChat` | LLM 요청/응답, 소요, 실패, `timeout` 80% 초과 시 **느림 경고** |
+| `llm/http_probe.py` | **SDK 내부 재시도**(langchain 경로) — httpx event hook |
+| `llm/http.py` | 전송 재시도·429 대기(internal·ollama 경로) |
+| `llm/ratelimit.py` | 사전 스로틀·사후 한도 대기 |
+| `fact/llm_stage.py` | JSON 파싱 재시도 — 전송 재시도와 **원인이 달라** 갈라 남긴다 |
+
+**SDK 재시도가 httpx 훅인 이유**: openai SDK 는 `max_retries` 만큼 자체 재시도를 하는데 `TracedChat` 에는 그 4회가 한 덩어리로 보인다. 재시도는 **새 HTTP 요청**이므로 전송 계층 훅이 정확히 잡는다. ⚠️ httpx 의 `response` 훅은 **타임아웃에 불리지 않으므로**, 재시도의 증거는 "응답 없이 다음 요청이 왔다"는 사실이다(`HttpProbe.on_request` 가 직전 요청의 미완결을 보고 기록하는 구조가 여기서 나온다). 이를 위해 `langchain_backend._http_client()` 는 `verify_ssl` 값과 **무관하게 항상** httpx 클라이언트를 만든다(verify 값은 그대로라 통신 동작은 동일하고 관측만 얻는다).
+
+**콘솔 인코딩은 선택이 아니다.** Windows PowerShell 5.1 기본이 cp949 인데 거기 `✓`·`✗`·`⚠`·`⏳`·`—` 가 없다 — 그대로 print 하면 `UnicodeEncodeError` 로 **그 줄이 통째로 사라진다**(실측: 종료 줄이 전부 유실됐고 예외는 삼켜져 조용했다). `console_safe()` 가 인코딩이 **실제로 못 쓰는 문자만** 바꾼다(cp949 는 `▶`·`│`·`├` 는 받으므로 남긴다). 그리고 **화면 실패는 기록 실패가 아니다** — 콘솔이 죽으면 화면만 끄고 파일 기록은 계속한다.
+
+조회는 `python scripts/show_timeline.py [--errors] [--slow N] [--stage 이름] [--list]`, 화면은 Streamlit **⏱ 타임라인** 탭(`ui/timeline_view.py` — 표현층은 streamlit 무의존 순수 함수). `timeline.diagnose()` 는 관측된 증상에서 **다음 조치**를 문장으로 낸다(타임아웃 → `record_batch_rows`·`llm.timeout`, 429 → `max_calls_per_minute`, 빈 응답 → Ollama `num_ctx`) — 사람이 코드를 읽어 같은 결론에 다시 도달하지 않게 하려는 것이다.

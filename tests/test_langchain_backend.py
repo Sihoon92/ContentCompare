@@ -68,8 +68,10 @@ def test_api_key_falls_back_to_env(monkeypatch):
 
 def test_factory_routes_to_langchain_lazily():
     # 생성은 지연 import 라 langchain 미설치여도 객체가 만들어져야 한다.
+    # 타임라인은 끈다 — 켜면 chat 이 TracedChat 으로 감싸여 라우팅 검증이 가려진다.
     cfg = AppConfig()
     cfg.llm.backend = "langchain"
+    cfg.logging.timeline = False
     chat, emb = build_clients(cfg)
     assert isinstance(chat, LangChainBackend)
     assert chat is emb

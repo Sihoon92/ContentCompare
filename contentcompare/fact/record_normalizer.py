@@ -12,6 +12,7 @@ import json
 import logging
 from typing import Any, Iterator, Optional
 
+from ..llm.tracing import substage
 from .artifacts import ArtifactStore
 from .llm_stage import LlmRunner, fingerprint_for
 from .prompts import RECORD_SYSTEM, RECORD_VERSION, build_record_user
@@ -108,10 +109,16 @@ def normalize_records(
         records: list[Record] = []
         carry = {"category": "", "subcategory": ""}
         seq = 0  # record 전체 순번(배치 걸쳐 단조 증가) — row-less 폴백 id 생성용
-        for batch in _chunks(data_rows, batch_rows):
-            obj = runner.complete_json(
-                RECORD_SYSTEM, build_record_user(batch, column_schema, table_profile, carry)
-            )
+        batches = list(_chunks(data_rows, batch_rows))
+        for index, batch in enumerate(batches, start=1):
+            # 배치 번호를 단계 이름에 넣는다. 이것이 없으면 실패했을 때 "몇 번째에서
+            # 죽었나"를 ``run_stats`` 의 LLM 호출 수로 역산해야 한다(실측에서 실제로
+            # 그렇게 했다). 역산을 없애는 것이 이 한 줄의 목적이다.
+            with substage(f"배치 {index}/{len(batches)}", rows=len(batch)):
+                obj = runner.complete_json(
+                    RECORD_SYSTEM,
+                    build_record_user(batch, column_schema, table_profile, carry),
+                )
             row_by_r = {r.get("r"): r for r in batch}
             batch_records: list[Record] = []
             for raw in (obj.get("records") or []):

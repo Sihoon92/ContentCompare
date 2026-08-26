@@ -26,7 +26,7 @@ PAIR_SEP = "↔"
 """``concept_validation`` 이 두 fact 를 이어 붙일 때 쓰는 구분자(``↔``)."""
 
 # 실행 폴더가 아닌 예약 디렉터리(스냅샷 보관소·LLM 추적).
-RESERVED_DIRS = ("_runs", "_traces")
+RESERVED_DIRS = ("_runs", "_traces", "_timeline")
 
 # 기준 문서 폴더에만 있는 산출물 — 실행을 찾는 표지로 쓴다.
 RUN_MARKER = "comparison_result"

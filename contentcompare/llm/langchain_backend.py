@@ -11,10 +11,13 @@ langchain 은 무거운 선택적 의존성이므로 import 를 실제 호출 �
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from typing import Any, Optional
 
 from ..config import LLMConfig, no_proxy
+
+logger = logging.getLogger("contentcompare.llm.langchain_backend")
 
 
 class LangChainBackend:
@@ -46,14 +49,32 @@ class LangChainBackend:
         )
 
     def _http_client(self):
-        """verify_ssl=False 면 검증을 끈 httpx 클라이언트를 만든다(사내 사설 인증서)."""
-        if self.config.internal.verify_ssl:
-            return None
+        """httpx 클라이언트를 **항상** 만들어 관측 훅을 단다.
+
+        두 가지를 한다: ``verify_ssl=False`` 면 검증을 끄고(사내 사설 인증서),
+        어느 쪽이든 :mod:`.http_probe` 훅을 붙여 **SDK 내부 재시도**를 타임라인에
+        드러낸다.
+
+        예전에는 ``verify_ssl=True`` 면 ``None`` 을 돌려줘 SDK 가 자기 클라이언트를
+        만들게 뒀는데, 그러면 재시도가 우리 눈에 안 보인다 — 실측에서 120초 × 4회가
+        ``duration_ms`` 하나로 뭉쳤다. **verify 값은 그대로**이므로 통신 동작은
+        동일하고 관측만 얻는다.
+        """
         try:
             import httpx  # noqa: WPS433 - 지연 import
 
-            return httpx.Client(verify=False)
+            from .http_probe import hooks
         except Exception:  # pragma: no cover - httpx 는 langchain 의존성
+            return None
+        try:
+            return httpx.Client(
+                verify=self.config.internal.verify_ssl,
+                event_hooks=hooks(self.config.max_retries),
+            )
+        except Exception as exc:  # pragma: no cover - 환경 의존
+            # 클라이언트를 못 만들면 SDK 기본값으로 돌아간다 — 관측을 잃을 뿐
+            # 호출은 계속돼야 한다.
+            logger.warning("httpx 클라이언트 생성 실패 — SDK 기본값을 씁니다: %s", exc)
             return None
 
     @staticmethod

@@ -16,6 +16,9 @@ import logging
 import re
 from typing import Any, Optional
 
+from .. import timeline
+from ..llm.tracing import current_stage
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,4 +110,12 @@ class LlmRunner:
             last_raw = raw
             self.parse_failures += 1
             logger.warning("JSON 파싱 실패(attempt %d): %r", attempt + 1, raw)
+            # 전송 재시도(:mod:`contentcompare.llm.http`)와 **원인이 다르다** —
+            # 이쪽은 응답이 왔는데 모양이 틀린 것이라 조치가 프롬프트·모델 쪽이다.
+            # 타임라인에서 갈리지 않으면 둘을 같은 문제로 오해한다.
+            timeline.emit(
+                timeline.RETRY, current_stage(depth=1), status="error",
+                attempt=attempt + 1, max=retries + 1, reason="JSON 파싱 실패",
+                output_chars=len(raw or ""),
+            )
         raise ValueError(f"LLM JSON 파싱 실패(재시도 {retries}회): {last_raw!r}")

@@ -70,8 +70,14 @@ def test_factory_mixes_chat_and_fastembed():
 
 
 def test_factory_same_backend_returns_single_object():
+    """같은 백엔드면 객체 하나 — 모델을 두 번 로드하지 않기 위한 불변식.
+
+    관측 층(타임라인)을 끄고 본다. 켜져 있으면 chat 이 ``TracedChat`` 으로 감싸여
+    ``is`` 가 깨지는데, 그것은 배선이 아니라 관측의 문제라 여기서 볼 대상이 아니다.
+    """
     cfg = AppConfig()
     cfg.llm.backend = "ollama"          # embed_backend 비움 → 동일
+    cfg.logging.timeline = False
     chat, embed = build_clients(cfg)
     assert chat is embed
 
@@ -80,6 +86,7 @@ def test_factory_langchain_chat_with_fastembed_embed():
     cfg = AppConfig()
     cfg.llm.backend = "langchain"
     cfg.llm.embed_backend = "fastembed"
+    cfg.logging.timeline = False        # 배선만 본다(위 테스트와 같은 이유)
     chat, embed = build_clients(cfg)
     from contentcompare.llm.langchain_backend import LangChainBackend
 

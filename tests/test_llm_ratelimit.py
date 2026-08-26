@@ -330,7 +330,11 @@ def test_default_is_off():
 
 
 def test_build_clients_returns_untouched_objects_when_off(monkeypatch):
-    """스로틀이 꺼져 있으면 **동일 객체** — Langfuse 배선이 지키는 규약과 같다."""
+    """스로틀이 꺼져 있으면 **동일 객체** — Langfuse 배선이 지키는 규약과 같다.
+
+    타임라인도 함께 끈다. 그쪽이 켜져 있으면 chat 이 ``TracedChat`` 으로 감싸여
+    이 테스트가 보려는 "스로틀 래퍼가 붙었는가"를 가린다.
+    """
     from contentcompare.llm import factory
 
     sentinel_chat, sentinel_embed = object(), object()
@@ -338,7 +342,9 @@ def test_build_clients_returns_untouched_objects_when_off(monkeypatch):
                         lambda backend, llm: sentinel_chat if backend == "ollama"
                         else sentinel_embed)
 
-    chat, emb = factory.build_clients(_cfg())
+    config = _cfg()
+    config.logging.timeline = False
+    chat, emb = factory.build_clients(config)
     assert chat is sentinel_chat and emb is sentinel_embed
 
 

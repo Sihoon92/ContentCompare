@@ -54,13 +54,17 @@ def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
     # 임베딩 백엔드가 같으면 같은 객체를, 다르면 별도로 생성.
     embed_obj = chat_obj if embed_backend == backend else _make(embed_backend, llm)
 
-    # LLM 입출력 추적(Langfuse). **꺼져 있으면 import 조차 하지 않는다** — 코어
-    # 의존성 최소 정책을 지키고, 설정을 건드리지 않은 사용자에게 변화가 0 이도록
-    # 오늘과 **동일 객체**를 그대로 돌려준다.
+    # LLM 입출력 추적(Langfuse/로컬)과 **실행 타임라인**은 목적이 다르지만 감싸는
+    # 지점이 같다 — 셋 중 하나라도 켜져 있으면 :class:`TracedChat` 로 감싼다.
+    # 셋 다 꺼져 있으면 import 조차 하지 않고 오늘과 **동일 객체**를 돌려준다.
+    #
+    # ⚠️ 타임라인은 기본 on 이라 실무에서는 사실상 항상 감싸진다. 예전에는
+    # "추적을 안 켜면 래핑도 없다"가 단언이었으므로 CLAUDE.md 도 함께 고쳤다 —
+    # 그러지 않으면 다음 사람이 "래핑 안 한다는데 왜 래핑되지"로 시간을 잃는다.
     #
     # chat 만 감싼다(embed_obj 는 그대로). 같은 객체인 백엔드에서도 임베딩 호출은
     # TracedChat.__getattr__ 위임으로 원래 구현에 그대로 닿는다.
-    if llm.langfuse.is_active() or llm.trace_local:
+    if llm.langfuse.is_active() or llm.trace_local or config.logging.timeline:
         from .tracing import wrap_chat
 
         chat_obj = wrap_chat(chat_obj, config)

@@ -26,8 +26,10 @@ import time
 from collections import deque
 from typing import Any, Callable, Iterable, Optional
 
+from .. import timeline
 from ..logging_setup import log_print
 from .http import _retry_after_seconds
+from .tracing import current_stage
 
 logger = logging.getLogger("contentcompare.llm.ratelimit")
 
@@ -86,6 +88,13 @@ class RateLimiter:
                 logger.info(
                     "요청 한도 스로틀 — 분당 %d회 유지를 위해 %.1fs 대기",
                     self._max, delay,
+                )
+                # 타임라인에도 남긴다 — 이 정지는 정상 동작인데, 기록이 없으면
+                # "왜 갑자기 느려졌나"를 설명할 수 없어 행(hang)으로 오해된다.
+                timeline.emit(
+                    timeline.WAIT, current_stage(depth=1), status="rate_limit",
+                    seconds=round(delay, 1), reason="요청 한도 스로틀",
+                    limit=self._max,
                 )
                 self._sleep(delay)
             self._prune(self._clock())
@@ -211,6 +220,12 @@ class _RateLimitedBase:
         첫 회에는 예외 타입·상태코드·본문 앞부분까지 남긴다 — 사내 서버가 한도 초과를
         실제로 어떤 형태로 돌려주는지 확인하는 유일한 수단이다.
         """
+        timeline.emit(
+            timeline.WAIT, current_stage(depth=1), status="rate_limit",
+            seconds=round(delay, 1), reason="요청 한도 재시도",
+            attempt=attempt, max=self._max_retries,
+            error=f"{type(exc).__name__}: {exc}"[:200],
+        )
         if not self._diagnosed:
             self._diagnosed = True
             log_print(

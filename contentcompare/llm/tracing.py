@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
+from .. import timeline
 from ..config import AppConfig
 
 logger = logging.getLogger("contentcompare.llm.tracing")
@@ -49,18 +50,55 @@ _STAGE: ContextVar[str] = ContextVar("contentcompare_stage", default="")
 # 단계 이름
 # --------------------------------------------------------------------------- #
 @contextlib.contextmanager
-def stage(name: str) -> Iterator[None]:
-    """이 블록 안의 LLM 호출에 단계 이름을 붙인다.
+def stage(name: str, **detail: Any) -> Iterator[None]:
+    """이 블록 안의 LLM 호출에 단계 이름을 붙이고, **경계를 타임라인에 남긴다**.
 
     Langfuse UI 에서 "F7 개념 판정만" 골라 보려면 이름이 필요하다. fact 파이프라인은
     :mod:`contentcompare.fact.pipeline` 에서 명시적으로 감싸고, 감쌀 수 없는 경로
     (코드 무수정인 ``comparison/``)는 :func:`current_stage` 의 폴백이 처리한다.
+
+    파이프라인의 모든 단계가 이미 이 컨텍스트로 감싸여 있으므로, **여기에 이벤트를
+    넣으면 파이프라인 코드를 건드리지 않고** 단계 타임라인이 생긴다. 예외로 빠져나갈
+    때 ``status="error"`` 와 예외 타입을 남기는 것이 핵심이다 — "에러가 어느 단계에서
+    났는가"가 이 한 줄로 확정되어, ``run_stats`` 의 호출 수를 세어 역산하던 작업이
+    사라진다.
+
+    ``detail`` 은 시작 이벤트에 붙일 규모 정보다(``rows=104, batches=4`` 등).
+    **원문은 넣지 않는다**(:mod:`contentcompare.timeline` 의 규약).
     """
     token = _STAGE.set(name)
+    started = time.monotonic()
+    timeline.emit(timeline.STAGE_START, name, **detail)
+    # ``depth`` 는 종료 이벤트에도 실어야 한다 — 콘솔이 시작/종료를 같은 깊이로
+    # 그려야 한 쌍으로 읽힌다. 나머지 규모 정보는 시작 줄에만 있으면 충분하다.
+    status, extra = "ok", {"depth": detail.get("depth")}
     try:
         yield
+    except BaseException as exc:  # noqa: BLE001 — 기록만 하고 그대로 올려보낸다
+        status = "error"
+        extra["error"] = f"{type(exc).__name__}: {exc}"[:200]
+        raise
     finally:
         _STAGE.reset(token)
+        timeline.emit(
+            timeline.STAGE_END, name, status=status,
+            duration_ms=int((time.monotonic() - started) * 1000), **extra,
+        )
+
+
+@contextlib.contextmanager
+def substage(name: str, **detail: Any) -> Iterator[None]:
+    """부모 단계 **안**의 반복 구간에 이름을 더한다 — 예: ``"배치 1/4"``.
+
+    :func:`stage` 를 중첩하면 이름이 통째로 덮여 "F2 records 안의 배치 1"이라는 사실이
+    사라진다. 이쪽은 부모 이름에 ``·`` 로 잇기만 하므로 실패 줄 하나에 문서·단계·
+    배치가 함께 남는다. 부모가 없으면 그 이름 그대로 선다.
+    """
+    parent = _STAGE.get()
+    # ``depth`` 는 표현용 힌트다 — 콘솔이 들여쓰기하고 부모 접두어를 접는 데 쓴다
+    # (:func:`contentcompare.timeline.format_line`). 파일에는 전체 이름이 남는다.
+    with stage(f"{parent} · {name}" if parent else name, depth=1, **detail):
+        yield
 
 
 def current_stage(depth: int = 2) -> str:
@@ -550,28 +588,51 @@ class TracedChat:
     바이트 단위로 같아야 한다. 기록은 부수효과일 뿐이다.
     """
 
-    def __init__(self, inner: Any, model: str, backend: str, tracer: Any) -> None:
+    def __init__(self, inner: Any, model: str, backend: str, tracer: Any,
+                 slow_after_ms: int = 0) -> None:
         self._inner = inner
         self._model = model
         self._backend = backend
         self._tracer = tracer
+        self._slow_after_ms = int(slow_after_ms or 0)
+        """이 시간을 넘긴 성공 호출에 '느림' 표시를 붙인다(0 이면 끔).
+
+        타임아웃은 이미 늦은 신호다 — 20행은 통과하고 30행이 죽었던 실측에서, 20행
+        실행에 이 경고가 떴다면 배치 크기를 미리 줄일 수 있었다.
+        """
 
     def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
         name = current_stage(depth=2)
         started = time.monotonic()
         error = ""
         output = ""
+        status = "ok"
+        # 시작 이벤트를 **호출 전에** 낸다 — 이것이 없으면 응답이 오지 않는 동안
+        # 화면이 조용해서, 8분을 기다릴지 끊을지 판단할 근거가 없다.
+        timeline.emit(timeline.LLM_START, name,
+                      prompt_chars=len(system or "") + len(user or ""))
         try:
             output = self._inner.complete(system, user, temperature=temperature)
             return output
         except Exception as exc:  # noqa: BLE001 — 기록만 하고 그대로 올려보낸다
             error = f"{type(exc).__name__}: {exc}"
+            status = timeline.classify_error(exc)
             raise
         finally:
+            took = int((time.monotonic() - started) * 1000)
+            # ``output_chars`` 는 0 도 남긴다 — Ollama 는 컨텍스트가 모자라면 오류가
+            # 아니라 **빈 응답**을 주므로, 0 자체가 진단 신호다.
+            slow = (status == "ok" and self._slow_after_ms
+                    and took >= self._slow_after_ms) or None
+            timeline.emit(
+                timeline.LLM_END, name, status=status, duration_ms=took,
+                output_chars=len(output or ""), slow=slow,
+                error=(error[:200] if error else None),
+            )
             self._safe_record(GenerationEvent(
                 stage=name, model=self._model, system=system, user=user,
                 output=output, error=error or None,
-                duration_ms=int((time.monotonic() - started) * 1000),
+                duration_ms=took,
                 metadata={"backend": self._backend, "temperature": temperature},
             ))
 
@@ -608,6 +669,8 @@ def wrap_chat(chat: Any, config: AppConfig, *, tracer: Optional[Any] = None) -> 
         model=config.llm.chat_model,
         backend=config.llm.backend,
         tracer=tracer if tracer is not None else get_tracer(config),
+        # timeout 의 80% — 이 선을 넘긴 호출은 입력이 조금만 커져도 죽는다.
+        slow_after_ms=int(config.llm.timeout * 800),
     )
 
 
