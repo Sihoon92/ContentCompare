@@ -170,7 +170,8 @@ def test_status_codes_and_markers_are_configurable():
 # --------------------------------------------------------------------------- #
 # 3) 사후 대기 — RateLimitedChat
 # --------------------------------------------------------------------------- #
-def _wrap(inner, *, clock, limit=0, wait=60.0, retries=5, handled=False):
+def _wrap(inner, *, clock, limit=0, wait=60.0, retries=5, handled=False,
+          timeout_wait=0.0, timeout_retries=2):
     from contentcompare.llm.ratelimit import RateLimiter, RateLimitedChat
 
     return RateLimitedChat(
@@ -178,6 +179,7 @@ def _wrap(inner, *, clock, limit=0, wait=60.0, retries=5, handled=False):
         limiter=RateLimiter(max_per_minute=limit, clock=clock.time, sleep=clock.sleep),
         wait=wait, max_retries=retries,
         inner_handles_rate_limit=handled,
+        timeout_wait=timeout_wait, timeout_max_retries=timeout_retries,
         sleep=clock.sleep,
     )
 
@@ -389,3 +391,146 @@ def test_langchain_backend_is_not_flagged():
     from contentcompare.llm.langchain_backend import LangChainBackend
 
     assert getattr(LangChainBackend, "handles_rate_limit", False) is False
+
+
+# --------------------------------------------------------------------------- #
+# 4) 타임아웃 후 대기 — 한도와 **원인이 다르므로 예산도 따로** 센다
+# --------------------------------------------------------------------------- #
+class FakeTimeoutError(Exception):
+    """openai.APITimeoutError 를 흉내낸다.
+
+    실물은 상태코드도 ``response`` 도 없고 메시지가 ``"Request timed out."`` 뿐이라
+    ``is_rate_limit`` 의 세 근거(상태코드·클래스명·마커) 어디에도 안 걸린다 —
+    그래서 별도 감지가 필요하다.
+    """
+
+    def __init__(self, message: str = "Request timed out.") -> None:
+        super().__init__(message)
+
+
+def test_is_timeout_recognizes_the_sdk_exception():
+    from contentcompare.llm.ratelimit import is_rate_limit, is_timeout
+
+    exc = FakeTimeoutError()
+    assert is_timeout(exc)
+    # 한도 감지에는 안 걸려야 두 분기가 서로 잡아먹지 않는다.
+    assert not is_rate_limit(exc)
+
+
+def test_is_timeout_reads_the_class_name_not_just_the_message():
+    """백엔드마다 클래스가 다르다 — httpx.ReadTimeout · requests Timeout · SDK."""
+    from contentcompare.llm.ratelimit import is_timeout
+
+    class ReadTimeout(Exception):
+        pass
+
+    assert is_timeout(ReadTimeout("connection lost"))
+    assert is_timeout(TimeoutError("무응답"))
+
+
+def test_is_timeout_does_not_swallow_unrelated_errors():
+    from contentcompare.llm.ratelimit import is_timeout
+
+    assert not is_timeout(ValueError("bad json"))
+    assert not is_timeout(FakeRateLimitError())
+
+
+def test_timeout_waits_then_succeeds():
+    clock = FakeClock()
+    inner = FakeChat(errors=[FakeTimeoutError()])
+    chat = _wrap(inner, clock=clock, timeout_wait=60.0)
+
+    assert chat.complete("s", "u") == "OK"
+    assert clock.slept == [60.0]
+    assert inner.calls == 2
+
+
+def test_timeout_gives_up_and_reraises_the_original():
+    """무한 대기는 실패보다 나쁘다 — 예산이 끝나면 원래 예외가 그대로 올라간다."""
+    clock = FakeClock()
+    inner = FakeChat(errors=[FakeTimeoutError() for _ in range(5)])
+    chat = _wrap(inner, clock=clock, timeout_wait=60.0, timeout_retries=2)
+
+    with pytest.raises(FakeTimeoutError):
+        chat.complete("s", "u")
+    assert clock.slept == [60.0, 60.0]
+    assert inner.calls == 3          # 최초 1 + 재시도 2
+
+
+def test_timeout_wait_off_keeps_todays_behaviour():
+    """기본은 꺼짐 — 켜지 않은 사용자에게 변화가 0 이어야 한다."""
+    clock = FakeClock()
+    inner = FakeChat(errors=[FakeTimeoutError()])
+    chat = _wrap(inner, clock=clock, timeout_wait=0.0)
+
+    with pytest.raises(FakeTimeoutError):
+        chat.complete("s", "u")
+    assert clock.slept == []
+    assert inner.calls == 1
+
+
+def test_timeout_and_rate_limit_budgets_do_not_share_a_counter():
+    """섞어 세면 "왜 갑자기 포기했나"를 설명할 수 없다(llm_budget_exceeded 와 같은 판단)."""
+    clock = FakeClock()
+    inner = FakeChat(errors=[FakeRateLimitError(), FakeTimeoutError(),
+                             FakeRateLimitError(), FakeTimeoutError()])
+    chat = _wrap(inner, clock=clock, wait=60.0, retries=2,
+                 timeout_wait=30.0, timeout_retries=2)
+
+    assert chat.complete("s", "u") == "OK"
+    assert clock.slept == [60.0, 30.0, 60.0, 30.0]   # 각자 2회씩 — 어느 쪽도 초과 아님
+
+
+def test_timeout_wait_is_visible_in_the_timeline(tmp_path):
+    """60초 정지가 행(hang)으로 오해되지 않아야 한다 — 한도 대기와 같은 이유."""
+    from contentcompare import timeline as tl
+
+    line = tl.Timeline(tmp_path / "run.jsonl", console=False)
+    tl.set_timeline(line)
+    try:
+        clock = FakeClock()
+        chat = _wrap(FakeChat(errors=[FakeTimeoutError()]), clock=clock, timeout_wait=60.0)
+        chat.complete("s", "u")
+    finally:
+        tl.reset_timeline()
+
+    waits = [e for e in tl.load_timeline(tmp_path / "run.jsonl") if e.kind == "wait"]
+    assert len(waits) == 1
+    assert waits[0].status == "timeout"
+    assert "타임아웃" in waits[0].detail["reason"]
+
+
+def test_inner_handling_rate_limit_does_not_skip_timeout_wait():
+    """``handles_rate_limit`` 은 429 만 뜻한다.
+
+    ``llm/http.py`` 의 일시오류 백오프는 2~8초라 분당 한도 회복에 못 미친다 —
+    타임아웃 대기까지 건너뛰면 이 기능이 internal·ollama 에서 통째로 죽는다.
+    """
+    clock = FakeClock()
+    inner = FakeChat(errors=[FakeTimeoutError()])
+    chat = _wrap(inner, clock=clock, handled=True, timeout_wait=60.0)
+
+    assert chat.complete("s", "u") == "OK"
+    assert clock.slept == [60.0]
+
+
+def test_factory_wraps_when_only_timeout_wait_is_set(monkeypatch):
+    """스로틀이 꺼져 있어도 타임아웃 대기만으로 래퍼가 붙어야 한다.
+
+    실측에서 이것이 빠져 있었다 — 60초 대기 코드는 있는데
+    ``max_calls_per_minute`` 가 0 이라 **호출 경로에 아예 없었다**.
+    """
+    from contentcompare.llm import factory
+    from contentcompare.llm.ratelimit import RateLimitedChat
+
+    monkeypatch.setattr(factory, "_make", lambda *_a, **_k: FakeChat())
+    config = _cfg(timeout_wait=60.0)
+    config.logging.timeline = False
+    chat, _emb = factory.build_clients(config)
+    assert isinstance(chat, RateLimitedChat)
+
+
+def test_config_reads_the_timeout_keys():
+    cfg = _cfg(timeout_wait=60, timeout_max_retries=3)
+    assert cfg.llm.timeout_wait == 60
+    assert cfg.llm.timeout_max_retries == 3

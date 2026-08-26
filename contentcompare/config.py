@@ -174,6 +174,25 @@ class LLMConfig:
 
     사내 한도가 분당 60회면 **55** 정도를 권한다(다른 프로세스·재시도 여유분).
     """
+    timeout_wait: float = 0.0
+    """타임아웃(``APITimeoutError`` 등) 뒤 대기 초. **0=끔**(기본).
+
+    사내 게이트웨이가 한도 초과를 429 가 아니라 **응답을 붙들고 있는 것**으로 알리면
+    클라이언트에는 타임아웃으로 보인다. 그때 짧게 재시도하면 같은 벽에 다시 부딪히므로
+    한도가 회복될 만큼(보통 60초) 기다렸다 다시 부른다.
+
+    ⚠️ **기본이 꺼짐인 이유는 대기가 공짜가 아니기 때문이다.** 타임아웃의 원인이 한도가
+    아니라 *생성이 느린 것*(배치당 출력이 많음)이면 60초 대기는 순수한 낭비이고, 게다가
+    SDK 자체 재시도(:attr:`max_retries`)와 **곱해진다** — 실측 기준 timeout 120s ·
+    max_retries 3 이면 한 호출이 이미 최악 8분인데, 여기에 60초 대기 2회를 얹으면
+    **26분**이 된다. 켤 때는 ``max_retries`` 를 0~1 로 낮출 것(`build_clients` 가
+    이 조합을 감지해 경고한다).
+    """
+
+    timeout_max_retries: int = 2
+    """타임아웃 전용 재시도 횟수. 한도 재시도(:attr:`rate_limit_max_retries`)와
+    **예산을 따로** 센다 — 섞어 세면 "왜 갑자기 포기했나"를 설명할 수 없다."""
+
     rate_limit_status_codes: list = field(default_factory=lambda: [429])
     """한도 초과로 볼 HTTP 상태코드. 표준은 429 지만 사내 게이트웨이는 다를 수 있다."""
     rate_limit_markers: list = field(default_factory=lambda: [

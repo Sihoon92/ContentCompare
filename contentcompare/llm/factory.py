@@ -10,6 +10,7 @@ embed=fastembed(로컬) 처럼 분리할 수 있다.
 from __future__ import annotations
 
 from ..config import AppConfig, LLMConfig, disable_proxy
+from ..logging_setup import log_print
 from .base import EmbeddingClient, LLMClient
 from .internal import InternalBackend
 from .ollama import OllamaBackend
@@ -69,12 +70,43 @@ def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
 
         chat_obj = wrap_chat(chat_obj, config)
 
-    # 요청 한도 대응은 **가장 바깥**에 둔다. 추적보다 바깥이라 대기 시간이
+    # 요청 한도·타임아웃 대응은 **가장 바깥**에 둔다. 추적보다 바깥이라 대기 시간이
     # TracedChat 의 duration_ms 에 섞이지 않는다(지연 통계 오염 방지).
-    # 꺼져 있으면 감싸지 않아 오늘과 **동일 객체**를 돌려준다.
-    if llm.max_calls_per_minute > 0:
+    # 둘 다 꺼져 있으면 감싸지 않아 오늘과 **동일 객체**를 돌려준다.
+    #
+    # ⚠️ 조건에 timeout_wait 가 **빠져 있었다** — 60초 대기 코드는 있는데
+    # max_calls_per_minute 가 0(기본)이면 래퍼 자체가 안 붙어 호출 경로에 아예
+    # 없었다. 실측에서 "1분 대기가 구현 안 된 것 같다"로 관찰된 것이 이 누락이다.
+    if llm.max_calls_per_minute > 0 or llm.timeout_wait > 0:
+        _warn_retry_multiplication(llm, backend)
         chat_obj, embed_obj = _wrap_rate_limited(chat_obj, embed_obj, llm, embed_backend)
     return chat_obj, embed_obj
+
+
+def _warn_retry_multiplication(llm: LLMConfig, backend: str) -> None:
+    """타임아웃 대기와 SDK 자체 재시도가 **곱해지는** 조합을 경고한다.
+
+    두 층은 서로를 모른다. ``langchain`` 은 openai SDK 가, ``internal``/``ollama`` 는
+    :mod:`contentcompare.llm.http` 가 이미 타임아웃을 재시도하는데, 그 위에 60초 대기를
+    얹으면 총 소요가 곱으로 커진다 — 실측 기본값(timeout 120s · max_retries 3 ·
+    timeout_max_retries 2)에서 **한 호출이 최악 26분**이다. 사람이 그것을 행(hang)으로
+    오해하고 실행을 끊으면 대기 기능이 오히려 결과를 잃게 만든다.
+
+    막지 않고 알리기만 하는 것은, 이 조합이 정당한 환경(게이트웨이가 한도를 붙들기로
+    알리고 SDK 재시도가 그 벽을 못 넘는 경우)이 실제로 있기 때문이다.
+    """
+    if llm.timeout_wait <= 0 or llm.max_retries <= 0:
+        return
+    inner = (llm.max_retries + 1)
+    worst = inner * llm.timeout * (llm.timeout_max_retries + 1) \
+        + llm.timeout_max_retries * llm.timeout_wait
+    log_print(
+        f"⚠️ 재시도가 두 겹입니다 — 한 호출 최악 {worst / 60:.0f}분"
+        f" ({backend} 자체 재시도 {inner}회 × timeout {llm.timeout:.0f}s"
+        f" × 대기 재시도 {llm.timeout_max_retries + 1}회"
+        f" + 대기 {llm.timeout_wait:.0f}s × {llm.timeout_max_retries}).\n"
+        f"   timeout_wait 를 켰다면 llm.max_retries 를 0~1 로 낮추세요.",
+    )
 
 
 def _wrap_rate_limited(chat_obj, embed_obj, llm: LLMConfig, embed_backend: str):
@@ -98,6 +130,8 @@ def _wrap_rate_limited(chat_obj, embed_obj, llm: LLMConfig, embed_backend: str):
         max_retries=llm.rate_limit_max_retries,
         status_codes=llm.rate_limit_status_codes or None,
         markers=llm.rate_limit_markers or None,
+        timeout_wait=llm.timeout_wait,
+        timeout_max_retries=llm.timeout_max_retries,
     )
     chat_obj = RateLimitedChat(
         chat_obj,

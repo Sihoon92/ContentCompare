@@ -137,6 +137,34 @@ def is_rate_limit(
     return any(str(w).lower() in text for w in words)
 
 
+#: 타임아웃 메시지 마커. 클래스명 판정이 주(主)이고 이쪽은 보조다.
+_TIMEOUT_MARKERS = ("timed out", "timeout", "read timed out", "시간 초과")
+
+
+def is_timeout(exc: BaseException) -> bool:
+    """이 예외가 "응답을 기다리다 끊겼다"인가.
+
+    ``is_rate_limit`` 과 **갈라 두는 이유**가 있다. ``APITimeoutError`` 는 상태코드도
+    ``response`` 도 없고 메시지가 ``"Request timed out."`` 뿐이라 한도 감지의 세 근거
+    (상태코드·클래스명·마커) 어디에도 안 걸린다. 그렇다고 한도 마커에 ``timeout`` 을
+    끼워 넣으면 **원인이 다른 둘이 한 예산·한 대기로 뭉쳐** "왜 60초를 기다렸나"를
+    설명할 수 없게 된다 — 한도는 기다리면 풀리고, 생성 지연은 기다려도 안 풀린다.
+
+    판정은 **클래스명이 주(主)** 다. ``APITimeoutError``(openai) ·
+    ``ReadTimeout``(httpx) · ``Timeout``(requests) · ``TimeoutError``(내장)가 전부
+    이름에 ``timeout`` 을 담고 있어, 백엔드를 바꿔도 같은 코드로 잡힌다
+    (:mod:`contentcompare.llm.http` 를 쓰든 SDK 를 쓰든).
+
+    ⚠️ :func:`contentcompare.timeline.classify_error` 에도 비슷한 판정이 있지만 그쪽은
+    **기록에 붙일 이름**을 고르는 것이고 이쪽은 **60초를 기다릴지**를 정한다. 둘이
+    갈려도 동작에는 영향이 없다.
+    """
+    if "timeout" in type(exc).__name__.replace("_", "").lower():
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _TIMEOUT_MARKERS)
+
+
 def retry_after_of(exc: BaseException) -> Optional[float]:
     """예외에 딸린 응답의 ``Retry-After`` 초. 없으면 ``None``.
 
@@ -180,6 +208,8 @@ class _RateLimitedBase:
         inner_handles_rate_limit: bool = False,
         status_codes: Optional[Iterable[int]] = None,
         markers: Optional[Iterable[str]] = None,
+        timeout_wait: float = 0.0,
+        timeout_max_retries: int = 2,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._inner = inner
@@ -189,30 +219,47 @@ class _RateLimitedBase:
         self._handled = inner_handles_rate_limit
         self._status_codes = status_codes
         self._markers = markers
+        self._timeout_wait = float(timeout_wait or 0.0)
+        self._timeout_max_retries = int(timeout_max_retries)
         self._sleep = sleep
         self._diagnosed = False
+        self._timeout_diagnosed = False
 
     def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        attempt = 0
+        # 두 예산을 **따로** 센다 — 원인이 다르면 회복 조건도 다르고, 섞어 세면
+        # "왜 갑자기 포기했나"를 설명할 수 없다.
+        rate_attempt = 0
+        timeout_attempt = 0
         while True:
             self._limiter.acquire()
             try:
                 return fn(*args, **kwargs)
-            except Exception as exc:  # noqa: BLE001 — 한도가 아니면 그대로 올려보낸다
-                if self._handled or not is_rate_limit(
+            except Exception as exc:  # noqa: BLE001 — 해당 없으면 그대로 올려보낸다
+                if not self._handled and is_rate_limit(
                     exc, status_codes=self._status_codes, markers=self._markers
                 ):
-                    # 감지에 실패한 예외도 남긴다 — 서버가 한도를 다른 형태로 알릴 때
-                    # 마커를 사후에 좁히려면 실물이 필요하다.
-                    logger.debug("한도 아님으로 판단한 예외: %s: %s",
-                                 type(exc).__name__, exc)
-                    raise
-                attempt += 1
-                if attempt > self._max_retries:
-                    raise
-                delay = retry_after_of(exc) or self._wait
-                self._announce(exc, delay, attempt)
-                self._sleep(delay)
+                    rate_attempt += 1
+                    if rate_attempt > self._max_retries:
+                        raise
+                    delay = retry_after_of(exc) or self._wait
+                    self._announce(exc, delay, rate_attempt)
+                    self._sleep(delay)
+                    continue
+                # ``_handled`` 는 **429 만** 뜻한다. http.py 의 일시오류 백오프는
+                # 2~8초라 분당 한도 회복에 못 미치므로, 타임아웃 대기까지 건너뛰면
+                # 이 기능이 internal·ollama 에서 통째로 죽는다.
+                if self._timeout_wait > 0 and is_timeout(exc):
+                    timeout_attempt += 1
+                    if timeout_attempt > self._timeout_max_retries:
+                        raise
+                    self._announce_timeout(exc, self._timeout_wait, timeout_attempt)
+                    self._sleep(self._timeout_wait)
+                    continue
+                # 감지에 실패한 예외도 남긴다 — 서버가 한도를 다른 형태로 알릴 때
+                # 마커를 사후에 좁히려면 실물이 필요하다.
+                logger.debug("한도·타임아웃 아님으로 판단한 예외: %s: %s",
+                             type(exc).__name__, exc)
+                raise
 
     def _announce(self, exc: BaseException, delay: float, attempt: int) -> None:
         """60초 정지가 행(hang)으로 오해되지 않게 **화면에도** 알린다.
@@ -233,11 +280,36 @@ class _RateLimitedBase:
                 f"({attempt}/{self._max_retries})\n"
                 f"   실제 응답: {type(exc).__name__} "
                 f"status={_status_of(exc)} {str(exc)[:200]}",
-                level=logging.WARNING,
             )
             return
         log_print(f"⏳ 요청 한도 — {delay:.0f}초 대기 후 재시도 "
-                  f"({attempt}/{self._max_retries})", level=logging.WARNING)
+                  f"({attempt}/{self._max_retries})")
+
+    def _announce_timeout(self, exc: BaseException, delay: float, attempt: int) -> None:
+        """타임아웃 대기를 알린다. 첫 회에는 예외 실물까지 남긴다.
+
+        **첫 회 진단이 이 기능의 핵심 산출물이다.** 타임아웃의 원인이 한도인지(기다리면
+        풀린다) 생성 지연인지(기다려도 안 풀린다)는 예외만 봐서는 모르고, 재시도가
+        실제로 성공하는지로 갈린다 — 그 판단 근거를 여기서 남긴다.
+        """
+        timeline.emit(
+            timeline.WAIT, current_stage(depth=1), status="timeout",
+            seconds=round(delay, 1), reason="타임아웃 후 대기",
+            attempt=attempt, max=self._timeout_max_retries,
+            error=f"{type(exc).__name__}: {exc}"[:200],
+        )
+        if not self._timeout_diagnosed:
+            self._timeout_diagnosed = True
+            log_print(
+                f"⏳ 타임아웃 — {delay:.0f}초 대기 후 재시도 "
+                f"({attempt}/{self._timeout_max_retries})\n"
+                f"   실제 예외: {type(exc).__name__} {str(exc)[:200]}\n"
+                f"   ※ 재시도가 계속 실패하면 원인은 요청 한도가 아니라 **생성 지연**이다 —"
+                f" 배치 크기(fact.record_batch_rows / fact_batch_blocks)를 줄일 것.",
+            )
+            return
+        log_print(f"⏳ 타임아웃 — {delay:.0f}초 대기 후 재시도 "
+                  f"({attempt}/{self._timeout_max_retries})")
 
     # 감싼 객체의 나머지 속성은 그대로 위임한다 — 백엔드에 따라 chat 과 embed 가
     # 같은 객체이므로(InternalBackend), 위임하지 않으면 반대쪽이 깨진다.

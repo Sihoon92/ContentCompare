@@ -126,6 +126,12 @@ def log_print(*args, level: int = logging.INFO, logger_name: str = "contentcompa
     CLI/스크립트에서 ``print(...)`` 대신 쓰면, 사용자가 화면에서 본 모든 메시지가
     로그 파일에도 빠짐없이 기록된다(요청 4번). ``print`` 와 동일한 시그니처를 받되,
     파일에는 한 줄(메시지)로 합쳐 기록한다.
+
+    ⚠️ ``level`` 을 ``WARNING`` 이상으로 올리지 말 것 — **화면에 두 번 찍힌다.**
+    이 함수가 이미 ``print`` 로 화면에 내보내는데, CLI 의 ``basicConfig`` 가 붙인
+    콘솔 핸들러(기본 WARNING)가 같은 메시지를 한 번 더 내보내기 때문이다. 기본
+    INFO 로 두면 파일 핸들러(DEBUG)에는 남고 콘솔 핸들러에서는 걸러진다 — 화면 한 번,
+    파일 한 번이라는 이 함수의 계약이 그때 지켜진다.
     """
     sep = kwargs.get("sep", " ")
     message = sep.join(str(a) for a in args)
