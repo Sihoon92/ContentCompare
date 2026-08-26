@@ -486,6 +486,22 @@ class LoggingConfig:
     ``CONTENTCOMPARE_LOG_NOISY=1`` 이 전체를 여는 것과 달리 **골라서** 연다.
     """
 
+    timeline: bool = True
+    """실행 타임라인(:mod:`contentcompare.timeline`) 기록 여부.
+
+    기본이 켬인 이유는 이것이 **실패했을 때 비로소 필요해지는** 기록이기 때문이다.
+    꺼 두면 정작 필요한 그 실행에는 없다. 원문을 담지 않으므로 켜 둬도 안전하다.
+    """
+
+    timeline_console: bool = True
+    """타임라인을 화면에도 실시간으로 출력할지. CLI 의 ``--quiet`` 가 이긴다.
+
+    끄면 파일에는 계속 남는다 — 화면이 조용한 것과 기록이 없는 것은 다르다.
+    """
+
+    timeline_dir: str = ""
+    """기록 위치. 비우면 ``<fact.artifacts_dir>/_timeline``."""
+
 
 @dataclass
 class AppConfig:

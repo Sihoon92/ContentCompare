@@ -200,3 +200,13 @@ logging:                   # 로그 파일 잡음 조절 (둘 다 로거 이름�
   verbose_extra: []        # 반대로 전부 볼 로거. 예: ["urllib3", "httpcore"] (HTTP 의심 시)
   # ※ 우리 코드(contentcompare.*)의 DEBUG(프롬프트·LLM 원문 응답)는 어느 쪽도 건드리지 않는다.
   # ※ 한 번만 전부 열려면 설정 대신 환경변수: CONTENTCOMPARE_LOG_NOISY=1
+
+  # --- 실행 타임라인 ---
+  # 단계 시작·종료, LLM 호출, 재시도, 한도 대기를 **하나의 시간축**에 남긴다.
+  # 실패했을 때 "어느 문서 · 어느 단계 · 몇 번째 배치 · 몇 번째 시도 · 왜"를
+  # 역산 없이 읽는 것이 목적이다. 조회: python scripts/show_timeline.py
+  timeline: true           # 기본 켬 — 실패한 그 실행에 기록이 없으면 소용이 없다.
+                           # 프롬프트 원문은 담지 않는다(길이·회차·상태코드만).
+  timeline_console: true   # 화면에도 실시간 출력. CLI 의 --quiet 가 이긴다.
+                           # 끄면 파일에는 계속 남는다(조용한 것 ≠ 없는 것).
+  timeline_dir: ""         # 비우면 <fact.artifacts_dir>/_timeline
