@@ -40,6 +40,7 @@ from typing import Any, Iterator, Optional
 
 from .. import timeline
 from ..config import AppConfig
+from .usage import UNKNOWN, Usage, from_response
 
 logger = logging.getLogger("contentcompare.llm.tracing")
 
@@ -624,19 +625,32 @@ class TracedChat:
             # 아니라 **빈 응답**을 주므로, 0 자체가 진단 신호다.
             slow = (status == "ok" and self._slow_after_ms
                     and took >= self._slow_after_ms) or None
+            used = self._usage()
             timeline.emit(
                 timeline.LLM_END, name, status=status, duration_ms=took,
                 output_chars=len(output or ""), slow=slow,
                 error=(error[:200] if error else None),
+                **used.as_detail(took),
             )
             self._safe_record(GenerationEvent(
                 stage=name, model=self._model, system=system, user=user,
                 output=output, error=error or None,
                 duration_ms=took,
-                metadata={"backend": self._backend, "temperature": temperature},
+                metadata={"backend": self._backend, "temperature": temperature,
+                          **used.as_detail(took)},
             ))
 
     # ------------------------------------------------------------------ #
+    def _usage(self) -> Usage:
+        """감싼 백엔드가 방금 호출에 남긴 토큰 사용량(없으면 미상).
+
+        **속성으로 받는 이유**는 :attr:`~contentcompare.llm.ollama.OllamaBackend.last_usage`
+        에 적었다. 여기서는 그 규약을 따르지 않는 객체(테스트용 가짜 chat, 사용량을
+        안 주는 백엔드)도 있다는 것만 다루면 된다 — 없으면 조용히 미상이다.
+        """
+        got = getattr(self._inner, "last_usage", None)
+        return got if isinstance(got, Usage) else UNKNOWN
+
     def _safe_record(self, event: GenerationEvent) -> None:
         """기록 실패는 삼키고, **첫 실패 후 no-op 으로 강등**한다.
 

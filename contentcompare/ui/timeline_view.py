@@ -108,7 +108,7 @@ def _message(event: TimelineEvent) -> str:
     if event.kind == LLM_END:
         if event.status in ERROR_STATUSES:
             return f"{pad}LLM 실패 — {_esc(detail.get('error') or event.status)} ({took})"
-        return f"{pad}LLM 응답 <span class='k'>{took}</span>"
+        return f"{pad}LLM 응답 <span class='k'>{_esc(_tokens(detail, took))}</span>"
     if event.kind == RETRY:
         counter = f"{detail.get('attempt', '?')}/{detail.get('max', '?')}"
         why = _esc(detail.get("error") or detail.get("reason") or event.status)
@@ -120,6 +120,23 @@ def _message(event: TimelineEvent) -> str:
         code = detail.get("status_code") or "-"
         return f"{pad}HTTP {_esc(code)} <span class='k'>{took}</span>"
     return f"{pad}{name}"
+
+
+def _tokens(detail: dict, took: str) -> str:
+    """``72.0s · 3,204→512토큰 · 7.1 tok/s`` — 소요 옆에 토큰을 붙인다.
+
+    서버가 토큰을 안 주면 소요만 남는다(0 을 지어내지 않는다는
+    :mod:`contentcompare.llm.usage` 의 규약). 화살표로 입력→출력을 쓰는 것은
+    한 칸에 둘을 담으면서도 어느 쪽이 입력인지 헷갈리지 않게 하기 위해서다.
+    """
+    parts = [took] if took else []
+    into, out = detail.get("input_tokens"), detail.get("output_tokens")
+    if into or out:
+        parts.append(f"{into or 0:,}→{out or 0:,}토큰")
+    rate = detail.get("tok_per_sec")
+    if rate:
+        parts.append(f"{rate} tok/s")
+    return " · ".join(parts)
 
 
 def _bars(events: Sequence[TimelineEvent]) -> str:

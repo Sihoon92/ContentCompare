@@ -240,7 +240,10 @@ def format_line(event: TimelineEvent) -> str:
             tail = f", 시도 {attempts}회" if attempts else ""
             return (f"{head}✗ 실패 — {error or event.status} "
                     f"({format_duration(event.duration_ms)}{tail})")
-        extra = _detail_text(detail, ("output_chars",))
+        # 토큰을 글자 수보다 앞에 둔다 — 배치 크기를 정하는 근거가 토큰이고
+        # 글자 수는 서버가 토큰을 안 줄 때의 대체재다.
+        extra = _detail_text(
+            detail, ("input_tokens", "output_tokens", "tok_per_sec", "output_chars"))
         # 타임아웃은 이미 늦은 신호다. 근접 경고는 **죽기 전에** 보인다.
         slow = " ⚠ 느림" if detail.get("slow") else ""
         return (f"{head}✓ 응답 ({format_duration(event.duration_ms)}"

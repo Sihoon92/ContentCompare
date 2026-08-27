@@ -75,3 +75,57 @@ def test_factory_routes_to_langchain_lazily():
     chat, emb = build_clients(cfg)
     assert isinstance(chat, LangChainBackend)
     assert chat is emb
+
+
+# --------------------------------------------------------------------------- #
+# 토큰 사용량 — langchain 은 dict 가 아니라 **메시지 객체 속성**으로 준다
+# --------------------------------------------------------------------------- #
+class UsageMsg(FakeMsg):
+    def __init__(self, content, usage_metadata=None, response_metadata=None):
+        super().__init__(content)
+        if usage_metadata is not None:
+            self.usage_metadata = usage_metadata
+        if response_metadata is not None:
+            self.response_metadata = response_metadata
+
+
+class UsageChat(FakeChat):
+    def __init__(self, message):
+        super().__init__()
+        self.message = message
+
+    def invoke(self, messages):
+        self.last_messages = messages
+        return self.message
+
+
+def test_complete_records_usage_metadata():
+    from contentcompare.llm.usage import Usage
+
+    msg = UsageMsg("OK", usage_metadata={"input_tokens": 120, "output_tokens": 34,
+                                         "total_tokens": 154})
+    be = LangChainBackend(_cfg(), chat=UsageChat(msg))
+    assert be.complete("s", "u") == "OK"
+    assert be.last_usage == Usage(input_tokens=120, output_tokens=34)
+
+
+def test_complete_falls_back_to_response_metadata():
+    """구버전 langchain 은 ``response_metadata.token_usage`` 에만 담는다."""
+    from contentcompare.llm.usage import Usage
+
+    msg = UsageMsg("OK", response_metadata={
+        "model_name": "gpt-4o",
+        "token_usage": {"prompt_tokens": 7, "completion_tokens": 3},
+    })
+    be = LangChainBackend(_cfg(), chat=UsageChat(msg))
+    be.complete("s", "u")
+    assert be.last_usage == Usage(input_tokens=7, output_tokens=3)
+
+
+def test_complete_without_usage_is_unknown():
+    """사용량을 안 주는 게이트웨이여도 조용히 미상으로 남는다(추정하지 않는다)."""
+    from contentcompare.llm.usage import UNKNOWN
+
+    be = LangChainBackend(_cfg(), chat=FakeChat(reply="OK"))
+    be.complete("s", "u")
+    assert be.last_usage == UNKNOWN

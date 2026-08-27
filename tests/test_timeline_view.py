@@ -100,3 +100,30 @@ def test_timeline_html_handles_an_empty_run():
     from contentcompare.ui.timeline_view import render_timeline_html
 
     assert "없습니다" in render_timeline_html([])
+
+
+# --------------------------------------------------------------------------- #
+# 토큰 — ⏱ 탭에서도 보이는가
+# --------------------------------------------------------------------------- #
+def test_llm_row_shows_tokens_and_rate():
+    from contentcompare.timeline import LLM_END, TimelineEvent
+    from contentcompare.ui.timeline_view import render_timeline_html
+
+    html = render_timeline_html([TimelineEvent(
+        ts=1_700_000_000.0, kind=LLM_END, name="F2 records", status="ok",
+        duration_ms=72_000,
+        detail={"input_tokens": 3204, "output_tokens": 512, "tok_per_sec": 7.1},
+    )])
+    assert "3,204" in html and "512" in html and "7.1 tok/s" in html
+
+
+def test_llm_row_without_tokens_shows_only_duration():
+    """서버가 토큰을 안 주면 소요만 — 0 을 지어내지 않는다."""
+    from contentcompare.timeline import LLM_END, TimelineEvent
+    from contentcompare.ui.timeline_view import render_timeline_html
+
+    html = render_timeline_html([TimelineEvent(
+        ts=1_700_000_000.0, kind=LLM_END, name="F2 records", status="ok",
+        duration_ms=1_500, detail={"output_chars": 40},
+    )])
+    assert "토큰" not in html and "tok/s" not in html

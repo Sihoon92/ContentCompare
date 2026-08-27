@@ -523,3 +523,98 @@ def test_microscope_does_not_mistake_the_timeline_folder_for_a_document(tmp_path
     (tmp_path / "_timeline" / "comparison_result.json").write_text("{}", "utf-8")
     assert "_timeline" in RESERVED_DIRS
     assert [r.label for r in list_runs(tmp_path)] == []
+
+
+# --------------------------------------------------------------------------- #
+# 토큰 사용량 — 백엔드가 받아놓고 버리던 숫자가 줄에 닿는가
+# --------------------------------------------------------------------------- #
+class UsageChat(FakeChat):
+    """``last_usage`` 규약을 지키는 백엔드 흉내(:mod:`contentcompare.llm.usage`)."""
+
+    def __init__(self, answer: str = "{}", usage=None, raises=None) -> None:
+        super().__init__(answer=answer, raises=raises)
+        self.last_usage = usage
+        self._usage = usage
+
+    def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
+        from contentcompare.llm.usage import UNKNOWN
+
+        self.last_usage = UNKNOWN          # 실제 백엔드와 같은 순서로 리셋 후
+        answer = super().complete(system, user, temperature=temperature)
+        self.last_usage = self._usage      # 응답을 받고서야 채운다
+        return answer
+
+
+def test_llm_end_carries_token_counts(tmp_path):
+    """서버가 준 입력·출력 토큰이 ``llm_end`` 에 그대로 실린다."""
+    from contentcompare.llm.usage import Usage
+
+    chat = _traced(tmp_path, UsageChat(usage=Usage(input_tokens=3204, output_tokens=512)))
+    chat.complete("sys", "user")
+
+    end = tl.load_timeline(tmp_path / "run.jsonl")[-1]
+    assert end.detail["input_tokens"] == 3204
+    assert end.detail["output_tokens"] == 512
+
+
+def test_llm_end_carries_generation_rate(tmp_path):
+    """토큰/초 — 다음 배치 크기를 정하는 근거가 이 숫자다."""
+    from contentcompare.llm.tracing import NullTracer, TracedChat
+    from contentcompare.llm.usage import Usage
+
+    tl.set_timeline(_make(tmp_path))
+    clock = iter([0.0, 4.0])  # monotonic 두 번 호출 → 4초 걸린 것으로 만든다
+    chat = TracedChat(UsageChat(usage=Usage(input_tokens=100, output_tokens=40)),
+                      model="m", backend="fake", tracer=NullTracer())
+    real = time.monotonic
+    time.monotonic = lambda: next(clock)
+    try:
+        chat.complete("sys", "user")
+    finally:
+        time.monotonic = real
+
+    end = tl.load_timeline(tmp_path / "run.jsonl")[-1]
+    assert end.duration_ms == 4000
+    assert end.detail["tok_per_sec"] == 10.0
+
+
+def test_backend_without_usage_leaves_no_token_keys(tmp_path):
+    """규약을 안 지키는 백엔드(로컬 onnx 등)여도 조용히 넘어간다 — 0 을 남기지 않는다."""
+    chat = _traced(tmp_path, FakeChat(answer="hello"))
+    chat.complete("sys", "user")
+
+    end = tl.load_timeline(tmp_path / "run.jsonl")[-1]
+    assert "input_tokens" not in end.detail
+    assert "tok_per_sec" not in end.detail
+    assert end.detail["output_chars"] == 5      # 글자 수는 그대로 남는다
+
+
+def test_failed_call_does_not_reuse_previous_tokens(tmp_path):
+    """실패한 호출에 **직전 성공의 토큰 수**가 묻어나면 기록이 거짓말을 한다."""
+    from contentcompare.llm.usage import Usage
+
+    inner = UsageChat(usage=Usage(input_tokens=777, output_tokens=88))
+    chat = _traced(tmp_path, inner)
+    chat.complete("sys", "user")               # 성공 1회로 last_usage 를 채우고
+    inner.raises = TimeoutError("Request timed out")
+    with pytest.raises(TimeoutError):
+        chat.complete("sys", "user")           # 다음 호출은 실패
+
+    end = tl.load_timeline(tmp_path / "run.jsonl")[-1]
+    assert end.status == "timeout"
+    assert "input_tokens" not in end.detail
+
+
+def test_token_line_is_rendered_for_humans(tmp_path):
+    """콘솔·로그 한 줄에 토큰이 실제로 보이는가 — 이 작업의 목적이 이 줄이다."""
+    from contentcompare.llm.usage import Usage
+
+    chat = _traced(tmp_path, UsageChat(answer="x" * 1880,
+                                       usage=Usage(input_tokens=3204, output_tokens=512)))
+    chat.complete("sys", "user")
+
+    end = tl.load_timeline(tmp_path / "run.jsonl")[-1]
+    line = tl.format_line(end)
+    assert "input_tokens=3204" in line
+    assert "output_tokens=512" in line
+    assert "output_chars=1880" in line

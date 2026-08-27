@@ -16,6 +16,7 @@ import os
 from typing import Any, Optional
 
 from ..config import LLMConfig, no_proxy
+from .usage import UNKNOWN, Usage, from_response
 
 logger = logging.getLogger("contentcompare.llm.langchain_backend")
 
@@ -24,6 +25,15 @@ class LangChainBackend:
     """LangChain(OpenAI 호환) chat + embedding 백엔드.
 
     테스트/주입을 위해 chat/embeddings 객체를 직접 넘길 수 있다.
+    """
+
+    last_usage: Usage = UNKNOWN
+    """마지막 ``complete()`` 의 토큰 사용량. 서버가 안 주면 미상으로 남는다.
+
+    **반환값 대신 속성인 이유**: ``LLMClient.complete`` 의 서명(``-> str``)을 바꾸면
+    ``comparison/``·``readers/`` 까지 파급되는데 그쪽은 코드 무수정 원칙이다.
+    :class:`~contentcompare.llm.tracing.TracedChat` 이 호출 직후 이 값을 읽어
+    타임라인에 얹는다 — ``handles_rate_limit`` 과 같은 덕 타이핑 규약이다.
     """
 
     def __init__(
@@ -130,8 +140,10 @@ class LangChainBackend:
         chat = self._ensure_chat()
         # langchain chat 모델은 (role, content) 튜플 리스트를 받는다(메시지 클래스 import 불필요).
         messages = [("system", system), ("human", user)]
+        self.last_usage = UNKNOWN  # 이유는 :attr:`last_usage` 참고
         with self._proxy_ctx():
             resp = chat.bind(temperature=temperature).invoke(messages)
+        self.last_usage = from_response(resp)
         content = getattr(resp, "content", resp)
         return content if isinstance(content, str) else str(content)
 
