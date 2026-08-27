@@ -331,23 +331,30 @@ def test_default_is_off():
     assert _cfg().llm.max_calls_per_minute == 0
 
 
-def test_build_clients_returns_untouched_objects_when_off(monkeypatch):
-    """스로틀이 꺼져 있으면 **동일 객체** — Langfuse 배선이 지키는 규약과 같다.
+def test_throttle_off_alone_still_wraps(monkeypatch):
+    """스로틀만 꺼도 래퍼는 붙는다 — ``rate_limit_wait`` 이 아직 대기를 약속하므로.
+
+    ⚠️ 이 테스트는 **정반대를 단언하고 있었다**("스로틀이 꺼져 있으면 동일 객체").
+    그 계약이 곧 결함이었다 — "스로틀 꺼짐"과 "래퍼 전체 꺼짐"을 같은 것으로 봐서,
+    기본 설정의 ``rate_limit_wait: 60`` 이 호출 경로에서 통째로 사라지는 것을
+    **테스트가 오히려 지켜 주고 있었다.** 실측 429(60/60)에서 대기가 전혀 안 걸린
+    것이 그 결과다.
+
+    "완전히 끄면 동일 객체"라는 원래 의도는 살아 있다 —
+    :func:`test_rate_limit_wait_zero_is_the_escape_hatch` 가 그쪽을 지킨다.
 
     타임라인도 함께 끈다. 그쪽이 켜져 있으면 chat 이 ``TracedChat`` 으로 감싸여
     이 테스트가 보려는 "스로틀 래퍼가 붙었는가"를 가린다.
     """
     from contentcompare.llm import factory
+    from contentcompare.llm.ratelimit import RateLimitedChat
 
-    sentinel_chat, sentinel_embed = object(), object()
-    monkeypatch.setattr(factory, "_make",
-                        lambda backend, llm: sentinel_chat if backend == "ollama"
-                        else sentinel_embed)
+    monkeypatch.setattr(factory, "_make", lambda backend, llm: FakeChat())
 
-    config = _cfg()
+    config = _cfg(backend="langchain", max_calls_per_minute=0)
     config.logging.timeline = False
-    chat, emb = factory.build_clients(config)
-    assert chat is sentinel_chat and emb is sentinel_embed
+    chat, _emb = factory.build_clients(config)
+    assert isinstance(chat, RateLimitedChat)
 
 
 def test_build_clients_wraps_both_when_enabled(monkeypatch):
@@ -534,3 +541,80 @@ def test_config_reads_the_timeout_keys():
     cfg = _cfg(timeout_wait=60, timeout_max_retries=3)
     assert cfg.llm.timeout_wait == 60
     assert cfg.llm.timeout_max_retries == 3
+
+
+# --------------------------------------------------------------------------- #
+# 5) 래핑 조건 — 래퍼가 하는 일과 **1:1** 로 대응해야 한다
+#
+# 이 결함이 **두 번** 났다. db5bd15 가 timeout_wait 누락을 고쳤는데, 바로 옆의
+# rate_limit_wait 이 같은 형태로 빠져 있는 것을 못 봤다. 실측: 사내 429(60/60)에서
+# 60초 대기가 전혀 안 걸렸고, 원인은 감지 실패가 아니라 **래퍼 부재**였다.
+# --------------------------------------------------------------------------- #
+def test_rate_limit_wait_works_with_default_settings(monkeypatch):
+    """**아무것도 안 켜도** 429 를 만나면 기다렸다 다시 부른다.
+
+    rate_limit_wait 기본값이 60 이므로 설정은 "기다린다"고 약속하고 있다. 그 약속이
+    호출 경로에 실제로 존재하는지를 build_clients 끝에서 끝까지 확인한다 — 단위
+    테스트(RateLimitedChat 직접 생성)는 이 결함을 못 잡았다. 래퍼를 손으로 만들어
+    쓰니 "래퍼가 안 붙는다"는 사실이 가려졌기 때문이다.
+    """
+    from contentcompare.llm import factory
+
+    inner = FakeChat(errors=[FakeRateLimitError()])
+    monkeypatch.setattr(factory, "_make", lambda backend, llm: inner)
+
+    config = _cfg(backend="langchain", embed_backend="fastembed")
+    config.logging.timeline = False
+    chat, _emb = factory.build_clients(config)
+
+    clock = FakeClock()
+    chat._sleep = clock.sleep      # 실제로 기다리지 않는다
+
+    assert chat.complete("s", "u") == "OK"
+    assert inner.calls == 2                 # 실패 1 + 재시도 1
+    assert clock.slept == [60.0]            # 기본 rate_limit_wait
+
+
+def test_default_config_attaches_the_wrapper(monkeypatch):
+    """기본 설정에서 래퍼가 붙는다 — 위 동작의 구조적 전제다."""
+    from contentcompare.llm import factory
+    from contentcompare.llm.ratelimit import RateLimitedChat
+
+    monkeypatch.setattr(factory, "_make", lambda backend, llm: FakeChat())
+    config = _cfg(backend="langchain", embed_backend="fastembed")
+    config.logging.timeline = False
+
+    chat, _emb = factory.build_clients(config)
+    assert isinstance(chat, RateLimitedChat)
+
+
+def test_rate_limit_wait_zero_is_the_escape_hatch(monkeypatch):
+    """셋을 모두 끄면 **동일 객체** — 완전히 걷어낼 길이 남아 있어야 한다."""
+    from contentcompare.llm import factory
+
+    sentinel = object()
+    monkeypatch.setattr(factory, "_make", lambda backend, llm: sentinel)
+
+    config = _cfg(backend="langchain", embed_backend="langchain",
+                  rate_limit_wait=0, timeout_wait=0, max_calls_per_minute=0)
+    config.logging.timeline = False
+
+    chat, emb = factory.build_clients(config)
+    assert chat is sentinel and emb is sentinel
+
+
+def test_zero_retry_budget_does_not_attach_the_wrapper(monkeypatch):
+    """대기 시간이 있어도 **재시도 예산이 0** 이면 할 일이 없다 — 붙이지 않는다."""
+    from contentcompare.llm import factory
+
+    sentinel = object()
+    monkeypatch.setattr(factory, "_make", lambda backend, llm: sentinel)
+
+    config = _cfg(backend="langchain", embed_backend="langchain",
+                  rate_limit_wait=60, rate_limit_max_retries=0,
+                  timeout_wait=60, timeout_max_retries=0,
+                  max_calls_per_minute=0)
+    config.logging.timeline = False
+
+    chat, _emb = factory.build_clients(config)
+    assert chat is sentinel

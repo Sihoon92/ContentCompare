@@ -72,6 +72,7 @@ def test_factory_routes_to_langchain_lazily():
     cfg = AppConfig()
     cfg.llm.backend = "langchain"
     cfg.logging.timeline = False
+    cfg.llm.rate_limit_wait = 0  # 한도 래퍼도 끈다 — 켜면 RateLimitedChat 이 바깥에 붙어 이 검증을 가린다
     chat, emb = build_clients(cfg)
     assert isinstance(chat, LangChainBackend)
     assert chat is emb

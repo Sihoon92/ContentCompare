@@ -156,7 +156,9 @@ class _FakeTracer:
 
 def _active_config() -> AppConfig:
     return AppConfig.from_dict({
-        "llm": {"backend": "ollama", "chat_model": "gemma4:12b",
+        # rate_limit_wait 0 — 이 파일의 주제는 추적이라 한도 래퍼를 끈다
+        # (켜면 RateLimitedChat 이 바깥에 붙어 "무엇으로 감쌌나"가 가려진다).
+        "llm": {"backend": "ollama", "chat_model": "gemma4:12b", "rate_limit_wait": 0,
                 "langfuse": {"host": HOST, "public_key": PUB, "secret_key": SEC}}
     })
 
@@ -637,15 +639,18 @@ def test_build_clients_returns_the_same_object_when_inactive(monkeypatch):
     ``is`` 비교여야 의미가 있다. 동등한 새 객체를 돌려주는 것으로는
     "동작이 그대로"를 보장하지 못한다.
 
-    ⚠️ ``logging.timeline`` 은 기본 on 이고 그것도 같은 래퍼를 쓴다 — 감싸지 않는
-    조건은 Langfuse · trace_local · timeline **셋 다 off** 다.
+    ⚠️ **기본값이 켜진 배선이 둘**이라 여기서 함께 꺼야 한다: ``logging.timeline``
+    (추적과 같은 래퍼를 쓴다)과 ``rate_limit_wait``(429 대기 — 429 를 스스로 처리하지
+    않는 백엔드면 ``RateLimitedChat`` 이 바깥에 붙는다). 주입한 가짜는 그 선언이
+    없으므로 ``backend: ollama`` 여도 붙는다.
     """
     from contentcompare.llm import factory
 
     sentinel = _FakeChat()
     monkeypatch.setattr(factory, "_make", lambda *_a, **_k: sentinel)
     config = AppConfig.from_dict(
-        {"llm": {"backend": "ollama"}, "logging": {"timeline": False}}
+        {"llm": {"backend": "ollama", "rate_limit_wait": 0},
+         "logging": {"timeline": False}}
     )
     chat, embed = factory.build_clients(config)
     assert chat is sentinel

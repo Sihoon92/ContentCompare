@@ -87,6 +87,7 @@ def test_factory_langchain_chat_with_fastembed_embed():
     cfg.llm.backend = "langchain"
     cfg.llm.embed_backend = "fastembed"
     cfg.logging.timeline = False        # 배선만 본다(위 테스트와 같은 이유)
+    cfg.llm.rate_limit_wait = 0  # 한도 래퍼도 끈다 — 켜면 RateLimitedChat 이 바깥에 붙어 이 검증을 가린다
     chat, embed = build_clients(cfg)
     from contentcompare.llm.langchain_backend import LangChainBackend
 
