@@ -10,10 +10,20 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import Iterable
+from typing import Any, Iterable
 
 _HANDLER: logging.Handler | None = None
 _PATH: str | None = None
+_CONSOLE: logging.Handler | None = None
+
+#: 이 표시가 붙은 레코드는 **콘솔로 내보내지 않는다**(파일에는 그대로 남는다).
+#: :func:`log_print` 처럼 이미 ``print`` 로 화면에 나간 메시지가 콘솔 핸들러를
+#: 통해 한 번 더 찍히는 것을 막는다.
+NO_CONSOLE = "no_console"
+
+#: 콘솔 한 줄의 모양. 파일(``%(asctime)s`` 포함)보다 짧다 — 화면은 흐름을 보는
+#: 곳이고 시각은 타임라인이 이미 줄 앞에 찍는다.
+CONSOLE_FORMAT = "%(levelname)s %(name)s: %(message)s"
 
 #: 저수준 잡음을 쏟아내는 서드파티 로거들(접두어 매칭 — ``urllib3`` 은 하위
 #: ``urllib3.connectionpool`` 까지 함께 조용해진다). 소켓 연결·재시도·폰트 캐시
@@ -74,6 +84,47 @@ def apply_logger_overrides(
         logging.getLogger(str(name)).setLevel(verbose_level)
 
 
+class ConsoleFilter(logging.Filter):
+    """``NO_CONSOLE`` 표시가 붙은 레코드를 콘솔에서 걸러낸다.
+
+    **레벨로는 못 막는다.** ``log_print`` 는 "사람은 이미 화면에서 봤으니 파일에만
+    남겨라"는 뜻인데, 그것을 "INFO 로 두면 WARNING 콘솔이 걸러 주겠지"로 표현하면
+    ``--verbose``/``--check`` 처럼 콘솔이 INFO 로 내려가는 순간 그대로 무너진다
+    (실측: 화면에 모든 줄이 두 번씩 나왔다). 그래서 **레벨과 무관한 표시**로 막는다.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        return not getattr(record, NO_CONSOLE, False)
+
+
+def setup_console(
+    level: int = logging.WARNING, fmt: str = CONSOLE_FORMAT, stream: Any = None
+) -> logging.Handler:
+    """화면용 핸들러를 **자기 레벨을 가진 채로** 루트에 붙인다(멱등).
+
+    ``logging.basicConfig`` 를 쓰면 안 되는 이유가 여기 있다 — 그쪽은 **루트 로거**의
+    레벨만 정하고 자신이 만든 ``StreamHandler`` 는 ``NOTSET``(=필터 안 함)으로 둔다.
+    그러면 콘솔의 유일한 문턱이 루트 레벨인데, :func:`setup_logging` 이 파일에 DEBUG 를
+    담으려고 그 루트를 낮추는 순간 **화면이 통째로 열린다**(프롬프트·HTTP 페이로드까지).
+    핸들러가 자기 레벨을 가지면 그 순서 의존이 사라진다.
+
+    두 번 불러도 핸들러는 하나다 — 두 개면 그 자체로 중복 출력이 된다. 대신 레벨과
+    형식은 갱신되므로 나중 호출이 이긴다.
+
+    ``stream`` 은 테스트용 주입구다(기본 ``sys.stderr``) — "화면에 몇 번 나왔나"를 세려면
+    출력을 붙잡을 수 있어야 하는데, 이 결함이 오래 살아남은 이유가 바로 그것을 세는
+    테스트가 없었다는 데 있다. ``poster``/``sleep``/``clock`` 주입과 같은 규약이다.
+    """
+    global _CONSOLE
+    if _CONSOLE is None:
+        _CONSOLE = logging.StreamHandler(stream) if stream is not None else logging.StreamHandler()
+        _CONSOLE.addFilter(ConsoleFilter())
+        logging.getLogger().addHandler(_CONSOLE)
+    _CONSOLE.setLevel(level)
+    _CONSOLE.setFormatter(logging.Formatter(fmt))
+    return _CONSOLE
+
+
 def setup_logging(
     log_dir: str = "logs",
     level: int = logging.DEBUG,
@@ -84,7 +135,9 @@ def setup_logging(
     """루트 로거에 파일 핸들러를 붙이고 로그 파일 경로를 반환한다(멱등적).
 
     파일에는 기본적으로 DEBUG 까지(프롬프트·LLM 원문 응답·HTTP 요청 포함) 모두 남긴다.
-    화면(콘솔)에 무엇을 보일지는 호출 측의 ``basicConfig`` 등 별도 핸들러가 정한다.
+    그러기 위해 **루트 레벨을 DEBUG 로 낮추므로**, 화면에 무엇을 보일지는 콘솔 핸들러가
+    자기 레벨로 정해야 한다 — :func:`setup_console` 을 쓸 것. ``basicConfig`` 로 붙인
+    핸들러는 레벨이 ``NOTSET`` 이라 이 함수가 루트를 낮추는 순간 화면이 통째로 열린다.
 
     ``quiet_third_party`` 가 참이면 :data:`NOISY_LOGGERS` 를 WARNING 으로 올려
     ``urllib3``/``httpcore``/``openai._base_client`` 같은 저수준 로그를 숨긴다.
@@ -127,16 +180,19 @@ def log_print(*args, level: int = logging.INFO, logger_name: str = "contentcompa
     로그 파일에도 빠짐없이 기록된다(요청 4번). ``print`` 와 동일한 시그니처를 받되,
     파일에는 한 줄(메시지)로 합쳐 기록한다.
 
-    ⚠️ ``level`` 을 ``WARNING`` 이상으로 올리지 말 것 — **화면에 두 번 찍힌다.**
-    이 함수가 이미 ``print`` 로 화면에 내보내는데, CLI 의 ``basicConfig`` 가 붙인
-    콘솔 핸들러(기본 WARNING)가 같은 메시지를 한 번 더 내보내기 때문이다. 기본
-    INFO 로 두면 파일 핸들러(DEBUG)에는 남고 콘솔 핸들러에서는 걸러진다 — 화면 한 번,
-    파일 한 번이라는 이 함수의 계약이 그때 지켜진다.
+    **화면 한 번, 파일 한 번**이 이 함수의 계약이고, 그것을 :data:`NO_CONSOLE` 표시로
+    지킨다 — 레코드에 그 표시가 붙어 있으면 :class:`ConsoleFilter` 가 콘솔 핸들러에서
+    걸러내므로, 화면에는 아래 ``print`` 한 번만 나간다.
+
+    ⚠️ **레벨로 막으려 하지 말 것.** 예전에는 "``level`` 을 INFO 로 두면 WARNING 인
+    콘솔 핸들러가 걸러 준다"고 적혀 있었는데, 콘솔 핸들러는 애초에 WARNING 이었던 적이
+    없었고(``basicConfig`` 는 핸들러를 ``NOTSET`` 으로 만든다) ``--verbose`` 로 콘솔이
+    INFO 가 되면 어차피 무너지는 방식이었다. 실측에서 모든 줄이 두 번씩 나왔다.
     """
     sep = kwargs.get("sep", " ")
     message = sep.join(str(a) for a in args)
     print(*args, **kwargs)
-    logging.getLogger(logger_name).log(level, message)
+    logging.getLogger(logger_name).log(level, message, extra={NO_CONSOLE: True})
 
 
 def read_log_text(max_chars: int = 20000) -> str:

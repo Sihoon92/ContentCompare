@@ -161,6 +161,7 @@ xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 �
 | 사내 LLM 연결 실패 | `unset_proxy`/`base_url`/API 키 env 확인, `log_proxy: true` 로 실제 프록시 확인 |
 | 타임아웃/간헐 실패 | **⏱ 타임라인 먼저 보기**(아래) — 어느 단계·몇 번째 배치·몇 번째 시도에서 났는지가 나옵니다. 배치당 출력량이 원인이면 `fact.record_batch_rows` 를 줄이는 쪽이 `timeout` 상향보다 확실합니다 |
 | 실행 중 화면이 조용하다 | 정상입니다 — 타임라인이 켜져 있으면 단계·재시도가 실시간으로 찍힙니다. `--quiet` 로 끌 수 있고, 꺼도 파일에는 남습니다 |
+| 화면에 더 자세히 보고 싶다 | `--verbose` 로 INFO 까지 보입니다. **프롬프트·LLM 원문·HTTP 페이로드(DEBUG)는 화면에 안 나옵니다** — 로그 파일에는 항상 남으니 그쪽을 보세요(`logs/contentcompare_<시각>.log`). 서드파티 저수준 로그까지 열려면 `CONTENTCOMPARE_LOG_NOISY=1` |
 | 임베딩 매번 느림 | `cache_dir` 설정 확인(파일 해시 기반 캐시 재사용) |
 | 표시값과 다른 비교 | `excel.value_as_displayed`(표시문자 vs 원시값) 전환 |
 

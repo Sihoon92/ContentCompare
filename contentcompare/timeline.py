@@ -34,7 +34,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Union
 
-from .logging_setup import log_print
+from .logging_setup import NO_CONSOLE, log_print
 
 logger = logging.getLogger("contentcompare.timeline")
 
@@ -357,8 +357,10 @@ class Timeline:
         파일 기록은 계속한다 — 조용한 것과 없는 것은 다르다.
         """
         text = format_line(event)
+        # ``NO_CONSOLE`` 이 없으면 화면을 끈 의미가 사라진다 — 콘솔 핸들러가 이 INFO 를
+        # 대신 찍어서 ``--quiet`` 가 조용해지지 않는다(실측된 결함).
         if not self.console:
-            logger.info(text)
+            logger.info(text, extra={NO_CONSOLE: True})
             return
         try:
             self._print(text)
@@ -366,7 +368,7 @@ class Timeline:
             self.console = False
             logger.warning(
                 "타임라인 화면 출력 실패 — 화면만 끄고 파일 기록은 계속합니다: %s", exc)
-            logger.info(text)
+            logger.info(text, extra={NO_CONSOLE: True})
 
     def _print(self, text: str) -> None:
         """콘솔 인코딩에 맞춰 한 줄 출력(화면 + 로그 파일 동시)."""

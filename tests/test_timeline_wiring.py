@@ -618,3 +618,67 @@ def test_token_line_is_rendered_for_humans(tmp_path):
     assert "input_tokens=3204" in line
     assert "output_tokens=512" in line
     assert "output_chars=1880" in line
+
+
+# --------------------------------------------------------------------------- #
+# --quiet — 화면만 끄고 파일 기록은 계속
+#
+# 콘솔 핸들러가 자기 레벨 없이 루트(DEBUG)만 따르던 시절, 이 경로의 ``logger.info`` 를
+# 콘솔이 대신 찍어서 **``--quiet`` 가 조용해지지 않았다.** 그것을 고정한다.
+# --------------------------------------------------------------------------- #
+def test_quiet_timeline_prints_nothing_to_console(tmp_path, capsys):
+    import io
+    import logging
+
+    from contentcompare import logging_setup
+
+    root = logging.getLogger()
+    saved, saved_level = list(root.handlers), root.level
+    logging_setup._CONSOLE = None
+    buffer = io.StringIO()
+    logging_setup.setup_console(level=logging.WARNING, stream=buffer)
+    root.setLevel(logging.DEBUG)  # setup_logging 이 하는 일 — 파일용으로 루트를 연다
+    try:
+        line = tl.Timeline(tmp_path / "run.jsonl", clock=FakeClock(), console=False)
+        line.event(tl.LLM_END, "F2 records", status="ok", duration_ms=1200,
+                   output_chars=40)
+
+        screen = capsys.readouterr().out + buffer.getvalue()
+        assert screen == ""                                   # 화면은 조용하고
+        assert (tmp_path / "run.jsonl").read_text("utf-8")    # 파일에는 남는다
+    finally:
+        for h in list(root.handlers):
+            root.removeHandler(h)
+        for h in saved:
+            root.addHandler(h)
+        root.setLevel(saved_level)
+        logging_setup._CONSOLE = None
+
+
+def test_console_timeline_prints_exactly_once(tmp_path, capsys):
+    """켜 두면 화면에 **한 번만** — 신고된 이중 출력의 회귀 테스트다."""
+    import io
+    import logging
+
+    from contentcompare import logging_setup
+
+    root = logging.getLogger()
+    saved, saved_level = list(root.handlers), root.level
+    logging_setup._CONSOLE = None
+    buffer = io.StringIO()
+    logging_setup.setup_console(level=logging.INFO, stream=buffer)  # --verbose 상황
+    root.setLevel(logging.DEBUG)
+    try:
+        line = tl.Timeline(tmp_path / "run.jsonl", clock=FakeClock(), console=True)
+        line.event(tl.LLM_END, "F2 records", status="ok", duration_ms=1200,
+                   output_chars=40, input_tokens=3204)
+
+        screen = capsys.readouterr().out + buffer.getvalue()
+        assert screen.count("input_tokens=3204") == 1
+    finally:
+        for h in list(root.handlers):
+            root.removeHandler(h)
+        for h in saved:
+            root.addHandler(h)
+        root.setLevel(saved_level)
+        logging_setup._CONSOLE = None

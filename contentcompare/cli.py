@@ -16,7 +16,8 @@ from .config import AppConfig
 from .fact.engine import make_pipeline
 from .llm.health import all_ok, check_llm
 from .llm.tracing import get_tracer, run_metadata, trace_run, tracing_enabled
-from .logging_setup import apply_logger_overrides, log_print, setup_logging
+from .logging_setup import (apply_logger_overrides, log_print, setup_console,
+                            setup_logging)
 from .report import render_markdown, save_report
 from .timeline import (
     ERROR_STATUSES,
@@ -156,10 +157,12 @@ def _warn_if_cached(config, summaries: list[dict]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    logging.basicConfig(
-        level=logging.INFO if (args.verbose or args.check) else logging.WARNING,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
+    # ``basicConfig`` 를 쓰지 않는다 — 그쪽은 **루트 로거**의 레벨만 정하고 자신이 만든
+    # 핸들러는 ``NOTSET`` 으로 두는데, 바로 아래 ``setup_logging`` 이 파일에 DEBUG 를
+    # 담으려고 그 루트를 낮추는 순간 화면이 통째로 열린다(실측: 모든 줄이 두 번씩 나오고
+    # 프롬프트·HTTP 페이로드까지 터미널에 쏟아졌다). 핸들러가 자기 레벨을 가지면 두 호출의
+    # 순서가 더 이상 화면을 좌우하지 않는다.
+    setup_console(level=logging.INFO if (args.verbose or args.check) else logging.WARNING)
     # 실행 로그를 파일로도 저장(파일에는 DEBUG 까지 — 프롬프트/응답 포함).
     log_path = setup_logging()
     log_print(f"로그 파일: {log_path}")
