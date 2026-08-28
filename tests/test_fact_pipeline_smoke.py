@@ -320,3 +320,61 @@ def test_candidate_pairs_artifact_records_reference_rows(tmp_path):
     assert data["reference"] == "기준.xlsx"
     assert data["by_ref"] and data["by_ref"][0]["entity_name"] == "충전환경온도"
     assert data["by_ref"][0]["targets"][0]["doc"] == "설명.docx"
+
+
+# --------------------------------------------------------------------------- #
+# 구조화 출력 — 스키마가 실제로 단계별 호출에 실려 나가는가 (커밋 5)
+# --------------------------------------------------------------------------- #
+class _SchemaAwareFactChat(_FactChat):
+    """스키마를 이해한다고 **선언한** 백엔드 대역. 받은 스키마의 title 을 모은다.
+
+    실제 백엔드가 아니라 여기서 검사하는 이유는, 단계 함수가 ``schema_for(<이름>)`` 을
+    **맞는 이름으로** 부르는지가 배선의 전부이기 때문이다 — 이름을 잘못 적으면
+    ``schema_for`` 가 ``None`` 을 돌려주고 그 단계만 조용히 구조화 출력이 꺼진다.
+    """
+
+    supports_structured_output = True
+
+    def __init__(self, ppt_facts=None):
+        super().__init__(ppt_facts)
+        self.schema_titles: list = []
+
+    def complete(self, system, user, *, temperature=0.0, schema=None):
+        self.schema_titles.append(schema.get("title") if schema else None)
+        return super().complete(system, user, temperature=temperature)
+
+
+def test_strict_compatible_stages_send_their_schema(tmp_path):
+    """F1a·F1b·F5 가 각자의 스키마를 달고 나가는가.
+
+    ⚠️ F2(record)·F3(fact)는 ``attributes`` 자유 키 때문에 **아직 안 붙었다** — 그건
+    와이어 배열 전환(다음 커밋)이 끝나야 한다. 여기서 그 둘이 ``None`` 인 것을 함께
+    고정해, 배열 전환이 되면 이 테스트가 **실패해서** 같이 고치게 만든다.
+    """
+    pytest.importorskip("pydantic")
+    chat = _SchemaAwareFactChat()
+    _pipe(tmp_path, chat=chat).run("기준.xlsx", ["대상.xlsx"])
+
+    # 최소 집합을 못박는다 — 이것이 없으면 단계가 안 불렸을 때 아래 루프가 조용히
+    # 통과해(공허한 성공) 배선이 끊긴 것을 못 본다.
+    assert {"profiler", "schema"} <= set(chat.schema_titles)
+
+    seen = dict(zip(chat.systems, chat.schema_titles))
+    for system, title in seen.items():
+        if "semantic_role" in system:
+            assert title == "schema"
+        elif "판정하는 검토자" in system:
+            assert title == "compare"
+        elif "정규화기" in system:
+            assert title is None      # F2 — 다음 커밋에서 "record" 가 된다
+        elif "비교 가능한 fact" in system:
+            assert title is None      # F3 — 다음 커밋에서 "fact" 가 된다
+        else:
+            assert title == "profiler"
+
+
+def test_schema_is_not_sent_to_a_chat_without_the_flag(tmp_path):
+    """기존 가짜(플래그 미선언)는 인자를 못 받는다 — 그것이 37개를 지키는 계약이다."""
+    chat = _FactChat()
+    _pipe(tmp_path, chat=chat).run("기준.xlsx", ["대상.xlsx"])
+    assert chat.calls > 0     # TypeError 없이 끝났다는 것 자체가 증명

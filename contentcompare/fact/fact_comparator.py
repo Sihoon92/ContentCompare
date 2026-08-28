@@ -33,6 +33,7 @@ from .fact_store import DocFacts
 from .llm_stage import LlmBudgetExceeded
 from .prompts import COMPARE_SYSTEM, build_compare_user
 from .record_models import Attribute
+from .schemas import schema_for
 
 logger = logging.getLogger(__name__)
 
@@ -389,7 +390,8 @@ class FactComparator:
             ref, [c.fact for c in candidates], knowledge=self.knowledge
         )
         try:
-            parsed = self.runner.complete_json(COMPARE_SYSTEM, user)
+            parsed = self.runner.complete_json(COMPARE_SYSTEM, user,
+                                               schema=schema_for("compare"))
             self.llm_calls += 1
         except (LlmBudgetExceeded, ValueError) as e:
             self.llm_failures += 1
