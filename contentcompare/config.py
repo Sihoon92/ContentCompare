@@ -193,6 +193,44 @@ class LLMConfig:
     """타임아웃 전용 재시도 횟수. 한도 재시도(:attr:`rate_limit_max_retries`)와
     **예산을 따로** 센다 — 섞어 세면 "왜 갑자기 포기했나"를 설명할 수 없다."""
 
+    structured_output: str = "auto"
+    """구조화 출력(JSON Schema 강제) 정책. ``auto`` | ``json_schema`` | ``json_object`` | ``off``.
+
+    프롬프트로 "JSON 만 출력하세요"라고 **부탁**하는 것과, 서버가 문법적으로 그것만 만들 수
+    있게 **강제**하는 것은 다르다. 후자를 쓰면 ``LlmRunner.parse_failures`` 가 0 으로
+    수렴하고, 파싱 실패 재시도(호출 예산의 순손실)가 사라진다.
+
+    - ``auto``(기본): 백엔드가 지원한다고 밝히고(:attr:`~.langchain_backend.LangChainBackend
+      .supports_structured_output`) 그 단계에 와이어 스키마가 있으면 ``json_schema`` +
+      strict 로 요구하고, 아니면 조용히 오늘과 같이 동작한다. **기본이 auto 인 이유**는
+      이 설정이 켜져도 결과가 나빠질 길이 없기 때문이다 — 성공하면 모양이 보장되고, 서버가
+      거절하면 한 번 알린 뒤 오늘의 동작으로 돌아간다. 기본을 off 로 두면 실제로 켜지는
+      일이 없다.
+    - ``json_schema``: 명시적으로 요구. 실패해도 실행을 죽이지는 않는다(아래).
+    - ``json_object``: 스키마 없이 "JSON 이기만 하면 된다". 게이트웨이가 JSON 모드는 되는데
+      우리 스키마는 거절할 때의 중간 단계다.
+    - ``off``: 오늘과 **바이트 단위로 같은** 요청. 무언가를 의심할 때 되돌릴 자리.
+
+    **서버가 400 을 주면.** 백엔드가 그 400 이 스키마 때문인지 좁게 판정하고
+    (:func:`~contentcompare.llm.structured.looks_like_schema_rejection` — 상태코드 400/422
+    **그리고** 본문 마커), 맞으면 **스키마 없이 한 번 더 부른 뒤 이 실행 동안 스스로
+    강등**한다. 실행을 죽이지 않는 이유는 대안이 더 나쁘기 때문이다 — 40분짜리 파이프라인을
+    한복판에서 끊는 것보다 오늘의 동작으로 마저 끝내는 편이 낫다. 대신 흔적을 **세 곳**에
+    남긴다: 화면(첫 회 1번) · 타임라인(``note`` 이벤트) · ``run_stats.json``
+    (``stats.llm.structured_calls`` 가 총 호출 수보다 적으면 중간에 꺼진 것이다).
+
+    ``json_schema`` 로 **명시**했는데도 강등이 일어나는 것이 거슬릴 수 있는데, 그것을 치명
+    오류로 올리면 "요구가 관철됐음을 확인하는" 대가로 결과물 전체를 잃는다. 관철 여부는 위
+    세 기록으로 사후에 확인하는 편이 싸다.
+
+    ⚠️ ``json_object`` 는 OpenAI 규격상 프롬프트에 'json' 이라는 낱말이 있어야 한다. 우리
+    ``*_SYSTEM`` 여섯 개는 전부 "JSON 만 출력하세요"를 담고 있고 ``test_fact_prompts`` 가
+    그것을 고정한다 — 프롬프트를 다듬다 그 낱말을 지우면 이 모드가 조용히 400 이 된다.
+
+    ⚠️ pydantic 이 없는 환경에서는 ``auto`` 여도 스키마가 ``None`` 이라 자동으로 꺼진다
+    (:mod:`contentcompare.fact.schemas`). ``pip install -e .[langchain]`` 이면 딸려 온다.
+    """
+
     rate_limit_status_codes: list = field(default_factory=lambda: [429])
     """한도 초과로 볼 HTTP 상태코드. 표준은 429 지만 사내 게이트웨이는 다를 수 있다."""
     rate_limit_markers: list = field(default_factory=lambda: [

@@ -320,10 +320,20 @@ class _RateLimitedBase:
 
 
 class RateLimitedChat(_RateLimitedBase):
-    """chat 클라이언트(:class:`~contentcompare.llm.base.LLMClient` 프로토콜)."""
+    """chat 클라이언트(:class:`~contentcompare.llm.base.LLMClient` 프로토콜).
 
-    def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
-        return self._call(self._inner.complete, system, user, temperature=temperature)
+    ``**kwargs``(예: ``schema``)를 그대로 통과시키는 이유는
+    :class:`~contentcompare.llm.tracing.TracedChat` 과 같다. 여기서 특히 중요한 것은
+    :meth:`_RateLimitedBase._call` 의 **재시도 루프 안**에서 ``fn(*args, **kwargs)`` 가
+    불린다는 점이다 — 429 로 60초 대기 후 재시도할 때 스키마가 같이 다시 나가야 하고,
+    인자를 루프 밖에서 소비해 버리면 **재시도 요청만 스키마 없이** 나간다. 그러면 "한 번은
+    strict 인데 한 번은 아닌" 재현 불가능한 차이가 생긴다.
+    """
+
+    def complete(self, system: str, user: str, *, temperature: float = 0.0,
+                 **kwargs: Any) -> str:
+        return self._call(self._inner.complete, system, user,
+                          temperature=temperature, **kwargs)
 
 
 class RateLimitedEmbedder(_RateLimitedBase):

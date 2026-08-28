@@ -602,7 +602,20 @@ class TracedChat:
         실행에 이 경고가 떴다면 배치 크기를 미리 줄일 수 있었다.
         """
 
-    def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
+    def complete(self, system: str, user: str, *, temperature: float = 0.0,
+                 **kwargs: Any) -> str:
+        """감싼 백엔드를 부르고 기록만 남긴다.
+
+        ``**kwargs``(예: ``schema``)는 **한 글자도 손대지 않고 그대로 내려보낸다.** 이
+        래퍼의 계약이 "인자를 변형하지 않는다"이므로 그것을 코드로 가장 정직하게 쓴 모양이고,
+        백엔드에 선택 인자가 붙을 때마다 이 파일을 고치지 않아도 되게 하려는 것이다 —
+        ``factory._needs_rate_limit_wrapper`` 가 "래퍼 기능 목록과 조건이 어긋나" 두 번
+        깨졌던 것이 같은 종류의 사고였다.
+
+        ⚠️ 대가는 오타를 못 잡는 것이다(``shcema=`` 가 그대로 백엔드까지 내려가 거기서
+        ``TypeError``). 그래도 여기서 삼켜 "조용히 스키마 없이 호출"되는 것보다 낫다 —
+        예외는 원인이 있는 호출부를 가리킨다.
+        """
         name = current_stage(depth=2)
         started = time.monotonic()
         error = ""
@@ -613,7 +626,8 @@ class TracedChat:
         timeline.emit(timeline.LLM_START, name,
                       prompt_chars=len(system or "") + len(user or ""))
         try:
-            output = self._inner.complete(system, user, temperature=temperature)
+            output = self._inner.complete(system, user, temperature=temperature,
+                                          **kwargs)
             return output
         except Exception as exc:  # noqa: BLE001 — 기록만 하고 그대로 올려보낸다
             error = f"{type(exc).__name__}: {exc}"
@@ -626,9 +640,10 @@ class TracedChat:
             slow = (status == "ok" and self._slow_after_ms
                     and took >= self._slow_after_ms) or None
             used = self._usage()
+            schema = _schema_label(kwargs)
             timeline.emit(
                 timeline.LLM_END, name, status=status, duration_ms=took,
-                output_chars=len(output or ""), slow=slow,
+                output_chars=len(output or ""), slow=slow, schema=schema,
                 error=(error[:200] if error else None),
                 **used.as_detail(took),
             )
@@ -637,6 +652,7 @@ class TracedChat:
                 output=output, error=error or None,
                 duration_ms=took,
                 metadata={"backend": self._backend, "temperature": temperature,
+                          **({"schema": schema} if schema else {}),
                           **used.as_detail(took)},
             ))
 
@@ -671,6 +687,24 @@ class TracedChat:
         if item.startswith("_"):
             raise AttributeError(item)
         return getattr(self._inner, item)
+
+
+def _schema_label(kwargs: dict) -> Optional[str]:
+    """이 호출에 구조화 출력이 걸렸는지 한 낱말로. 안 걸렸으면 ``None``.
+
+    **스키마 본문은 남기지 않는다.** 어느 단계인지만 알면 되고, 본문은 매 호출 수 KB 라
+    타임라인 파일이 프롬프트보다 스키마로 더 커진다 — 타임라인이 "원문을 절대 담지
+    않는다"는 원칙(모듈 :mod:`contentcompare.timeline` 참고)의 연장이다. 이름은
+    :func:`~contentcompare.llm.structured.strict_schema` 가 넣은 ``title`` 이라 단계와 1:1 이다.
+
+    ``getattr`` 로 백엔드 플래그를 다시 묻지 않고 **인자를 보는** 것에 의미가 있다. 강등이
+    일어난 뒤(플래그는 False 인데 이 호출은 스키마를 달고 나갔던) 경계 한 건에서 기록이
+    거짓이 되기 때문이다.
+    """
+    schema = kwargs.get("schema")
+    if not isinstance(schema, dict):
+        return None
+    return str(schema.get("title") or "on")
 
 
 def wrap_chat(chat: Any, config: AppConfig, *, tracer: Optional[Any] = None) -> Any:
