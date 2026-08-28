@@ -76,11 +76,21 @@ RERANK_SHAPES = [
 ]
 
 
+def _endpoint(cfg: AppConfig):
+    """임베딩이 실제로 쓸 접속 정보. ``llm.embed_internal`` 이 있으면 그쪽이다.
+
+    ⚠️ 여기서 ``internal`` 을 쓰면 **chat 주소로 임베딩을 시험**하게 되어 결과가 통째로
+    거짓이 된다. 프로덕션(:func:`~contentcompare.llm.factory._make_embed`)이 고르는 것과
+    같은 값을 골라야 프로브가 의미를 갖는다.
+    """
+    return cfg.llm.embed_internal
+
+
 def _headers(cfg: AppConfig) -> dict[str, str]:
     """``InternalBackend._headers`` 와 같은 규칙 — 직접 지정 키 우선, 없으면 환경변수."""
     headers = {"Content-Type": "application/json"}
-    internal = cfg.llm.internal
-    api_key = internal.api_key or os.environ.get(internal.api_key_env, "")
+    ep = _endpoint(cfg)
+    api_key = ep.api_key or os.environ.get(ep.api_key_env, "")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
@@ -96,12 +106,12 @@ class _null_ctx:
 
 def _post(cfg: AppConfig, url: str, payload: dict) -> tuple[Optional[int], Any, str]:
     """(상태코드, 파싱된 JSON, 본문 요약). 예외도 결과로 돌려준다 — 뒤 항목을 계속 본다."""
-    ctx = no_proxy() if cfg.llm.internal.unset_proxy else _null_ctx()
+    ep = _endpoint(cfg)
+    ctx = no_proxy() if ep.unset_proxy else _null_ctx()
     try:
         with ctx:
             resp = requests.post(url, json=payload, headers=_headers(cfg),
-                                 timeout=cfg.llm.timeout,
-                                 verify=cfg.llm.internal.verify_ssl)
+                                 timeout=cfg.llm.timeout, verify=ep.verify_ssl)
     except Exception as exc:  # noqa: BLE001 — 예외 자체가 결과다
         return None, None, f"{type(exc).__name__}: {exc}"
     try:
@@ -120,6 +130,33 @@ def _cos(a: list, b: list) -> float:
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
     return dot / (na * nb) if na and nb else 0.0
+
+
+def _compare(label: str, got: list, ref: Optional[list], model: str) -> None:
+    """A 와 얼마나 다른지 **수치로** 보여 준다. 참/거짓 하나로는 원인을 못 가른다.
+
+    실측에서 "다름 — 조사 필요"만 나와 원인 후보가 둘로 갈렸다: ①모델명이 달라 서버가
+    다른 모델을 태웠다(심각) ②같은 모델인데 서버가 요청마다 미세하게 다른 값을 준다(무해).
+    **최대 오차 자릿수가 그 둘을 가른다** — 1e-4 이하면 부동소수점 잡음이고,
+    0.01 을 넘으면 다른 모델이다. 그래서 코사인까지 함께 낸다(1.0 이면 방향이 같다).
+    """
+    _say(f'    model = "{model}"')
+    if not ref:
+        return
+    if len(got) != len(ref) or len(got[0]) != len(ref[0]):
+        _say(f"    ✗ 모양부터 다르다 — A={len(ref)}x{len(ref[0])} vs {label}={len(got)}x{len(got[0])}")
+        return
+    worst = max(abs(a - b) for x, y in zip(got, ref) for a, b in zip(x, y))
+    cos = min(_cos(x, y) for x, y in zip(got, ref))
+    _say(f"    A 대비 최대 오차 = {worst:.2e}   최소 코사인 = {cos:.6f}")
+    if worst < 1e-4:
+        _say("    ✓ 사실상 같다(부동소수점 잡음). 정상.")
+    elif cos > 0.999:
+        _say("    ~ 방향은 같고 값만 미세하게 다르다 — 서버 비결정성으로 보인다. 사용 가능.")
+    else:
+        _say("    🚨 **다른 벡터다.** 같은 문장에 다른 답이 왔다 —")
+        _say("       모델명이 서로 달랐거나, 서버가 조용히 다른 모델로 떨어뜨렸다.")
+        _say("       → A 와 이 단계의 model 값을 위에서 비교할 것.")
 
 
 def _vectors_from(data: Any) -> Optional[list[list[float]]]:
@@ -171,9 +208,7 @@ def probe_internal(cfg: AppConfig, ref: Optional[list[list[float]]]) -> None:
         _say(f"  ✗ 실패 — {type(exc).__name__}: {_clip(str(exc))}")
         return
     _say(f"  ✓ 통과 — 벡터 {len(vecs)}개, 차원 {len(vecs[0]) if vecs else 0}")
-    if ref:
-        same = all(abs(a - b) < 1e-6 for x, y in zip(vecs, ref) for a, b in zip(x, y))
-        _say(f"  A 와 동일한 벡터인가 : {'✓ 같음' if same else '✗ 다름 — 조사 필요'}")
+    _compare("B", vecs, ref, cfg.llm.embed_model)
 
 
 # --------------------------------------------------------------------------- #
@@ -187,10 +222,24 @@ def probe_langchain(cfg: AppConfig, ref: Optional[list[list[float]]]) -> None:
         _say(f"  - 건너뜀(langchain 미설치): {exc}")
         return
 
-    internal = cfg.llm.internal
-    key = internal.api_key or os.environ.get(internal.api_key_env, "") or "sk-none"
-    common = dict(model=cfg.llm.embed_model, base_url=internal.base_url,
+    ep = _endpoint(cfg)
+    key = ep.api_key or os.environ.get(ep.api_key_env, "") or "sk-none"
+    common = dict(model=cfg.llm.embed_model, base_url=ep.base_url,
                   api_key=key, timeout=cfg.llm.timeout)
+
+    # ⚠️ **프로덕션과 같은 httpx 클라이언트를 넘겨야 한다.**
+    # LangChainBackend._ensure_emb() 는 verify=verify_ssl 로 만든 클라이언트를 주는데,
+    # 프로브가 그것을 빠뜨렸더니 사내 사설 인증서 환경에서 C 만 전송 단계에서 죽었다.
+    # requests(A·B)는 verify=False 로 통과하는데 httpx 기본값은 검증을 하기 때문이다 —
+    # 그 결과가 "langchain 경로가 안 된다"로 읽혀 **없는 문제를 만들어 냈다.**
+    http_client = None
+    try:
+        import httpx  # noqa: WPS433
+
+        http_client = httpx.Client(verify=ep.verify_ssl)
+        _say(f"  httpx 클라이언트: verify={ep.verify_ssl} (프로덕션과 동일)")
+    except Exception as exc:  # noqa: BLE001 - 없으면 SDK 기본값으로 간다
+        _say(f"  ⚠️ httpx 클라이언트 생성 실패 - SDK 기본값으로 진행: {exc}")
 
     for label, extra in (
         ("기본값 (check_embedding_ctx_length=True — 토큰 ID 를 보낸다)", {}),
@@ -198,19 +247,18 @@ def probe_langchain(cfg: AppConfig, ref: Optional[list[list[float]]]) -> None:
          {"check_embedding_ctx_length": False}),
     ):
         _say(f"\n  · {label}")
+        kwargs = dict(common, **extra)
+        if http_client is not None:
+            kwargs["http_client"] = http_client
         try:
-            ctx = no_proxy() if internal.unset_proxy else _null_ctx()
+            ctx = no_proxy() if ep.unset_proxy else _null_ctx()
             with ctx:
-                vecs = OpenAIEmbeddings(**common, **extra).embed_documents(list(TEXTS))
+                vecs = OpenAIEmbeddings(**kwargs).embed_documents(list(TEXTS))
         except Exception as exc:  # noqa: BLE001
             _say(f"    ✗ 실패 — {type(exc).__name__}: {_clip(str(exc))}")
             continue
         _say(f"    응답 : 벡터 {len(vecs)}개, 차원 {len(vecs[0]) if vecs else 0}")
-        if ref:
-            same = all(abs(a - b) < 1e-4
-                       for x, y in zip(vecs, ref) for a, b in zip(x, y))
-            mark = "✓ A 와 같음" if same else "✗ **A 와 다르다** — 200 이어도 못 쓴다"
-            _say(f"    검증 : {mark}")
+        _compare("C", vecs, ref, cfg.llm.embed_model)
         _say(f"    교차언어 유사도 : {_cos(vecs[0], vecs[1]):.3f}"
              f"  vs 무관한 문장 {_cos(vecs[0], vecs[2]):.3f}")
 
