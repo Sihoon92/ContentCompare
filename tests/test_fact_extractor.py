@@ -397,7 +397,7 @@ def test_context_blocks_cannot_be_fact_sources():
         def __init__(self):
             self.calls = 0
 
-        def complete_json(self, system, user):
+        def complete_json(self, system, user, *, schema=None):
             self.calls += 1
             # 두 번째 배치에서 앞 배치(맥락) 블록만 근거로 든 fact 를 낸다.
             if self.calls == 2:
@@ -466,7 +466,7 @@ def test_fingerprint_changes_with_line_structure(tmp_path):
         def __init__(self):
             self.calls = 0
 
-        def complete_json(self, system, user):
+        def complete_json(self, system, user, *, schema=None):
             self.calls += 1
             return {"facts": [{"entity_name": f"호출{self.calls}",
                                "source_ids": ["w_b001"]}]}
@@ -498,7 +498,7 @@ def test_facts_inherited_is_counted():
     ]}
 
     class _Runner:
-        def complete_json(self, system, user):
+        def complete_json(self, system, user, *, schema=None):
             return {"facts": [
                 {"entity_name": "이어받음", "source_ids": ["w_b002"],
                  "inherited_from": ["w_b001"]},

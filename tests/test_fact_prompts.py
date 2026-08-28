@@ -129,4 +129,56 @@ def test_fact_version_bumped():
     """프롬프트가 바뀌면 버전도 올라야 캐시가 옛 결과를 안 준다."""
     from contentcompare.fact.prompts import FACT_VERSION
 
-    assert FACT_VERSION == "fact-v3"
+    assert FACT_VERSION == "fact-v4"
+
+
+# --------------------------------------------------------------------------- #
+# 프롬프트 ↔ 와이어 스키마 정합 (구조화 출력)
+# --------------------------------------------------------------------------- #
+_SYSTEM_FOR_STAGE = {
+    "profiler": "PROFILER_SYSTEM",
+    "schema": "SCHEMA_SYSTEM",
+    "record": "RECORD_SYSTEM",
+    "fact": "FACT_SYSTEM",
+    "concept": "CONCEPT_SYSTEM",
+    "compare": "COMPARE_SYSTEM",
+}
+
+
+def test_every_system_prompt_mentions_json():
+    """``json_object`` 모드의 OpenAI 요구사항이다.
+
+    프롬프트를 다듬다 이 낱말이 사라지면 그 모드가 **조용히 400** 이 된다.
+    """
+    from contentcompare.fact import prompts
+
+    for name in _SYSTEM_FOR_STAGE.values():
+        assert "JSON" in getattr(prompts, name), name
+
+
+def test_prompt_template_root_keys_match_the_wire_schema():
+    """프롬프트의 인라인 JSON 예시와 스키마 루트 키가 **갈리지 않았는가**.
+
+    둘이 어긋나면 프롬프트는 A 를 요구하고 서버는 B 를 강제하는 상태가 된다 — strict 가
+    이기므로 **프롬프트 쪽이 조용한 거짓말**이 되고, 다음 사람이 프롬프트를 근거로
+    디버깅하다 시간을 잃는다.
+    """
+    import pytest
+
+    pytest.importorskip("pydantic")
+    from contentcompare.fact import prompts
+    from contentcompare.fact.schemas import schema_for
+
+    for stage, const in _SYSTEM_FOR_STAGE.items():
+        text = getattr(prompts, const)
+        for key in schema_for(stage)["properties"]:
+            assert f'"{key}"' in text, f"{const} 에 루트 키 {key!r} 가 없다"
+
+
+def test_f2_f3_prompts_ask_for_attribute_arrays():
+    """strict 는 자유 키 map 을 표현할 수 없다 — 프롬프트도 배열을 요구해야 한다."""
+    from contentcompare.fact.prompts import FACT_SYSTEM, RECORD_SYSTEM
+
+    for text in (RECORD_SYSTEM, FACT_SYSTEM):
+        assert '"attributes": [{"name"' in text
+    assert '"metadata": [{"name"' in RECORD_SYSTEM

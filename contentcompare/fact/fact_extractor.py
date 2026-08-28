@@ -19,6 +19,7 @@ from .fact_types import FT_DESCRIPTIVE, FT_QUALITATIVE, FT_QUANTITATIVE
 from .llm_stage import fingerprint_for
 from .prompts import FACT_SYSTEM, FACT_VERSION, build_fact_user
 from .record_models import RecordSet
+from .schemas import schema_for
 from .validator import _NUM_RE  # 수치 판정을 numeric_coverage 와 한 곳에 묶는다
 
 
@@ -238,7 +239,8 @@ def _facts_from_blocks(
         # Word/PPT 도 Excel 과 같은 이유로 배치 번호를 남긴다(record_normalizer 참고).
         with substage(f"배치 {index}/{len(batches)}", blocks=len(batch_ids)):
             obj = runner.complete_json(
-                FACT_SYSTEM, build_fact_user(batch, doc_type, profile)
+                FACT_SYSTEM, build_fact_user(batch, doc_type, profile),
+                schema=schema_for("fact"),
             )
         for raw in obj.get("facts") or []:
             seen += 1

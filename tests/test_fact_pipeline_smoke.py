@@ -344,12 +344,11 @@ class _SchemaAwareFactChat(_FactChat):
         return super().complete(system, user, temperature=temperature)
 
 
-def test_strict_compatible_stages_send_their_schema(tmp_path):
-    """F1a·F1b·F5 가 각자의 스키마를 달고 나가는가.
+def test_every_stage_sends_its_own_schema(tmp_path):
+    """단계마다 **자기** 스키마를 달고 나가는가.
 
-    ⚠️ F2(record)·F3(fact)는 ``attributes`` 자유 키 때문에 **아직 안 붙었다** — 그건
-    와이어 배열 전환(다음 커밋)이 끝나야 한다. 여기서 그 둘이 ``None`` 인 것을 함께
-    고정해, 배열 전환이 되면 이 테스트가 **실패해서** 같이 고치게 만든다.
+    이름을 잘못 적으면(``schema_for("프로파일러")``) ``None`` 이 돌아와 그 단계만 조용히
+    구조화 출력이 꺼지는데, 런타임에는 아무 증상이 없다 — 그것을 여기서 잡는다.
     """
     pytest.importorskip("pydantic")
     chat = _SchemaAwareFactChat()
@@ -357,7 +356,8 @@ def test_strict_compatible_stages_send_their_schema(tmp_path):
 
     # 최소 집합을 못박는다 — 이것이 없으면 단계가 안 불렸을 때 아래 루프가 조용히
     # 통과해(공허한 성공) 배선이 끊긴 것을 못 본다.
-    assert {"profiler", "schema"} <= set(chat.schema_titles)
+    assert {"profiler", "schema", "record"} <= set(chat.schema_titles)
+    assert None not in chat.schema_titles     # 어느 단계도 빠지지 않았다
 
     seen = dict(zip(chat.systems, chat.schema_titles))
     for system, title in seen.items():
@@ -366,9 +366,9 @@ def test_strict_compatible_stages_send_their_schema(tmp_path):
         elif "판정하는 검토자" in system:
             assert title == "compare"
         elif "정규화기" in system:
-            assert title is None      # F2 — 다음 커밋에서 "record" 가 된다
+            assert title == "record"
         elif "비교 가능한 fact" in system:
-            assert title is None      # F3 — 다음 커밋에서 "fact" 가 된다
+            assert title == "fact"
         else:
             assert title == "profiler"
 

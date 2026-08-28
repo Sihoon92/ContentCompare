@@ -17,6 +17,7 @@ from .artifacts import ArtifactStore
 from .llm_stage import LlmRunner, fingerprint_for
 from .prompts import RECORD_SYSTEM, RECORD_VERSION, build_record_user
 from .record_models import Record, RecordSet
+from .schemas import schema_for
 from .schema_models import ColumnSchema, TableProfile
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ def normalize_records(
                 obj = runner.complete_json(
                     RECORD_SYSTEM,
                     build_record_user(batch, column_schema, table_profile, carry),
+                    schema=schema_for("record"),
                 )
             row_by_r = {r.get("r"): r for r in batch}
             batch_records: list[Record] = []
