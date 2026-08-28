@@ -125,6 +125,11 @@ def _clip(text: str, limit: int = 400) -> str:
     return text if len(text) <= limit else text[:limit] + f"… (총 {len(text)}자)"
 
 
+def _norm(v: list) -> float:
+    """벡터 길이. 1.0 이면 서버가 정규화해서 준 것이다(bge-m3 는 보통 정규화됨)."""
+    return sum(x * x for x in v) ** 0.5
+
+
 def _cos(a: list, b: list) -> float:
     dot = sum(x * y for x, y in zip(a, b))
     na = sum(x * x for x in a) ** 0.5
@@ -149,14 +154,20 @@ def _compare(label: str, got: list, ref: Optional[list], model: str) -> None:
     worst = max(abs(a - b) for x, y in zip(got, ref) for a, b in zip(x, y))
     cos = min(_cos(x, y) for x, y in zip(got, ref))
     _say(f"    A 대비 최대 오차 = {worst:.2e}   최소 코사인 = {cos:.6f}")
+    # **문장별로** 낸다. 한 문장만 어긋나면 원인이 그 문장의 성질(길이·언어)에 있고,
+    # 셋이 고르게 어긋나면 요청 자체(모델·전처리)가 다른 것이다 — 원인 범위가 갈린다.
+    for i, (x, y) in enumerate(zip(got, ref)):
+        _say(f"      [{i}] 코사인 {_cos(x, y):.6f}   |A|={_norm(y):.4f} |{label}|={_norm(x):.4f}"
+             f"   \"{TEXTS[i][:24]}…\"")
     if worst < 1e-4:
         _say("    ✓ 사실상 같다(부동소수점 잡음). 정상.")
     elif cos > 0.999:
         _say("    ~ 방향은 같고 값만 미세하게 다르다 — 서버 비결정성으로 보인다. 사용 가능.")
     else:
-        _say("    🚨 **다른 벡터다.** 같은 문장에 다른 답이 왔다 —")
-        _say("       모델명이 서로 달랐거나, 서버가 조용히 다른 모델로 떨어뜨렸다.")
-        _say("       → A 와 이 단계의 model 값을 위에서 비교할 것.")
+        _say("    🚨 **다른 벡터다.** 같은 문장에 다른 답이 왔다.")
+        _say("       ⚠️ 단, 위 [A] 의 '같은 요청 두 번' 결과를 먼저 볼 것 — 그 값이")
+        _say("          여기와 비슷하면 서버가 원래 매번 다른 값을 주는 것이고,")
+        _say("          우리 코드 문제가 아니다.")
 
 
 def _vectors_from(data: Any) -> Optional[list[list[float]]]:
@@ -186,8 +197,30 @@ def probe_raw(cfg: AppConfig, base: str, model: str) -> Optional[list[list[float
     if not vecs:
         _say(f"  ✗ 응답 모양이 OpenAI 규격이 아니다: {_clip(json.dumps(data, ensure_ascii=False))}")
         return None
-    _say(f"  ✓ 통과 — 벡터 {len(vecs)}개, 차원 {len(vecs[0])}")
-    _say(f"  의미 검증(값이 진짜인지):")
+    _say(f"  ✓ 통과 — 벡터 {len(vecs)}개, 차원 {len(vecs[0])}, "
+         f"길이(norm) {_norm(vecs[0]):.4f}")
+
+    # ⚠️ **이 대조군이 이 프로브에서 가장 중요한 측정이다.**
+    # 완전히 같은 요청을 두 번 보내 서버 자체의 재현성을 잰다. 이 기준선이 없으면
+    # 뒤의 "A 와 다르다"가 *우리 코드 탓*인지 *서버가 원래 그런 것*인지 영영 못 가른다.
+    # 실측에서 B 가 코사인 0.935 로 나왔을 때 바로 이 값이 없어 원인을 좁힐 수 없었다.
+    _say("\n  [대조군] 완전히 같은 요청을 한 번 더 — 서버가 재현 가능한가?")
+    status2, data2, body2 = _post(cfg, url, {"model": model, "input": TEXTS})
+    again = _vectors_from(data2) if status2 and status2 < 400 else None
+    if not again:
+        _say(f"    - 두 번째 요청 실패({status2}) — 대조군 없이 진행: {_clip(body2)}")
+        return vecs
+    self_cos = min(_cos(x, y) for x, y in zip(again, vecs))
+    self_err = max(abs(a - b) for x, y in zip(again, vecs) for a, b in zip(x, y))
+    _say(f"    최대 오차 = {self_err:.2e}   최소 코사인 = {self_cos:.6f}")
+    if self_cos > 0.9999:
+        _say("    ✓ 서버는 재현 가능하다 → 아래에서 다르게 나오면 **우리 코드 탓**이다.")
+    else:
+        _say("    ⚠️ **서버가 같은 요청에 다른 답을 준다.** 아래 B·C 의 '다름'은")
+        _say("       우리 코드 문제가 아닐 수 있다 — 이 값과 비슷하면 같은 현상이다.")
+        _say("       (동적 배칭·비결정 커널 등 서버 쪽 사정. 검색 품질에는 영향이 작다.)")
+
+    _say(f"\n  의미 검증(값이 진짜인지):")
     _say(f"    한글 충전온도 ↔ 영문 충전온도 = {_cos(vecs[0], vecs[1]):.3f}  (높아야 정상)")
     _say(f"    한글 충전온도 ↔ 산책        = {_cos(vecs[0], vecs[2]):.3f}  (낮아야 정상)")
     if _cos(vecs[0], vecs[1]) <= _cos(vecs[0], vecs[2]):
