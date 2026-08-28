@@ -55,6 +55,33 @@ def test_unsupported_keywords_are_stripped():
     assert out["properties"]["a"] == {"type": "string"}
 
 
+def test_docstring_noise_is_stripped_but_the_root_title_survives():
+    """pydantic 이 싣는 독스트링(``description``)과 필드명(``title``)은 우리 구현 노트다.
+
+    모델에게 줄 말은 프롬프트에 있고 거기가 유일한 자리여야 한다. 실측으로 6개 스키마
+    합계가 31% 줄었고, F2 는 배치마다 나가므로 배치 수만큼 곱해진다.
+    """
+    src = _obj(a={"type": "string", "title": "A", "description": "내부 노트"})
+    src["description"] = "모델 독스트링"
+    out = strict_schema(src, name="record")
+    assert out["properties"]["a"] == {"type": "string"}
+    assert "description" not in out
+    assert out["title"] == "record"   # 봉투 name 과 짝이라 루트만 살아남는다
+
+
+def test_noise_is_stripped_inside_defs_too():
+    src = {
+        "type": "object",
+        "properties": {"i": {"$ref": "#/$defs/I"}},
+        "$defs": {"I": dict(_obj(n={"type": "string", "title": "N"}),
+                            description="내부 노트", title="I")},
+    }
+    out = strict_schema(src, name="t")
+    assert "description" not in out["$defs"]["I"]
+    assert "title" not in out["$defs"]["I"]
+    assert out["$defs"]["I"]["properties"]["n"] == {"type": "string"}
+
+
 def test_meaningful_constraints_survive():
     """``enum``/``const`` 는 의미가 있는 제약이라 지우면 스키마가 조용히 헐거워진다."""
     src = _obj(a={"type": "string", "enum": ["x", "y"]})

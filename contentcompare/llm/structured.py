@@ -38,6 +38,19 @@ _UNSUPPORTED_KEYWORDS = frozenset({
     "multipleOf", "patternProperties", "propertyNames", "contains",
 })
 
+#: strict 가 **받기는 하지만 우리가 보내지 않는** 키. 지우는 이유가 미지원과 다르다.
+#:
+#: pydantic 은 모델·필드의 **독스트링을 ``description`` 으로**, 필드 이름을 ``title`` 로
+#: 스키마에 싣는다. 그런데 이 저장소의 독스트링은 *구현 노트*("``record_normalizer`` 가
+#: 채운다", "저장 시에는 map 이 된다")이지 모델에게 줄 지시가 아니다. 그대로 보내면
+#: ①매 요청에 쓸모없는 토큰이 실리고(실측: 6개 스키마 합계 9654자 → 6630자, 31% 감소.
+#: F2 는 배치마다 나가므로 배치 수만큼 곱해진다) ②모델이 우리 내부 사정을 지시로 오해할
+#: 여지가 생긴다. 모델에게 줄 말은 프롬프트에 있고, 거기가 유일한 자리여야 한다.
+#:
+#: ⚠️ 루트 ``title`` 은 :func:`strict_schema` 가 **보정 후에** 다시 넣으므로 살아남는다
+#: (봉투의 ``name`` 과 짝이라 없으면 안 된다).
+_NOISE_KEYWORDS = frozenset({"description", "title"})
+
 #: 자식 스키마를 **이름→스키마 map** 으로 담는 키.
 _NAMED_CHILDREN = ("properties", "$defs", "definitions")
 #: 자식 스키마를 값으로(또는 리스트로) 담는 키.
@@ -91,7 +104,8 @@ def strict_schema(source: Any, *, name: str) -> dict:
     2. **모든 속성을** ``required`` — pydantic 은 기본값이 있으면 빼 버리는데 strict 에는
        "선택 필드" 개념이 없다. 정말 비어도 되는 값은 ``Optional[...]`` 로 **null 을 명시**
        하게 한다("키가 없다"와 "값이 null 이다"를 갈라 두는 것이 이 규격의 요점이다).
-    3. 미지원 키워드 제거(:data:`_UNSUPPORTED_KEYWORDS`)
+    3. 미지원 키워드(:data:`_UNSUPPORTED_KEYWORDS`)와 **독스트링 잡음**
+       (:data:`_NOISE_KEYWORDS`) 제거
 
     ``$defs``/``$ref`` 는 **평탄화하지 않는다.** strict 는 같은 문서 안의 ``$ref`` 를 받고,
     평탄화하면 공용 모델이 여러 번 복제되어 매 요청 토큰을 더 쓰며 재귀 스키마는 아예
@@ -197,7 +211,7 @@ def _tighten(node: Any, *, path: str) -> None:
     if not isinstance(node, dict):
         return
 
-    for key in _UNSUPPORTED_KEYWORDS:
+    for key in _UNSUPPORTED_KEYWORDS | _NOISE_KEYWORDS:
         node.pop(key, None)
 
     props = node.get("properties")
