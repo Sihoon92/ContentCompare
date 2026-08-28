@@ -9,6 +9,9 @@ embed=fastembed(로컬) 처럼 분리할 수 있다.
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Any
+
 from ..config import AppConfig, LLMConfig, disable_proxy
 from ..logging_setup import log_print
 from .base import EmbeddingClient, LLMClient
@@ -40,6 +43,35 @@ def _make(backend: str, llm: LLMConfig):
     raise ValueError(f"알 수 없는 LLM backend: {backend!r} ({_VALID})")
 
 
+def _make_embed(embed_backend: str, backend: str, llm: LLMConfig, chat_obj: Any) -> Any:
+    """임베딩 클라이언트를 만든다. 조건이 맞으면 **chat 과 같은 객체**를 재사용한다.
+
+    같은 객체를 쓰려면 조건이 **둘 다** 맞아야 한다:
+
+    1. 백엔드 종류가 같고(``embed_backend == backend``)
+    2. 접속 정보가 같다(``llm.embed_internal == llm.internal``)
+
+    2번이 이번에 생긴 조건이다. 사내에서 chat 과 임베딩이 **다른 주소·다른 키**로
+    서비스되는 경우가 있는데(실측), 예전에는 한 객체가 ``internal`` 하나를 공유해서 그
+    조합을 표현할 방법이 없었다. 주소가 다르면 **반드시 객체를 갈라야** 한다 —
+    ``InternalBackend``/``LangChainBackend`` 는 생성 시점에 base_url 을 굳히기 때문이다.
+
+    ``embed_internal`` 을 안 적으면 :meth:`AppConfig.from_dict` 가 ``internal`` 과 같은
+    값으로 채우므로 2번이 참이 되고, **오늘과 완전히 같은 객체 구성**이 나온다.
+
+    ⚠️ 갈라진 임베딩 객체는 chat 메서드도 갖고 있지만(같은 클래스니까) 아무도 부르지
+    않는다. ``fastembed``/``onnx`` 가 임베딩 전용인 것과 같은 상태이고, 실수로 부르면
+    임베딩 주소로 chat 요청이 나가 서버가 거절한다 — 조용히 틀리지는 않는다.
+    """
+    if embed_backend == backend and llm.embed_internal == llm.internal:
+        return chat_obj
+    # 접속 정보가 다르면 그 값을 ``internal`` 자리에 끼운 설정으로 만든다. 백엔드는
+    # ``config.internal`` 만 보므로 이 치환 하나로 주소·키·SSL·프록시가 전부 바뀐다.
+    embed_llm = llm if llm.embed_internal == llm.internal else replace(
+        llm, internal=llm.embed_internal)
+    return _make(embed_backend, embed_llm)
+
+
 def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
     """(chat_client, embedding_client) 튜플을 반환한다."""
     llm = config.llm
@@ -47,13 +79,14 @@ def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
     embed_backend = (llm.embed_backend or backend).lower()
 
     # 사내망 직결 설정이면 프로세스 전역에서 프록시를 영구히 비운다(복원 없음).
+    # chat 과 임베딩이 다른 주소일 수 있으므로 **둘 중 하나라도** 요구하면 비운다 —
+    # disable_proxy 는 프로세스 전역이라 절반만 적용할 수가 없다.
     if "internal" in (backend, embed_backend) or "langchain" in (backend, embed_backend):
-        if llm.internal.unset_proxy:
+        if llm.internal.unset_proxy or llm.embed_internal.unset_proxy:
             disable_proxy()
 
     chat_obj = _make(backend, llm)
-    # 임베딩 백엔드가 같으면 같은 객체를, 다르면 별도로 생성.
-    embed_obj = chat_obj if embed_backend == backend else _make(embed_backend, llm)
+    embed_obj = _make_embed(embed_backend, backend, llm, chat_obj)
 
     # 429 를 스스로 처리하는 백엔드인가. **추적 래핑 전에** 읽는다 — 위임으로도
     # 읽히지만, 이 값이 원본 백엔드의 성질이라는 것이 코드에 드러나야 한다.

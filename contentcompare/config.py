@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterator, Optional
 
 try:
@@ -243,7 +243,38 @@ class LLMConfig:
     """
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     internal: InternalConfig = field(default_factory=InternalConfig)
+    embed_internal: Optional[InternalConfig] = None
+    """임베딩 전용 접속 정보. **비워두면 :attr:`internal` 을 그대로 쓴다.**
+
+    ⚠️ 기본값이 ``InternalConfig()`` 가 아니라 ``None`` 인 것이 중요하다. 기본 인스턴스로
+    두면 ``LLMConfig(internal=커스텀)`` 처럼 **직접 생성**했을 때 임베딩만 조용히 기본
+    주소를 쓰게 된다(실측: ``test_unset_proxy_false_keeps_proxy`` 가 이 결함을 잡았다).
+    ``None`` 은 "안 적었다"를 명확히 뜻하고 :meth:`__post_init__` 이 ``internal`` 로 잇는다.
+
+    사내에서 chat 과 임베딩이 **다른 주소·다른 키**로 서비스되는 경우가 있다(실측:
+    chat 게이트웨이와 별개로 ``.../openai/v1`` 에 bge-m3 임베딩이 따로 있었다). 예전에는
+    두 백엔드가 ``internal`` 하나를 공유해서 그 조합을 표현할 방법이 아예 없었다.
+
+    **덮어쓰기 규칙**: YAML 의 ``llm.embed_internal`` 에 **적은 키만** ``internal`` 위에
+    덮인다(:meth:`AppConfig.from_dict`). 그래서 ``base_url``·``api_key`` 만 적으면
+    ``verify_ssl``·``unset_proxy`` 같은 나머지는 자동으로 물려받는다 — 불리언까지
+    "빈 값이면 상속"으로 처리하려다 삼중 상태를 만드는 것을 피하려는 설계다.
+
+    아무것도 안 적으면 :attr:`internal` 과 **값이 같아지고**, :func:`~contentcompare.llm.
+    factory.build_clients` 는 그 동등성을 보고 **오늘과 완전히 같은 객체 구성**을 만든다.
+    """
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
+
+    def __post_init__(self) -> None:
+        """``embed_internal`` 이 없으면 ``internal`` 을 **그대로 가리키게** 한다.
+
+        복사가 아니라 같은 객체를 가리키므로, 이후 누가 ``internal`` 을 고쳐도 임베딩이
+        따라간다 — "안 적었으면 chat 과 같은 곳"이라는 약속이 런타임 내내 유지된다.
+        :func:`~contentcompare.llm.factory._make_embed` 는 이 동등성을 보고 객체를 가를지
+        정하므로, 여기가 어긋나면 임베딩만 엉뚱한 주소로 나간다.
+        """
+        if self.embed_internal is None:
+            self.embed_internal = self.internal
 
     # --- 로컬 LLM 입출력 추적 (서버 불필요) ------------------------------- #
     # Langfuse 는 서버가 있어야 하지만, 파이프라인 현미경은 **파일**을 읽는다.
@@ -589,8 +620,15 @@ class AppConfig:
         llm_raw = dict(data.get("llm", {}))
         ollama = OllamaConfig(**llm_raw.pop("ollama", {}) or {})
         internal = InternalConfig(**llm_raw.pop("internal", {}) or {})
+        # 임베딩 전용 접속 정보: ``internal`` 을 밑판으로 깔고 **적힌 키만** 덮는다.
+        # ``replace`` 를 쓰는 이유는 불리언 때문이다 — "빈 문자열이면 상속"으로 처리하면
+        # ``verify_ssl: false`` 를 명시한 것과 안 적은 것을 구분할 수 없다. YAML 에
+        # 키가 있느냐로 판단하면 그 모호함이 사라진다.
+        embed_raw = llm_raw.pop("embed_internal", {}) or {}
+        embed_internal = replace(internal, **embed_raw) if embed_raw else None
         langfuse = LangfuseConfig(**llm_raw.pop("langfuse", {}) or {})
-        llm = LLMConfig(ollama=ollama, internal=internal, langfuse=langfuse, **llm_raw)
+        llm = LLMConfig(ollama=ollama, internal=internal,
+                        embed_internal=embed_internal, langfuse=langfuse, **llm_raw)
         # fact 도 중첩 섹션을 갖는다 — pop 하지 않으면 dict 인 채로 필드에 박힌다.
         fact_raw = dict(data.get("fact", {}) or {})
         fast_path = FastPathConfig(**fact_raw.pop("fast_path", {}) or {})

@@ -77,6 +77,22 @@ llm:
     verify_ssl: false
     log_proxy: false       # true 면 호출 직전 적용 프록시 env 를 로그로 출력
 
+  # 임베딩 전용 접속 정보 — **비워두면 위 internal 을 그대로 쓴다.**
+  # 사내에서 chat 과 임베딩이 다른 주소·다른 키로 서비스될 때만 적는다.
+  # 여기 **적은 키만** internal 위에 덮이므로, base_url·api_key 만 적으면
+  # verify_ssl·unset_proxy 같은 나머지는 자동으로 물려받는다.
+  #
+  # 예) 사내 bge-m3 임베딩:
+  #   curl -X POST 'https://api-genai.example.net/api/llm/openai/v1/embeddings'
+  #        -H 'Authorization: Bearer <API_KEY>'
+  #        -d '{"model": "/models/embedding/bge-m3", "input": ["..."]}'
+  #   → base_url 은 /embeddings 를 뺀 데까지(코드가 붙인다), model 은 llm.embed_model 에.
+  #
+  # embed_internal:
+  #   base_url: https://api-genai.example.net/api/llm/openai/v1
+  #   api_key: ""                       # 비우고 아래 환경변수를 쓰는 편이 안전
+  #   api_key_env: EMBED_API_KEY        # chat 과 다른 환경변수 이름을 줄 수 있다
+
   # LLM 입출력 추적(Langfuse) — 프롬프트/응답/지연을 단계별로 남긴다.
   # 로그 파일은 HTTP 페이로드를 1000자에서 자르고 artifacts/ 에는 최종 산출물만 남아
   # "무엇을 넣어 무엇을 받았는지"를 볼 수 없었다. 이 섹션이 그 공백을 메운다.
