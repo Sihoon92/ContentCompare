@@ -74,24 +74,67 @@ class LlmRunner:
         self.calls = 0
         self.retries = 0  # 파싱 실패로 다시 호출한 횟수(계측 — F3.5)
         self.parse_failures = 0  # JSON 파싱에 실패한 응답 수(재시도 성공분 포함)
+        self.structured_calls = 0  # 스키마를 실제로 실어 보낸 호출 수
 
     def stats(self) -> dict[str, int]:
         """계측값 — 문서별 ``run_stats.json`` 에 실린다(F3.5).
 
         ``parse_failures`` 가 크면 모델/프롬프트의 JSON 준수도가 낮다는 뜻이고,
         이 분포가 F4b(Repair Loop) 설계의 입력이 된다.
+
+        ``structured_calls`` 가 ``calls`` 보다 **적으면** 중간에 구조화 출력이 꺼진 것이다
+        (서버가 스키마를 거절해 백엔드가 강등했거나, pydantic 이 없거나, 그 단계에 와이어
+        모델이 없거나). 강등은 화면에 한 번만 알리므로 로그를 놓쳤을 때 여기가 증거다.
         """
         return {
             "calls": self.calls,
             "retries": self.retries,
             "parse_failures": self.parse_failures,
+            "structured_calls": self.structured_calls,
         }
 
-    def complete_json(self, system: str, user: str, *, retries: int = 1) -> dict:
+    def _call_kwargs(self, schema: Optional[dict]) -> dict[str, Any]:
+        """``chat.complete`` 에 넘길 키워드. **조건이 안 맞으면 스키마 키를 아예 뺀다.**
+
+        이 함수의 존재 이유가 곧 이 기능의 가장 큰 제약이다: 테스트의 가짜 chat 36개와
+        ``scripts/compare_engines.py`` 가 전부 ``def complete(self, system, user, *,
+        temperature=0.0)`` 이고 ``**kwargs`` 를 받는 것이 **하나도 없다.** 무조건 넘기면
+        37개가 ``TypeError`` 로 동시에 깨진다. 그래서 넘길지 말지를 **받는 쪽이 스스로 밝힌
+        능력**으로 정한다 — ``handles_rate_limit``/``last_usage`` 와 같은 규약이고,
+        :class:`~contentcompare.llm.base.LLMClient` 독스트링이 계약서다.
+
+        ⚠️ **플래그는 매 호출 읽는다.** ``__init__`` 으로 올리지 말 것 — 서버가 스키마를
+        거절하면 백엔드가 이 실행 동안 자기를 강등하는데
+        (:meth:`~contentcompare.llm.langchain_backend.LangChainBackend._disable_structured`),
+        캐시해 두면 그 강등이 반영되지 않아 남은 수백 회가 전부 같은 400 에 부딪힌다.
+        한 번의 ``getattr`` 은 그 위험을 살 만큼 비싸지 않다.
+
+        래퍼(``RateLimitedChat``/``TracedChat``)에는 이 속성이 없지만 둘 다 ``__getattr__``
+        로 안쪽에 위임하므로 값은 실제 백엔드에서 온다 — **위임이 제약이 아니라 장치로
+        쓰이는 자리다**(메서드였다면 추적을 우회했을 그 위임이다).
+        """
+        kwargs: dict[str, Any] = {"temperature": self.temperature}
+        if schema and getattr(self.chat, "supports_structured_output", False):
+            kwargs["schema"] = schema
+            self.structured_calls += 1
+        return kwargs
+
+    def complete_json(self, system: str, user: str, *, retries: int = 1,
+                      schema: Optional[dict] = None) -> dict:
         """system/user 프롬프트로 chat 을 호출해 JSON dict 를 얻는다.
 
         파싱 실패 시 교정 지시를 덧붙여 ``retries`` 회 재시도. 예산 초과 시
         :class:`LlmBudgetExceeded`, 끝내 파싱 실패면 :class:`ValueError`.
+
+        ``schema``(JSON Schema dict, 보통
+        :func:`~contentcompare.fact.schemas.schema_for` 가 만든 것)를 주면 **백엔드가
+        그것을 이해한다고 스스로 밝힌 경우에만** 서버에 모양을 강제한다(:meth:`_call_kwargs`).
+        주지 않거나 백엔드가 지원을 선언하지 않으면 오늘과 **완전히 같은 호출**이 나간다.
+
+        ⚠️ ``schema`` 는 **파싱을 대체하지 않는다.** strict 가 걸려도 ``parse_json_object``
+        와 재시도는 그대로 돈다 — 폴백 경로(ollama·json_object·강등 후)에서는 여전히 모양이
+        틀릴 수 있고, ``parse_failures`` 는 F4b(Repair Loop) 설계의 입력이라 계속 모아야
+        한다. 오히려 **그 숫자가 0 으로 떨어지는 것이 이 기능의 성과 지표다.**
         """
         last_raw: Optional[str] = None
         for attempt in range(retries + 1):
@@ -103,7 +146,7 @@ class LlmRunner:
             if attempt > 0:
                 self.retries += 1
             prompt = user if attempt == 0 else user + _RETRY_NUDGE
-            raw = self.chat.complete(system, prompt, temperature=self.temperature)
+            raw = self.chat.complete(system, prompt, **self._call_kwargs(schema))
             obj = parse_json_object(raw)
             if obj is not None:
                 return obj
