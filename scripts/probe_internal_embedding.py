@@ -8,7 +8,8 @@
     A. 원시 HTTP    curl 예시를 그대로 재현한다. base_url·api_key·model 확정.
     B. internal     ``InternalBackend.embed()`` 경로. A 와 결과가 같아야 한다.
     C. langchain    ``OpenAIEmbeddings`` 경로. ⚠️ **여기가 함정이다**(아래).
-    D. 리랭커       엔드포인트 모양을 모르므로 후보를 하나씩 두드려 본다.
+    D. 리랭커       후보를 하나씩 두드려 본다. 사내는 "cohere 규격 (v1 밖)" 이다 —
+                    임베딩은 {root}/v1/embeddings, 리랭커는 {root}/rerank 로 갈린다.
 
 ⚠️ **C 를 반드시 확인해야 하는 이유.** langchain 의 ``OpenAIEmbeddings`` 는 기본값
 ``check_embedding_ctx_length=True`` 로 동작하는데, 그러면 텍스트를 tiktoken 으로 먼저
@@ -58,13 +59,17 @@ TEXTS = [
 ]
 QUERY = "충전 환경 온도 범위"
 
-#: 리랭커 엔드포인트 후보. 사내 게이트웨이가 어떤 규격인지 모르므로 흔한 셋을 두드린다.
-#: ``body`` 는 그 규격의 요청 모양이다(``{q}``/``{docs}``/``{model}`` 가 치환된다).
+#: 리랭커 엔드포인트 후보. ``body`` 는 그 규격의 요청 모양이다.
+#:
+#: **사내 게이트웨이는 "cohere 규격 (v1 밖)"이다**(사용자 확인). 임베딩이
+#: ``{root}/v1/embeddings`` 인데 리랭커는 ``{root}/rerank`` 로 **``/v1`` 바깥**에 있다 —
+#: 그래서 :func:`probe_rerank` 가 ``base`` 에서 ``/v1`` 을 떼어 ``root`` 를 만든다.
+#: 나머지 셋은 다른 환경을 위해 남겨 둔다(맞는 것 하나를 찾는 것이 이 단계의 목적이다).
 RERANK_SHAPES = [
     ("cohere 규격  /rerank",
      "{base}/rerank",
      lambda m, q, d: {"model": m, "query": q, "documents": d}),
-    ("cohere 규격  (v1 밖)",
+    ("cohere 규격  (v1 밖) ← 사내 게이트웨이가 이 모양",
      "{root}/rerank",
      lambda m, q, d: {"model": m, "query": q, "documents": d}),
     ("TEI 규격     /rerank",
@@ -327,22 +332,27 @@ def main(argv: Optional[list[str]] = None) -> int:
         description="사내 임베딩·리랭커 API 연결 확인용 일회용 프로브")
     p.add_argument("--config", default="config/config.yaml", help="설정 파일 경로")
     p.add_argument("--embed-model", default="", help="임베딩 모델명(비우면 config)")
-    p.add_argument("--rerank-model", default="/models/reranker/bge-reranker-v2-m3",
-                   help="리랭커 모델명")
+    p.add_argument("--rerank-model", default="/models/Reranker/bge-reranker-v2-m3",
+                   help="리랭커 모델명(경로는 대소문자를 구분한다 — Reranker)")
     p.add_argument("--rerank-url", default="", help="리랭커 URL 직접 지정(탐색 대신)")
     p.add_argument("--skip", default="", help="건너뛸 단계: a,b,c,d 중 콤마로")
     args = p.parse_args(argv)
 
     cfg = AppConfig.load(args.config)
-    base = cfg.llm.internal.base_url.rstrip("/")
+    # ⚠️ ``internal``(chat 주소)이 아니라 ``embed_internal`` 이다 — :func:`_endpoint` 의
+    # 경고가 여기에도 걸린다. 헤더·verify 는 이미 그쪽을 쓰는데 URL 만 chat 주소였고,
+    # 두 주소가 같은 환경에서는 증상이 없었다. 사내처럼 임베딩·chat·리랭커가 서로 다른
+    # 경로에 있으면 A 단계가 **엉뚱한 호스트를 시험**해 결과가 통째로 거짓이 된다.
+    ep = _endpoint(cfg)
+    base = ep.base_url.rstrip("/")
     embed_model = args.embed_model or cfg.llm.embed_model
     skip = {s.strip().lower() for s in args.skip.split(",") if s.strip()}
 
     _say(f"설정     : {args.config}")
-    _say(f"base_url : {base}")
+    _say(f"base_url : {base}  (llm.embed_internal)")
     _say(f"임베딩모델: {embed_model}")
     _say(f"인증     : {'Authorization 헤더 있음' if 'Authorization' in _headers(cfg) else '⚠️ 키 없음'}")
-    _say(f"verify_ssl={cfg.llm.internal.verify_ssl}  unset_proxy={cfg.llm.internal.unset_proxy}")
+    _say(f"verify_ssl={ep.verify_ssl}  unset_proxy={ep.unset_proxy}")
 
     ref = None
     if "a" not in skip:
