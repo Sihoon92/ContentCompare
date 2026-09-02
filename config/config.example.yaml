@@ -92,6 +92,22 @@ llm:
   #   base_url: https://api-genai.example.net/api/llm/openai/v1
   #   api_key: ""                       # 비우고 아래 환경변수를 쓰는 편이 안전
   #   api_key_env: EMBED_API_KEY        # chat 과 다른 환경변수 이름을 줄 수 있다
+  #
+  # ⚠️ backend: langchain 이면 embed_backend 를 반드시 internal 로 갈라 둘 것.
+  #   langchain 의 OpenAIEmbeddings 는 기본값 check_embedding_ctx_length=True 로 동작해
+  #   문자열이 아니라 **tiktoken 토큰 ID 배열**을 input 에 싣는다. bge-m3 같은 비-OpenAI
+  #   서버는 그것을 거절하거나, 200 을 주고도 엉뚱한 벡터를 돌려준다(조용히 틀린 검색).
+  #   InternalBackend 는 문자열을 그대로 보내므로 이 함정이 없다.
+  #   확인: python scripts/probe_internal_embedding.py --config config/config.yaml
+  #
+  # ※ 리랭커(bge-reranker)는 **아직 코드에 소비자가 없다**(similarity.rerank 는 Phase 2.5
+  #   토글일 뿐 호출 경로가 없다). 그래서 여기에 rerank 주소 키를 두지 않는다 — 설정에는
+  #   있는데 호출 경로에는 없는 상태를 만들지 않기 위해서다(CLAUDE.md 의 같은 사고 2건).
+  #   주소를 지금 확인해 두려면 프로브의 D 단계를 쓴다. 사내 게이트웨이는 임베딩과 경로가
+  #   갈리며, 리랭커가 **/v1 바깥**에 있다:
+  #     임베딩  POST {root}/v1/embeddings   {"model", "input": ["..."]}
+  #     리랭커  POST {root}/rerank          {"model", "query", "documents": ["..."]}
+  #   (프로브가 base_url 에서 /v1 을 떼어 {root} 를 만들므로 별도 설정이 필요 없다.)
 
   # LLM 입출력 추적(Langfuse) — 프롬프트/응답/지연을 단계별로 남긴다.
   # 로그 파일은 HTTP 페이로드를 1000자에서 자르고 artifacts/ 에는 최종 산출물만 남아
