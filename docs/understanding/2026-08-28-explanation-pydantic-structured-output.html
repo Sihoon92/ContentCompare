@@ -1,0 +1,1462 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>붕어빵 틀과 JSON — pydantic 으로 LLM 출력을 고정한 이야기</title>
+<style>
+  :root{
+    --code:#1565c0; --llm:#e65100; --embed:#00796b; --human:#6a1b9a;
+    --ink:#1a1a1a; --muted:#5f6b7a; --line:#dfe4ea; --bg:#fff; --soft:#f7f9fb;
+    --ok:#2e7d32; --bad:#c62828; --warn:#ef6c00;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+    line-height:1.8;font-size:16.5px;}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 160px;}
+  header.top{border-bottom:3px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  h1{font-size:2em;line-height:1.25;margin:0 0 10px}
+  .sub{color:var(--muted);margin:0;font-size:1.02em}
+  h2{font-size:1.42em;margin:56px 0 14px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:1.13em;margin:32px 0 10px}
+  h4{font-size:1.02em;margin:22px 0 6px;color:var(--muted)}
+  p{margin:14px 0}
+  code{background:var(--soft);padding:1px 5px;border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;
+    overflow-x:auto;white-space:pre;font-family:"Cascadia Mono",Consolas,monospace;
+    font-size:.85em;line-height:1.65;margin:14px 0}
+  pre .c{color:#7dd3fc}   /* 주석 */
+  pre .g{color:#86efac}   /* 좋음/추가 */
+  pre .r{color:#fca5a5}   /* 나쁨/삭제 */
+  pre .m{color:#94a3b8}   /* 흐림 */
+  pre .y{color:#fde047}   /* 강조 */
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:.93em}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600}
+  .tag{display:inline-block;font-size:.68em;padding:2px 8px;border-radius:99px;
+    border:1px solid currentColor;vertical-align:middle;font-weight:600}
+  .t-code{color:var(--code)} .t-llm{color:var(--llm)}
+  .t-embed{color:var(--embed)} .t-human{color:var(--human)}
+  .callout{border-left:4px solid var(--code);background:var(--soft);
+    padding:12px 16px;border-radius:0 8px 8px 0;margin:18px 0}
+  .callout.warn{border-left-color:var(--warn);background:#fff8f0}
+  .callout.bad{border-left-color:var(--bad);background:#fff5f5}
+  .callout.ok{border-left-color:var(--ok);background:#f4faf5}
+  .callout.def{border-left-color:var(--human);background:#faf6fd}
+  .callout .ct{font-weight:700;display:block;margin-bottom:4px}
+  nav.toc{background:var(--soft);border:1px solid var(--line);border-radius:10px;
+    padding:16px 20px;margin:24px 0}
+  nav.toc ol{margin:8px 0 0;padding-left:22px}
+  nav.toc ol ol{padding-left:20px;margin:4px 0}
+  nav.toc a{color:var(--code);text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+  nav.toc li{margin:3px 0}
+  figure{margin:24px 0;padding:16px;border:1px solid var(--line);border-radius:10px;
+    background:#fff;overflow-x:auto}
+  figcaption{color:var(--muted);font-size:.88em;margin-top:10px;text-align:center}
+  .skip{font-size:.9em;color:var(--muted);background:var(--soft);
+    border:1px dashed var(--line);border-radius:8px;padding:10px 14px;margin:16px 0}
+
+  /* 질문 메모 */
+  .qmemo{border:2px dashed #c7d2de;background:#fbfcfe;border-radius:10px;
+    padding:12px 14px;margin:22px 0}
+  .qmemo[data-status="answered"]{border:2px solid var(--human);background:#faf6fd}
+  .qmemo-head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:6px}
+  .qmemo-label{font-weight:700;font-size:.86em;color:var(--human)}
+  .qmemo-hint{font-size:.8em;color:var(--muted)}
+  .qmemo-question{min-height:2.2em;background:#fff;border:1px solid var(--line);
+    border-radius:6px;padding:8px 10px;font-size:.95em;outline:none}
+  .qmemo-question:focus{border-color:var(--human)}
+  .qmemo-question:empty:before{content:attr(data-placeholder);color:#aab4c0}
+  .qmemo-answer{margin-top:10px;padding:10px 12px;background:#fff;
+    border-left:3px solid var(--human);border-radius:0 6px 6px 0;font-size:.95em}
+  #qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:#0f172a;color:#e2e8f0;
+    padding:10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+    font-size:.88em;z-index:99}
+  #qmemo-save-btn{background:var(--human);color:#fff;border:0;border-radius:6px;
+    padding:8px 16px;font-size:1em;cursor:pointer;font-weight:600}
+  #qmemo-save-btn:hover{filter:brightness(1.12)}
+  #qmemo-saymsg{color:#94a3b8;word-break:break-all}
+
+  /* 퀴즈 */
+  .quiz{border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:20px 0;
+    background:#fff}
+  .quiz .qq{font-weight:700;margin-bottom:10px}
+  .quiz button.opt{display:block;width:100%;text-align:left;margin:6px 0;padding:10px 12px;
+    border:1px solid var(--line);border-radius:8px;background:var(--soft);cursor:pointer;
+    font-size:.95em;font-family:inherit;line-height:1.55}
+  .quiz button.opt:hover{border-color:var(--code)}
+  .quiz button.opt.right{background:#e8f6ea;border-color:var(--ok);color:#14532d}
+  .quiz button.opt.wrong{background:#fdecec;border-color:var(--bad);color:#7f1d1d}
+  .quiz .fb{margin-top:10px;padding:10px 12px;border-radius:8px;font-size:.93em;display:none}
+  .quiz .fb.show{display:block}
+  .quiz .fb.ok{background:#f4faf5;border-left:3px solid var(--ok)}
+  .quiz .fb.no{background:#fff5f5;border-left:3px solid var(--bad)}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  @media (max-width:760px){ .two{grid-template-columns:1fr} body{font-size:16px} }
+  .box{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#fff}
+  .box .bh{font-weight:700;font-size:.9em;margin-bottom:6px}
+  .kv{font-family:"Cascadia Mono",Consolas,monospace;font-size:.84em;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>붕어빵 틀과 JSON</h1>
+  <p class="sub">pydantic 으로 LLM 출력을 고정한 이야기 — 왜 “검사”가 아니라 “틀”이었나</p>
+</header>
+
+<p>
+어느 날 프로그램이 멈췄습니다. 엑셀 100줄을 처리하다가 <strong>7번째 묶음</strong>에서 죽었어요.
+로그에는 딱 한 줄, <code>JSON 파싱 실패</code>.
+</p>
+
+<p>
+이 글은 그 사건을 고친 이야기입니다. 고치는 방법으로 <strong>pydantic</strong> 이라는 도구를 썼는데,
+많은 사람이 “pydantic = 결과를 검사하는 도구”라고 생각합니다. 이 글에서 가장 중요한 한 문장은 이겁니다:
+<strong>우리는 pydantic 을 검사에 쓰지 않았습니다. 붕어빵 <em>틀</em>을 만드는 데 썼습니다.</strong>
+</p>
+
+<nav class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#bg">배경 — 무슨 일이 있었나</a>
+      <ol>
+        <li><a href="#bg-what">아주 처음부터 (알면 건너뛰기)</a></li>
+        <li><a href="#bg-json">“JSON 으로 답해줘”라는 부탁</a></li>
+        <li><a href="#bg-incident">그날의 사건: 배치 7/13</a></li>
+      </ol>
+    </li>
+    <li><a href="#idea">직관 — 붕어빵 틀</a>
+      <ol>
+        <li><a href="#idea-mold">부탁 vs 틀</a></li>
+        <li><a href="#idea-where">pydantic 이 붙는 자리</a></li>
+        <li><a href="#idea-guarantee">무엇이 보장되고, 무엇이 안 되나</a></li>
+      </ol>
+    </li>
+    <li><a href="#code">코드 — 어디가 어떻게 달라졌나</a>
+      <ol>
+        <li><a href="#code-map">파일 5개 지도</a></li>
+        <li><a href="#code-wire">① 틀 설계도 — wire_models.py</a></li>
+        <li><a href="#code-strict">② 틀 다듬기 — structured.py</a></li>
+        <li><a href="#code-gate">③ 문지기 — schemas.py &amp; llm_stage.py</a></li>
+        <li><a href="#code-send">④ 실제로 보내기 — langchain_backend.py</a></li>
+        <li><a href="#code-array">⑤ 이름표가 자유로운 칸 문제</a></li>
+      </ol>
+    </li>
+    <li><a href="#win">그래서 뭐가 좋아졌나 — 예시로</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+</nav>
+
+<div class="callout def">
+  <span class="ct">📝 이 페이지에는 “질문 메모”가 있습니다</span>
+  읽다가 막히는 곳마다 <strong>질문 메모</strong> 상자가 있어요. 거기에 궁금한 걸 그냥 타이핑하세요.
+  브라우저에 자동 저장되고, 맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 그대로 박힌 사본이
+  내려받아집니다. 그 파일로 원본을 덮어쓴 뒤 Claude 에게 “질문에 답해줘”라고 하면 답이 채워집니다.
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="bg">1. 배경 — 무슨 일이 있었나</h2>
+
+<h3 id="bg-what">1-1. 아주 처음부터 <span class="tag t-human">알면 건너뛰기</span></h3>
+
+<div class="skip">
+  이 프로그램(ContentCompare)이 뭘 하는지 이미 안다면 <a href="#bg-json">1-2 로 건너뛰세요</a>.
+</div>
+
+<p>
+회사에는 <strong>기준 문서</strong>가 하나 있습니다. 보통 엑셀이고, “충전환경온도는 −5도에서 55도”
+같은 규격이 수백 줄 적혀 있어요. 그리고 그 내용을 옮겨 적은 <strong>다른 문서들</strong>이 있습니다.
+워드 설명서, 발표용 PPT, 영문 사양서…
+</p>
+
+<p>
+문제는 이겁니다. <strong>다들 같은 말을 하고 있을까?</strong> 엑셀엔 55도라고 썼는데 PPT엔 50도라고
+썼다면 큰일이죠. 그런데 문서가 수십 개면 사람이 눈으로 대조하기 어렵습니다.
+</p>
+
+<p>
+그래서 이 프로그램은 문서를 읽어서 <strong>“사실 조각(fact)”</strong> 으로 잘게 쪼갠 다음, 조각끼리
+맞춰 봅니다. 쪼개는 일은 사람이 못 하니까 <span class="tag t-llm">🤖 LLM</span>(챗지피티 같은 AI)에게
+시킵니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 210" width="100%" role="img" aria-label="문서에서 사실 조각을 뽑아 비교하는 흐름">
+  <rect x="14" y="40" width="150" height="70" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+  <text x="89" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#1565c0">기준.xlsx</text>
+  <text x="89" y="90" text-anchor="middle" font-size="11.5" fill="#5f6b7a">충전환경온도 −5~55℃</text>
+
+  <rect x="14" y="125" width="150" height="60" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+  <text x="89" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="#1565c0">설명서.docx</text>
+  <text x="89" y="170" text-anchor="middle" font-size="11.5" fill="#5f6b7a">충전 온도 −5도~55도</text>
+
+  <path d="M170 78 L245 78" stroke="#e65100" stroke-width="2" marker-end="url(#a1)"/>
+  <path d="M170 155 L245 108" stroke="#e65100" stroke-width="2" marker-end="url(#a1)"/>
+  <defs><marker id="a1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#e65100"/></marker></defs>
+
+  <rect x="250" y="55" width="150" height="75" rx="8" fill="#fff3e8" stroke="#e65100"/>
+  <text x="325" y="82" text-anchor="middle" font-size="14" font-weight="700" fill="#e65100">🤖 LLM</text>
+  <text x="325" y="104" text-anchor="middle" font-size="11.5" fill="#5f6b7a">문장 → 사실 조각</text>
+
+  <path d="M406 92 L470 92" stroke="#1565c0" stroke-width="2" marker-end="url(#a2)"/>
+  <defs><marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#1565c0"/></marker></defs>
+
+  <rect x="475" y="30" width="185" height="55" rx="8" fill="#f4faf5" stroke="#2e7d32"/>
+  <text x="567" y="52" text-anchor="middle" font-size="12" font-weight="700">조각 A</text>
+  <text x="567" y="71" text-anchor="middle" font-size="11" fill="#5f6b7a">충전환경온도 하한 −5 상한 55</text>
+
+  <rect x="475" y="100" width="185" height="55" rx="8" fill="#f4faf5" stroke="#2e7d32"/>
+  <text x="567" y="122" text-anchor="middle" font-size="12" font-weight="700">조각 B</text>
+  <text x="567" y="141" text-anchor="middle" font-size="11" fill="#5f6b7a">충전 온도 하한 −5 상한 55</text>
+
+  <path d="M666 92 L730 92" stroke="#1565c0" stroke-width="2" marker-end="url(#a2)"/>
+  <rect x="735" y="60" width="130" height="65" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+  <text x="800" y="88" text-anchor="middle" font-size="22">✅</text>
+  <text x="800" y="112" text-anchor="middle" font-size="12" fill="#5f6b7a">같음</text>
+</svg>
+<figcaption>문서 → (LLM 이 쪼갬) → 사실 조각 → 조각끼리 대조. 이 글의 사건은 <strong>가운데 화살표</strong>에서 벌어집니다.</figcaption>
+</figure>
+
+<h3 id="bg-json">1-2. “JSON 으로 답해줘”라는 부탁</h3>
+
+<p>
+LLM 은 글로 답합니다. 그런데 프로그램은 글을 못 읽어요. 프로그램이 읽을 수 있는 건
+<strong>JSON</strong> 이라는, 규칙이 아주 엄격한 글쓰기 형식입니다.
+</p>
+
+<div class="callout def">
+  <span class="ct">📖 JSON 이 뭐예요?</span>
+  이름표와 값을 짝지어 적는 방법입니다. 규칙이 딱 정해져 있어요 —
+  <strong>따옴표는 반드시 쌍으로</strong>, <strong>항목 사이엔 쉼표</strong>,
+  <strong>마지막 항목 뒤엔 쉼표 금지</strong>, <strong>중괄호는 열면 반드시 닫기</strong>.
+  하나라도 어기면 프로그램은 <em>전체를</em> 못 읽습니다. 한 글자만 틀려도요.
+</div>
+
+<pre><span class="g">{ "이름": "충전환경온도", "하한": -5, "상한": 55 }</span>   <span class="c">← 올바름</span>
+<span class="r">{ "이름": "충전환경온도", "하한": -5, "상한": 55, }</span>  <span class="c">← 쉼표 하나 더 있음 → 전체 실패</span>
+<span class="r">{ "이름": "충전환경온도", "하한": -5 "상한": 55 }</span>   <span class="c">← 쉼표 하나 빠짐 → 전체 실패</span></pre>
+
+<p>
+그래서 지금까지 우리는 LLM 에게 이렇게 <strong>부탁</strong>했습니다:
+</p>
+
+<pre><span class="m">반드시 아래 JSON 만 출력하세요(설명·마크다운 금지):</span>
+{
+  "records": [ ... ]
+}</pre>
+
+<p>
+부탁은 대부분 잘 통합니다. 문제는 <strong>“대부분”</strong> 이라는 말입니다.
+</p>
+
+<div class="qmemo" data-qid="bg-json-basics" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">JSON 이나 “왜 프로그램이 글을 못 읽는지”가 아직 애매하면 여기 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="bg-incident">1-3. 그날의 사건: 배치 7/13</h3>
+
+<p>
+엑셀 100줄을 한 번에 주면 LLM 이 힘들어하니까, 우리는 <strong>30줄씩 잘라서</strong> 여러 번 물어봅니다.
+100줄이면 13번쯤 되겠죠. 이걸 “배치”라고 부릅니다.
+</p>
+
+<p>
+그날 <strong>7번째 배치</strong>에서 LLM 이 답을 줬는데, JSON 문법이 살짝 틀렸습니다.
+프로그램은 “다시 해줘”라고 한 번 더 물었고, <strong>또 틀렸습니다</strong>. 그리고 포기했어요.
+문서 전체가 죽었습니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 250" width="100%" role="img" aria-label="배치 13개 중 7번째에서 실패해 전체가 멈춤">
+  <text x="14" y="24" font-size="13" font-weight="700" fill="#5f6b7a">엑셀 100줄 → 배치 13개</text>
+  <g font-size="12" text-anchor="middle">
+    <rect x="14"  y="40" width="52" height="40" rx="5" fill="#e8f6ea" stroke="#2e7d32"/><text x="40"  y="65">1 ✓</text>
+    <rect x="72"  y="40" width="52" height="40" rx="5" fill="#e8f6ea" stroke="#2e7d32"/><text x="98"  y="65">2 ✓</text>
+    <rect x="130" y="40" width="52" height="40" rx="5" fill="#e8f6ea" stroke="#2e7d32"/><text x="156" y="65">3 ✓</text>
+    <rect x="188" y="40" width="52" height="40" rx="5" fill="#e8f6ea" stroke="#2e7d32"/><text x="214" y="65">4 ✓</text>
+    <rect x="246" y="40" width="52" height="40" rx="5" fill="#e8f6ea" stroke="#2e7d32"/><text x="272" y="65">5 ✓</text>
+    <rect x="304" y="40" width="52" height="40" rx="5" fill="#e8f6ea" stroke="#2e7d32"/><text x="330" y="65">6 ✓</text>
+    <rect x="362" y="36" width="52" height="48" rx="5" fill="#fdecec" stroke="#c62828" stroke-width="2.5"/>
+    <text x="388" y="66" font-weight="700" fill="#c62828">7 ✗</text>
+    <rect x="420" y="40" width="52" height="40" rx="5" fill="#f2f4f7" stroke="#c9d2dc" stroke-dasharray="3 3"/><text x="446" y="65" fill="#aab4c0">8</text>
+    <rect x="478" y="40" width="52" height="40" rx="5" fill="#f2f4f7" stroke="#c9d2dc" stroke-dasharray="3 3"/><text x="504" y="65" fill="#aab4c0">9</text>
+    <rect x="536" y="40" width="52" height="40" rx="5" fill="#f2f4f7" stroke="#c9d2dc" stroke-dasharray="3 3"/><text x="562" y="65" fill="#aab4c0">10</text>
+    <rect x="594" y="40" width="52" height="40" rx="5" fill="#f2f4f7" stroke="#c9d2dc" stroke-dasharray="3 3"/><text x="620" y="65" fill="#aab4c0">11</text>
+    <rect x="652" y="40" width="52" height="40" rx="5" fill="#f2f4f7" stroke="#c9d2dc" stroke-dasharray="3 3"/><text x="678" y="65" fill="#aab4c0">12</text>
+    <rect x="710" y="40" width="52" height="40" rx="5" fill="#f2f4f7" stroke="#c9d2dc" stroke-dasharray="3 3"/><text x="736" y="65" fill="#aab4c0">13</text>
+  </g>
+  <text x="775" y="65" font-size="12" fill="#c62828" font-weight="700">↑ 전부 취소</text>
+
+  <text x="14" y="120" font-size="13" font-weight="700" fill="#5f6b7a">7번 배치 안에서 벌어진 일</text>
+  <rect x="14" y="132" width="250" height="46" rx="6" fill="#fff3e8" stroke="#e65100"/>
+  <text x="139" y="152" text-anchor="middle" font-size="12" font-weight="700" fill="#e65100">1번째 시도</text>
+  <text x="139" y="169" text-anchor="middle" font-size="11.5" fill="#c62828">JSON 문법 오류 ✗</text>
+
+  <path d="M270 155 L318 155" stroke="#5f6b7a" stroke-width="2" marker-end="url(#a3)"/>
+  <defs><marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#5f6b7a"/></marker></defs>
+  <text x="294" y="147" text-anchor="middle" font-size="10.5" fill="#5f6b7a">“다시”</text>
+
+  <rect x="324" y="132" width="250" height="46" rx="6" fill="#fff3e8" stroke="#e65100"/>
+  <text x="449" y="152" text-anchor="middle" font-size="12" font-weight="700" fill="#e65100">2번째 시도</text>
+  <text x="449" y="169" text-anchor="middle" font-size="11.5" fill="#c62828">또 같은 오류 ✗</text>
+
+  <path d="M580 155 L628 155" stroke="#c62828" stroke-width="2" marker-end="url(#a4)"/>
+  <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#c62828"/></marker></defs>
+  <rect x="634" y="132" width="230" height="46" rx="6" fill="#fdecec" stroke="#c62828"/>
+  <text x="749" y="160" text-anchor="middle" font-size="12.5" font-weight="700" fill="#c62828">포기 → 문서 전체 실패</text>
+
+  <text x="14" y="215" font-size="12" fill="#5f6b7a">※ “왜 하필 2번?” — 재시도 예산이 딱 1회로 정해져 있어서 처음 1 + 재시도 1 = 2번이 전부였습니다.</text>
+  <text x="14" y="235" font-size="12" fill="#5f6b7a">※ 그리고 <tspan font-weight="700">두 번째 시도는 사실상 첫 번째와 똑같은 질문</tspan>이었습니다. 그래서 같은 답이 나왔죠.</text>
+</svg>
+<figcaption>배치 7 이 실패하자 남은 6개도 함께 죽었습니다. 재시도가 무력했던 이유가 이 사건의 핵심입니다.</figcaption>
+</figure>
+
+<div class="callout bad">
+  <span class="ct">🔍 재시도가 왜 소용없었나</span>
+  프로그램은 “다시 해줘”라고 할 때 <strong>같은 질문에 “JSON 만 출력하세요”라는 문장 하나를 덧붙일 뿐</strong>
+  이었습니다. 게다가 LLM 설정이 <code>temperature=0</code>(=매번 똑같이 답하기)이라,
+  <strong>같은 질문에는 거의 같은 답</strong>이 나옵니다. 처음에 틀렸으면 두 번째도 틀립니다.
+  주사위를 굴리는 게 아니라 복사기를 두 번 돌린 셈이에요.
+</div>
+
+<div class="qmemo" data-qid="bg-incident-retry" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“그럼 재시도를 늘리거나 temperature 를 올리면 되지 않나?” 같은 생각이 들었다면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="idea">2. 직관 — 붕어빵 틀</h2>
+
+<h3 id="idea-mold">2-1. 부탁 vs 틀</h3>
+
+<p>
+붕어빵을 만든다고 해봅시다. 두 가지 방법이 있어요.
+</p>
+
+<div class="two">
+  <div class="box">
+    <div class="bh" style="color:var(--bad)">방법 A — 부탁하기</div>
+    <p style="margin:6px 0">반죽을 철판에 붓고 이렇게 말합니다.<br>
+    <em>“붕어 모양으로 예쁘게 퍼져줘!”</em></p>
+    <p style="margin:6px 0">대부분은 붕어 비슷하게 됩니다. 그런데 가끔 꼬리가 뭉개지고,
+    가끔 지느러미가 안 생겨요. <strong>망가진 건 버려야 합니다.</strong></p>
+  </div>
+  <div class="box">
+    <div class="bh" style="color:var(--ok)">방법 B — 틀에 붓기</div>
+    <p style="margin:6px 0">붕어 모양 <strong>틀</strong>에 반죽을 붓습니다.</p>
+    <p style="margin:6px 0">반죽이 아무리 이상하게 흘러도 <strong>틀 밖으로 나갈 수가 없습니다.</strong>
+    꼬리가 뭉개진 붕어빵은 <em>만들어질 수 없어요.</em></p>
+  </div>
+</div>
+
+<p>
+지금까지 우리는 <strong>방법 A</strong> 였습니다. 프롬프트에 “JSON 만 출력하세요”라고 부탁했죠.
+이번에 바꾼 것이 <strong>방법 B</strong> 입니다.
+</p>
+
+<div class="callout def">
+  <span class="ct">📖 틀의 정체 — “강제 디코딩”</span>
+  LLM 은 글자를 <strong>한 글자씩</strong> 만들어냅니다. 다음 글자로 뭘 쓸지 매번 고르는 거예요.
+  우리가 서버에 “이 모양의 JSON 만 받겠다”고 미리 알려주면, 서버는 <strong>규칙을 어기게 될 글자를
+  후보에서 아예 지워버립니다.</strong><br><br>
+  예를 들어 마지막 항목을 쓰고 나서 <code>,</code> 를 찍으면 규칙 위반이 되는 자리라면,
+  그 순간 <code>,</code> 라는 글자가 <strong>선택지에서 사라집니다.</strong>
+  모델이 실수하고 싶어도 실수할 방법이 없습니다.
+</div>
+
+<figure>
+<svg viewBox="0 0 880 260" width="100%" role="img" aria-label="부탁 방식과 틀 방식의 비교">
+  <text x="14" y="22" font-size="13" font-weight="700" fill="#c62828">방법 A — 부탁 (지금까지)</text>
+  <rect x="14" y="34" width="130" height="52" rx="7" fill="#fff3e8" stroke="#e65100"/>
+  <text x="79" y="56" text-anchor="middle" font-size="12" font-weight="700" fill="#e65100">🤖 LLM</text>
+  <text x="79" y="74" text-anchor="middle" font-size="11" fill="#5f6b7a">글자를 자유롭게</text>
+
+  <path d="M150 60 L215 60" stroke="#5f6b7a" stroke-width="2" marker-end="url(#b1)"/>
+  <defs><marker id="b1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#5f6b7a"/></marker></defs>
+
+  <rect x="220" y="34" width="300" height="52" rx="7" fill="#fdecec" stroke="#c62828"/>
+  <text x="370" y="55" text-anchor="middle" font-size="12" font-family="monospace">{"records": [ ... ],}</text>
+  <text x="370" y="74" text-anchor="middle" font-size="11" fill="#c62828">← 쉼표 하나 더 (틀린 JSON)</text>
+
+  <path d="M526 60 L588 60" stroke="#c62828" stroke-width="2" marker-end="url(#b2)"/>
+  <defs><marker id="b2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#c62828"/></marker></defs>
+  <rect x="594" y="34" width="270" height="52" rx="7" fill="#fdecec" stroke="#c62828"/>
+  <text x="729" y="56" text-anchor="middle" font-size="12" font-weight="700" fill="#c62828">⚙️ 파서: 못 읽겠음</text>
+  <text x="729" y="74" text-anchor="middle" font-size="11" fill="#5f6b7a">→ 재시도 → 또 실패 → 죽음</text>
+
+  <line x1="14" y1="112" x2="866" y2="112" stroke="#dfe4ea"/>
+
+  <text x="14" y="140" font-size="13" font-weight="700" fill="#2e7d32">방법 B — 틀 (이번 변경)</text>
+  <rect x="14" y="152" width="130" height="52" rx="7" fill="#fff3e8" stroke="#e65100"/>
+  <text x="79" y="174" text-anchor="middle" font-size="12" font-weight="700" fill="#e65100">🤖 LLM</text>
+  <text x="79" y="192" text-anchor="middle" font-size="11" fill="#5f6b7a">글자를 만들려는데…</text>
+
+  <path d="M150 178 L200 178" stroke="#5f6b7a" stroke-width="2" marker-end="url(#b1)"/>
+
+  <rect x="206" y="146" width="150" height="64" rx="7" fill="#faf6fd" stroke="#6a1b9a" stroke-width="2"/>
+  <text x="281" y="169" text-anchor="middle" font-size="12" font-weight="700" fill="#6a1b9a">🧊 틀 (스키마)</text>
+  <text x="281" y="188" text-anchor="middle" font-size="11" fill="#5f6b7a">규칙 어기는 글자 삭제</text>
+
+  <path d="M362 178 L420 178" stroke="#2e7d32" stroke-width="2" marker-end="url(#b3)"/>
+  <defs><marker id="b3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#2e7d32"/></marker></defs>
+
+  <rect x="426" y="152" width="290" height="52" rx="7" fill="#e8f6ea" stroke="#2e7d32"/>
+  <text x="571" y="173" text-anchor="middle" font-size="12" font-family="monospace">{"records": [ ... ]}</text>
+  <text x="571" y="192" text-anchor="middle" font-size="11" fill="#2e7d32">← 틀린 JSON 은 만들어질 수 없음</text>
+
+  <path d="M722 178 L780 178" stroke="#2e7d32" stroke-width="2" marker-end="url(#b3)"/>
+  <rect x="786" y="152" width="78" height="52" rx="7" fill="#e8f6ea" stroke="#2e7d32"/>
+  <text x="825" y="184" text-anchor="middle" font-size="20">✅</text>
+</svg>
+<figcaption>같은 LLM, 같은 프롬프트입니다. 달라진 건 <strong>보내는 요청에 “틀”이 함께 실린다</strong>는 것 하나뿐입니다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="idea-mold-decoding" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“글자를 선택지에서 지운다”는 게 잘 안 그려지면 여기에 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="idea-where">2-2. pydantic 이 붙는 자리 <span class="tag t-human">이 글에서 제일 중요</span></h3>
+
+<p>
+자, 그럼 그 “틀”은 누가 만들까요? <strong>pydantic</strong> 입니다.
+</p>
+
+<p>
+많은 사람이 pydantic 을 <em>“받은 데이터가 올바른지 검사하는 도구”</em> 로 압니다. 맞는 말이지만,
+<strong>우리는 그 용도로 쓰지 않았습니다.</strong> 왜냐하면 검사는 이 문제를 못 고치거든요 —
+JSON 문법이 깨져 있으면 pydantic 도 못 읽습니다. 못 읽는 건 매한가지예요.
+</p>
+
+<p>
+대신 우리는 pydantic 에게 이렇게 말합니다: <strong>“내가 원하는 모양을 파이썬으로 적어둘게.
+너는 그걸 보고 <em>설계도</em>를 뽑아줘.”</strong> 그 설계도를 서버에 보내면 서버가 틀로 씁니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 300" width="100%" role="img" aria-label="pydantic 이 요청 쪽에 붙는 위치">
+  <rect x="10" y="12" width="860" height="122" rx="10" fill="#faf6fd" stroke="#6a1b9a" stroke-dasharray="5 4"/>
+  <text x="26" y="36" font-size="13" font-weight="700" fill="#6a1b9a">📤 보내기 전 (여기에 pydantic 이 있다)</text>
+
+  <rect x="26" y="48" width="150" height="66" rx="7" fill="#fff" stroke="#6a1b9a"/>
+  <text x="101" y="72" text-anchor="middle" font-size="12" font-weight="700">pydantic 모델</text>
+  <text x="101" y="90" text-anchor="middle" font-size="10.5" fill="#5f6b7a">“이런 모양을 원해”</text>
+  <text x="101" y="106" text-anchor="middle" font-size="10" fill="#6a1b9a" font-family="monospace">wire_models.py</text>
+
+  <path d="M182 81 L226 81" stroke="#6a1b9a" stroke-width="2" marker-end="url(#c1)"/>
+  <defs><marker id="c1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#6a1b9a"/></marker></defs>
+
+  <rect x="232" y="48" width="150" height="66" rx="7" fill="#fff" stroke="#6a1b9a"/>
+  <text x="307" y="72" text-anchor="middle" font-size="12" font-weight="700">설계도(JSON Schema)</text>
+  <text x="307" y="90" text-anchor="middle" font-size="10.5" fill="#5f6b7a">규격에 맞게 다듬기</text>
+  <text x="307" y="106" text-anchor="middle" font-size="10" fill="#6a1b9a" font-family="monospace">structured.py</text>
+
+  <path d="M388 81 L432 81" stroke="#6a1b9a" stroke-width="2" marker-end="url(#c1)"/>
+
+  <rect x="438" y="48" width="150" height="66" rx="7" fill="#fff" stroke="#1565c0"/>
+  <text x="513" y="72" text-anchor="middle" font-size="12" font-weight="700">요청에 실어 보내기</text>
+  <text x="513" y="90" text-anchor="middle" font-size="10.5" fill="#5f6b7a">response_format</text>
+  <text x="513" y="106" text-anchor="middle" font-size="10" fill="#1565c0" font-family="monospace">langchain_backend.py</text>
+
+  <path d="M594 81 L638 81" stroke="#1565c0" stroke-width="2" marker-end="url(#c2)"/>
+  <defs><marker id="c2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#1565c0"/></marker></defs>
+
+  <rect x="644" y="48" width="200" height="66" rx="7" fill="#fff3e8" stroke="#e65100"/>
+  <text x="744" y="72" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e65100">🤖 서버(LLM)</text>
+  <text x="744" y="92" text-anchor="middle" font-size="10.5" fill="#5f6b7a">틀에 맞는 글자만 생성</text>
+
+  <path d="M744 120 L744 158" stroke="#e65100" stroke-width="2.5" marker-end="url(#c3)"/>
+  <defs><marker id="c3" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="#e65100"/></marker></defs>
+
+  <rect x="10" y="164" width="860" height="122" rx="10" fill="#eef4fb" stroke="#1565c0" stroke-dasharray="5 4"/>
+  <text x="26" y="188" font-size="13" font-weight="700" fill="#1565c0">📥 받은 뒤 (여기는 하나도 안 바꿨다)</text>
+
+  <rect x="644" y="200" width="200" height="62" rx="7" fill="#fff" stroke="#1565c0"/>
+  <text x="744" y="224" text-anchor="middle" font-size="12" font-weight="700">JSON 문자열</text>
+  <text x="744" y="243" text-anchor="middle" font-size="10.5" fill="#5f6b7a">이제 항상 올바름</text>
+
+  <path d="M638 231 L594 231" stroke="#1565c0" stroke-width="2" marker-end="url(#c4)"/>
+  <defs><marker id="c4" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#1565c0"/></marker></defs>
+
+  <rect x="438" y="200" width="150" height="62" rx="7" fill="#fff" stroke="#1565c0"/>
+  <text x="513" y="224" text-anchor="middle" font-size="12" font-weight="700">parse_json_object</text>
+  <text x="513" y="243" text-anchor="middle" font-size="10.5" fill="#2e7d32">무수정 ✓</text>
+
+  <path d="M432 231 L388 231" stroke="#1565c0" stroke-width="2" marker-end="url(#c4)"/>
+  <rect x="232" y="200" width="150" height="62" rx="7" fill="#fff" stroke="#1565c0"/>
+  <text x="307" y="224" text-anchor="middle" font-size="12" font-weight="700">Record.from_llm</text>
+  <text x="307" y="243" text-anchor="middle" font-size="10.5" fill="#2e7d32">무수정 ✓</text>
+
+  <path d="M226 231 L182 231" stroke="#1565c0" stroke-width="2" marker-end="url(#c4)"/>
+  <rect x="26" y="200" width="150" height="62" rx="7" fill="#fff" stroke="#1565c0"/>
+  <text x="101" y="224" text-anchor="middle" font-size="12" font-weight="700">기존 dataclass</text>
+  <text x="101" y="243" text-anchor="middle" font-size="10.5" fill="#2e7d32">무수정 ✓</text>
+</svg>
+<figcaption><strong>pydantic 은 위쪽(보내기 전)에만 있습니다.</strong> 아래쪽(받은 뒤)은 코드를 한 줄도 안 바꿨어요 — 그래서 기존 모델이 전부 그대로 살아 있습니다.</figcaption>
+</figure>
+
+<div class="callout ok">
+  <span class="ct">💡 이 그림이 답하는 질문</span>
+  “pydantic 을 도입하면 기존 코드를 다 뜯어고쳐야 하지 않나요?”<br>
+  <strong>아니요.</strong> pydantic 이 <em>요청</em> 쪽에만 붙기 때문에, 응답을 받아 처리하는 코드
+  (<code>parse_json_object</code> → <code>from_llm</code> → 기존 dataclass)는 그대로입니다.
+  실제로 이 작업에서 <strong>도메인 모델 파일은 한 줄도 안 고쳤습니다.</strong>
+</div>
+
+<div class="qmemo" data-qid="idea-where-pydantic-position" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">위 그림에서 “왜 굳이 pydantic 이어야 하나? 설계도를 손으로 써도 되지 않나?” 같은 의문이 들면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="idea-guarantee">2-3. 무엇이 보장되고, 무엇이 안 되나</h3>
+
+<p>
+여기서 오해하면 위험합니다. 틀은 <strong>모양</strong>을 보장하지 <strong>내용</strong>을 보장하지 않습니다.
+붕어빵 틀은 붕어 모양을 보장하지만, 안에 팥이 들었는지 슈크림이 들었는지는 모릅니다.
+</p>
+
+<figure>
+<div class="two" style="margin:0">
+  <div class="box" style="border-color:#2e7d32;background:#f4faf5">
+    <div class="bh" style="color:var(--ok)">✅ 이제 절대 안 틀림</div>
+    <ul style="margin:6px 0 0;padding-left:20px">
+      <li>JSON 문법 (쉼표·따옴표·괄호)</li>
+      <li>필요한 이름표가 빠지는 것 — <code>records</code> 키 누락 불가</li>
+      <li>맨 바깥이 목록으로 오는 것 — <code>[...]</code> 불가</li>
+      <li>숫자 자리에 글자 — <code>"confidence": "0.9"</code> 불가</li>
+      <li>정해진 낱말 밖의 답 — <code>relation</code> 은 3개 중 하나만</li>
+    </ul>
+  </div>
+  <div class="box" style="border-color:#c62828;background:#fff5f5">
+    <div class="bh" style="color:var(--bad)">❌ 여전히 틀릴 수 있음</div>
+    <ul style="margin:6px 0 0;padding-left:20px">
+      <li><strong>값이 틀린 것</strong> — 55를 50이라고 적는 것</li>
+      <li><strong>지어내기</strong> — 원문에 없는 문장을 근거라고 우기는 것</li>
+      <li><strong>빠뜨리기</strong> — 30줄 중 28줄만 처리하는 것</li>
+    </ul>
+    <p style="margin:10px 0 0;font-size:.9em;color:#5f6b7a">
+      이것들은 예전처럼 <strong>코드가</strong> 막습니다 — 인용문이 원문에 실제로 있는지 검사,
+      근거 id 가 진짜 있는 블록인지 대조, 좌표는 아예 코드가 덮어쓰기.
+    </p>
+  </div>
+</div>
+<figcaption>⚠️ 이 표를 기억하세요. “이제 틀이 있으니 검사 코드는 지워도 되겠다”가 <strong>가장 위험한 오해</strong>입니다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="idea-guarantee-scope" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“그럼 값이 틀리는 건 어떻게 막나요?” 같은 질문을 여기 남겨두면 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="code">3. 코드 — 어디가 어떻게 달라졌나</h2>
+
+<h3 id="code-map">3-1. 파일 5개 지도</h3>
+
+<p>
+바뀐 곳은 크게 다섯 군데입니다. 아래 그림의 순서가 곧 <strong>데이터가 흐르는 순서</strong>입니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 320" width="100%" role="img" aria-label="변경된 파일 5개와 역할">
+  <g font-size="11.5">
+    <rect x="14" y="20" width="200" height="70" rx="8" fill="#faf6fd" stroke="#6a1b9a"/>
+    <text x="114" y="42" text-anchor="middle" font-size="12.5" font-weight="700" fill="#6a1b9a">① wire_models.py</text>
+    <text x="114" y="60" text-anchor="middle" fill="#5f6b7a">틀 설계도 (신규)</text>
+    <text x="114" y="78" text-anchor="middle" fill="#5f6b7a">“원하는 모양” 6종</text>
+
+    <rect x="240" y="20" width="200" height="70" rx="8" fill="#faf6fd" stroke="#6a1b9a"/>
+    <text x="340" y="42" text-anchor="middle" font-size="12.5" font-weight="700" fill="#6a1b9a">② structured.py</text>
+    <text x="340" y="60" text-anchor="middle" fill="#5f6b7a">틀 다듬기 (신규)</text>
+    <text x="340" y="78" text-anchor="middle" fill="#5f6b7a">서버 규격에 맞춤</text>
+
+    <rect x="466" y="20" width="200" height="70" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+    <text x="566" y="42" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1565c0">③ schemas.py</text>
+    <text x="566" y="60" text-anchor="middle" fill="#5f6b7a">경계층 (신규)</text>
+    <text x="566" y="78" text-anchor="middle" fill="#5f6b7a">pydantic 없어도 OK</text>
+
+    <rect x="130" y="120" width="230" height="70" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+    <text x="245" y="142" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1565c0">④ llm_stage.py</text>
+    <text x="245" y="160" text-anchor="middle" fill="#5f6b7a">문지기 (수정)</text>
+    <text x="245" y="178" text-anchor="middle" fill="#5f6b7a">넘길까 말까 결정</text>
+
+    <rect x="400" y="120" width="230" height="70" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+    <text x="515" y="142" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1565c0">⑤ langchain_backend.py</text>
+    <text x="515" y="160" text-anchor="middle" fill="#5f6b7a">실제 전송 (수정)</text>
+    <text x="515" y="178" text-anchor="middle" fill="#5f6b7a">거절당하면 되돌리기</text>
+
+    <rect x="670" y="120" width="196" height="70" rx="8" fill="#fff3e8" stroke="#e65100"/>
+    <text x="768" y="150" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e65100">🤖 사내 LLM 서버</text>
+    <text x="768" y="170" text-anchor="middle" fill="#5f6b7a">틀을 받아 강제 실행</text>
+  </g>
+
+  <path d="M220 55 L234 55" stroke="#6a1b9a" stroke-width="2" marker-end="url(#d1)"/>
+  <path d="M446 55 L460 55" stroke="#6a1b9a" stroke-width="2" marker-end="url(#d1)"/>
+  <path d="M566 96 L566 108 L245 108 L245 116" stroke="#1565c0" stroke-width="2" fill="none" marker-end="url(#d2)"/>
+  <path d="M366 155 L394 155" stroke="#1565c0" stroke-width="2" marker-end="url(#d2)"/>
+  <path d="M636 155 L664 155" stroke="#1565c0" stroke-width="2" marker-end="url(#d2)"/>
+  <defs>
+    <marker id="d1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 z" fill="#6a1b9a"/></marker>
+    <marker id="d2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 z" fill="#1565c0"/></marker>
+  </defs>
+
+  <rect x="14" y="222" width="852" height="82" rx="8" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="30" y="246" font-size="12.5" font-weight="700" fill="#5f6b7a">추가로 손댄 곳 (배선)</text>
+  <text x="30" y="268" font-size="11.5" fill="#5f6b7a">• tracing.py · ratelimit.py — 스키마를 <tspan font-weight="700">그대로 통과</tspan>시키게 (래퍼 2개)</text>
+  <text x="30" y="288" font-size="11.5" fill="#5f6b7a">• record_models.py — 이름표가 자유로운 칸을 목록으로도 받게  •  prompts.py — 프롬프트 예시 2개</text>
+</svg>
+<figcaption>①②③ 이 새 파일, ④⑤ 가 기존 파일 수정. 아래쪽 회색 상자가 “배선”입니다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="code-map-overview" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">지도에서 역할이 헷갈리는 파일이 있으면 여기 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="code-wire">3-2. ① 틀 설계도 — <code>fact/wire_models.py</code> (신규)</h3>
+
+<p>
+“원하는 모양”을 파이썬 클래스로 적습니다. 이게 전부예요.
+</p>
+
+<pre><span class="c"># contentcompare/fact/wire_models.py</span>
+<span class="y">class</span> WireAttribute(BaseModel):
+    name: str
+    value: CellValue        <span class="c"># 글자 | 숫자 | 참거짓 | 없음</span>
+    unit: str
+
+<span class="y">class</span> WireRecord(BaseModel):
+    record_id: str
+    entity: WireEntity
+    attributes: list[WireAttribute]
+    metadata: list[WireNamedText]
+    source: WireRecordSource
+    evidence_text: str
+    confidence: float
+
+<span class="y">class</span> RecordsResponse(BaseModel):
+    records: list[WireRecord]</pre>
+
+<p>
+그런데 여기서 <strong>중요한 결정</strong>이 하나 있었습니다. 우리에겐 이미 <code>Record</code> 라는
+거의 똑같이 생긴 클래스가 있거든요. “중복이잖아, 하나로 합치자”가 자연스러운 생각인데,
+<strong>그러면 안 됩니다.</strong>
+</p>
+
+<div class="callout warn">
+  <span class="ct">⚠️ 왜 기존 모델과 따로 만들었나</span>
+  <p style="margin:6px 0">
+  <code>Fact</code> 에는 <code>fact_id</code>, <code>source</code>, <code>search_text</code> 라는 칸이 있습니다.
+  그런데 이 셋은 <strong>LLM 이 채우면 안 되는 칸</strong>이에요 — 코드가 직접 채웁니다.
+  (LLM 이 “이 내용은 3번 문단에서 왔어요”라고 지어내면 안 되니까요.)
+  </p>
+  <p style="margin:6px 0">
+  문제는 <strong>틀에는 “선택 사항”이라는 개념이 없다</strong>는 것입니다. 틀에 칸이 있으면
+  <strong>반드시 채워야</strong> 합니다. 그러니 이 칸들을 틀에 남겨두면,
+  <strong>LLM 에게 “지어내라”고 강제하는 셈</strong>이 됩니다. 지어내기를 막으려고 만든 규칙을
+  틀이 정반대로 되돌리는 거예요.
+  </p>
+</div>
+
+<figure>
+<svg viewBox="0 0 880 200" width="100%" role="img" aria-label="저장 모델과 와이어 모델의 칸 차이">
+  <text x="14" y="22" font-size="13" font-weight="700" fill="#1565c0">저장용 Fact (기존, 안 바뀜)</text>
+  <g font-size="11.5">
+    <rect x="14" y="34" width="380" height="146" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+    <rect x="30" y="48"  width="170" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="115" y="66" text-anchor="middle">entity_name</text>
+    <rect x="210" y="48" width="170" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="295" y="66" text-anchor="middle">attributes</text>
+    <rect x="30" y="82"  width="170" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="115" y="100" text-anchor="middle">evidence_text</text>
+    <rect x="210" y="82" width="170" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="295" y="100" text-anchor="middle">confidence</text>
+    <rect x="30" y="116" width="110" height="26" rx="4" fill="#fdecec" stroke="#c62828"/><text x="85" y="134" text-anchor="middle" fill="#c62828" font-weight="700">fact_id</text>
+    <rect x="148" y="116" width="110" height="26" rx="4" fill="#fdecec" stroke="#c62828"/><text x="203" y="134" text-anchor="middle" fill="#c62828" font-weight="700">source</text>
+    <rect x="266" y="116" width="114" height="26" rx="4" fill="#fdecec" stroke="#c62828"/><text x="323" y="134" text-anchor="middle" fill="#c62828" font-weight="700">search_text</text>
+    <text x="204" y="164" text-anchor="middle" font-size="11" fill="#c62828">🔴 빨간 칸 = 코드가 채우는 칸</text>
+  </g>
+
+  <path d="M404 106 L446 106" stroke="#6a1b9a" stroke-width="2.5" marker-end="url(#e1)"/>
+  <defs><marker id="e1" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="#6a1b9a"/></marker></defs>
+  <text x="425" y="96" text-anchor="middle" font-size="10.5" fill="#6a1b9a">빼기</text>
+
+  <text x="456" y="22" font-size="13" font-weight="700" fill="#6a1b9a">틀용 WireFact (신규)</text>
+  <g font-size="11.5">
+    <rect x="456" y="34" width="410" height="146" rx="8" fill="#faf6fd" stroke="#6a1b9a"/>
+    <rect x="472" y="48"  width="185" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="564" y="66" text-anchor="middle">entity_name</text>
+    <rect x="667" y="48"  width="185" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="759" y="66" text-anchor="middle">attributes</text>
+    <rect x="472" y="82"  width="185" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="564" y="100" text-anchor="middle">evidence_text</text>
+    <rect x="667" y="82"  width="185" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="759" y="100" text-anchor="middle">confidence</text>
+    <rect x="472" y="116" width="185" height="26" rx="4" fill="#fff" stroke="#c9d2dc"/><text x="564" y="134" text-anchor="middle">source_ids</text>
+    <text x="759" y="134" text-anchor="middle" font-size="11" fill="#2e7d32" font-weight="700">🟢 빨간 칸 없음</text>
+    <text x="661" y="164" text-anchor="middle" font-size="11" fill="#5f6b7a">→ LLM 이 지어낼 자리가 아예 없다</text>
+  </g>
+</svg>
+<figcaption>같은 개념인데 칸 구성이 다릅니다. 이건 중복이 아니라 <strong>역할이 다른 두 모양</strong>입니다.</figcaption>
+</figure>
+
+<p>
+그리고 이 결정을 미래의 누군가가 되돌리지 못하도록 <strong>테스트로 못을 박았습니다</strong>:
+</p>
+
+<pre><span class="c"># tests/test_fact_wire_models.py</span>
+_CODE_OWNED = {
+    "fact":   ("fact_id", "source", "search_text"),
+    "record": ("sheet", "cell_range"),
+}
+
+<span class="y">def</span> test_code_owned_fields_never_appear_on_the_wire(stage, banned):
+    <span class="c">"""저장 모델과 합치는 리팩터링이 여기서 죽어야 한다."""</span>
+    <span class="c"># 스키마를 훑으며 금지된 칸 이름이 있으면 실패</span></pre>
+
+<div class="qmemo" data-qid="code-wire-two-models" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“모델이 두 개면 관리가 더 힘들지 않나?” 같은 반론이 떠올랐다면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="code-strict">3-3. ② 틀 다듬기 — <code>llm/structured.py</code> (신규)</h3>
+
+<p>
+pydantic 에게 “설계도 뽑아줘”라고 하면 <code>model_json_schema()</code> 가 하나 나옵니다.
+그런데 그대로 보내면 서버가 거절해요. 서버의 <strong>엄격 모드(strict)</strong> 규칙이 더 까다롭거든요.
+</p>
+
+<table>
+  <tr><th>pydantic 이 주는 것</th><th>서버가 요구하는 것</th><th>우리가 하는 일</th></tr>
+  <tr><td><code>additionalProperties</code> 없음</td><td>모든 칸 묶음에 <code>false</code></td><td>넣어준다</td></tr>
+  <tr><td>기본값 있는 칸은 “선택”</td><td><strong>모든</strong> 칸이 “필수”</td><td><code>required</code> 에 전부 넣는다</td></tr>
+  <tr><td><code>"default"</code>, <code>"maxLength"</code> …</td><td>이런 건 안 받음</td><td>지운다</td></tr>
+  <tr><td>클래스 독스트링을 <code>description</code> 으로</td><td>(받긴 함)</td><td><strong>지운다 — 아래 참고</strong></td></tr>
+</table>
+
+<div class="callout">
+  <span class="ct">🧹 곁가지 발견 — 설계도가 31% 뚱뚱했다</span>
+  pydantic 은 클래스에 적어둔 설명글(독스트링)을 설계도에 그대로 실어 보냅니다. 그런데 우리 설명글은
+  <em>“record_normalizer 가 채운다”</em> 같은 <strong>우리끼리 하는 메모</strong>였어요. LLM 에게 보낼 말이
+  아닙니다. 걷어내니 설계도 6개 합계가 <strong>9,654자 → 6,630자</strong> 로 줄었습니다.
+  F2 는 배치마다 보내니까, 13배로 아껴진 셈입니다.
+</div>
+
+<p>
+가장 자주 실수하는 곳도 여기 있습니다. 설계도 안에는 <strong>공용 부품 보관함</strong>(<code>$defs</code>)이
+있어요. 여러 곳에서 <code>WireAttribute</code> 를 쓰니까 한 번만 정의하고 참조하는 거죠.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 220" width="100%" role="img" aria-label="루트만 조이면 보관함 안에서 실패한다">
+  <text x="14" y="22" font-size="13" font-weight="700" fill="#c62828">흔한 실수 — 겉만 조이기</text>
+  <rect x="14" y="34" width="400" height="160" rx="8" fill="#fff5f5" stroke="#c62828"/>
+  <rect x="34" y="54" width="360" height="44" rx="6" fill="#e8f6ea" stroke="#2e7d32"/>
+  <text x="214" y="72" text-anchor="middle" font-size="12" font-weight="700">바깥 (root) ✓ 조여짐</text>
+  <text x="214" y="90" text-anchor="middle" font-size="11" fill="#5f6b7a">additionalProperties: false</text>
+
+  <rect x="34" y="110" width="360" height="68" rx="6" fill="#fff" stroke="#c62828" stroke-dasharray="4 3"/>
+  <text x="214" y="132" text-anchor="middle" font-size="12" font-weight="700" fill="#c62828">$defs 보관함 ✗ 안 조여짐</text>
+  <text x="214" y="152" text-anchor="middle" font-size="11" fill="#5f6b7a">WireAttribute · WireEntity …</text>
+  <text x="214" y="170" text-anchor="middle" font-size="11" fill="#c62828">→ 서버가 400 으로 거절</text>
+
+  <text x="466" y="22" font-size="13" font-weight="700" fill="#2e7d32">우리 방식 — 안까지 걸어 들어가기</text>
+  <rect x="466" y="34" width="400" height="160" rx="8" fill="#f4faf5" stroke="#2e7d32"/>
+  <rect x="486" y="54" width="360" height="44" rx="6" fill="#e8f6ea" stroke="#2e7d32"/>
+  <text x="666" y="72" text-anchor="middle" font-size="12" font-weight="700">바깥 (root) ✓</text>
+  <text x="666" y="90" text-anchor="middle" font-size="11" fill="#5f6b7a">additionalProperties: false</text>
+
+  <rect x="486" y="110" width="360" height="68" rx="6" fill="#e8f6ea" stroke="#2e7d32"/>
+  <text x="666" y="132" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">$defs 보관함 ✓ 여기도 조임</text>
+  <text x="666" y="152" text-anchor="middle" font-size="11" fill="#5f6b7a">재귀로 전부 순회</text>
+  <text x="666" y="170" text-anchor="middle" font-size="11" fill="#2e7d32">→ 통과</text>
+</svg>
+<figcaption>보관함을 빼먹으면 “바깥은 멀쩡한데 왜 거절당하지?”로 한참 헤맵니다. 그래서 이 경우에만 테스트를 따로 붙였습니다.</figcaption>
+</figure>
+
+<p>
+그리고 이 파일의 진짜 값어치는 <strong>“일찍 죽이는 것”</strong> 에 있습니다.
+</p>
+
+<pre><span class="c"># 표현할 수 없는 모양이면 여기서 즉시 실패</span>
+_FREE_KEY_MSG = (
+    "strict 스키마는 키 이름을 미리 모르는 object 를 표현할 수 없습니다 (경로: {path}). "
+    "dict[str, X] 대신 list[{{name, value}}] 로 바꾸고, map 으로 되돌리는 것은 parse_* "
+    "함수 한 곳에서 하세요 (예: record_models.parse_attributes)."
+)</pre>
+
+<div class="callout ok">
+  <span class="ct">💡 왜 이게 좋은가</span>
+  이 검사가 없으면 어떻게 될까요? 잘못된 설계도가 그대로 서버에 가고, 서버는
+  <strong>파이프라인 한복판에서, 문서 몇 개를 이미 처리한 뒤에</strong>
+  <code>Invalid schema</code> 한 줄을 던집니다.<br>
+  검사가 있으면 같은 문제가 <strong>단위 테스트 실패</strong>로 바뀝니다. 커밋도 하기 전에요.
+  게다가 메시지가 <em>어디가</em> 문제고 <em>어떻게</em> 고치는지까지 알려줍니다.
+</div>
+
+<div class="qmemo" data-qid="code-strict-defs" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">$defs·$ref 나 “왜 평탄화하지 않았나”가 궁금하면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="code-gate">3-4. ③ 문지기 — <code>schemas.py</code> &amp; <code>llm_stage.py</code></h3>
+
+<h4>문지기 하나: pydantic 이 없는 컴퓨터도 있다</h4>
+
+<p>
+이 프로젝트를 돌리는 파이썬 환경이 <strong>두 개</strong> 였습니다. 하나엔 pydantic 이 있고,
+하나엔 없어요. 그런데 테스트는 <strong>양쪽에서 다</strong> 돕니다.
+</p>
+
+<p>
+파이썬은 파일 맨 위에서 <code>import pydantic</code> 을 만나면 없을 때 <strong>그 자리에서 죽습니다.</strong>
+그러면 pydantic 없는 쪽에서 테스트가 <em>수집조차</em> 안 돼요. 그래서 <code>schemas.py</code> 라는
+얇은 문을 하나 뒀습니다.
+</p>
+
+<pre><span class="c"># contentcompare/fact/schemas.py</span>
+@lru_cache(maxsize=<span class="y">None</span>)
+<span class="y">def</span> schema_for(stage: str) -> Optional[dict]:
+    <span class="y">try</span>:
+        <span class="y">from</span> . <span class="y">import</span> wire_models     <span class="c"># ← 함수 "안"에서 import</span>
+    <span class="y">except</span> ImportError <span class="y">as</span> exc:
+        logger.info("pydantic 이 없어 구조화 출력을 끕니다: %s", exc)
+        <span class="y">return</span> <span class="g">None</span>                    <span class="c"># ← 없으면 그냥 None</span>
+    ...</pre>
+
+<div class="callout ok">
+  <span class="ct">💡 예상 밖의 이득</span>
+  <code>None</code> 은 “틀 없이 예전 방식으로”라는 뜻입니다. 그러니 pydantic 없는 환경에서는
+  <strong>예전 코드 경로가 매일 자동으로 테스트</strong>됩니다. 되돌림 경로가 몰래 썩는 걸 막는
+  가장 싼 방법이에요. 우회책처럼 보이지만 사실 <strong>더 좋은 성질</strong>입니다.
+</div>
+
+<h4>문지기 둘: 가짜 chat 37개를 어떻게 안 깨뜨렸나</h4>
+
+<p>
+여기가 이 작업에서 가장 까다로웠던 부분입니다. 테스트 코드 안에는 <strong>가짜 LLM</strong> 이
+37개 있습니다. 진짜 서버 없이 테스트하려고 만든 흉내쟁이들이죠. 그런데 전부 이렇게 생겼습니다:
+</p>
+
+<pre><span class="y">def</span> complete(self, system, user, *, temperature=0.0):
+    <span class="y">return</span> '{"ok": true}'</pre>
+
+<p>
+여기에 <code>schema=</code> 라는 새 인자를 <strong>무조건</strong> 넘기면? <strong>37개가 동시에 터집니다.</strong>
+<code>TypeError: complete() got an unexpected keyword argument 'schema'</code>
+</p>
+
+<p>
+해법은 <strong>“받는 쪽에게 물어보기”</strong> 였습니다. 백엔드가 스스로 “나 이거 받을 수 있어요”라고
+손을 들면 그때만 넘깁니다.
+</p>
+
+<pre><span class="c"># contentcompare/fact/llm_stage.py</span>
+<span class="y">def</span> _call_kwargs(self, schema):
+    kwargs = {"temperature": self.temperature}
+    <span class="y">if</span> schema <span class="y">and</span> <span class="g">getattr(self.chat, "supports_structured_output", False)</span>:
+        kwargs["schema"] = schema          <span class="c"># ← 손 든 애한테만</span>
+        self.structured_calls += 1
+    <span class="y">return</span> kwargs
+
+raw = self.chat.complete(system, prompt, **self._call_kwargs(schema))</pre>
+
+<p>
+가짜들은 <code>supports_structured_output</code> 을 선언하지 않았으니 <code>getattr</code> 이
+<code>False</code> 를 돌려주고, <strong>인자는 아예 안 넘어갑니다.</strong> 37개 전부 무사합니다.
+</p>
+
+<h4>그런데 백엔드는 세 겹으로 싸여 있다</h4>
+
+<p>
+실제 코드에서 <code>self.chat</code> 은 진짜 백엔드가 아닙니다. 양파처럼 싸여 있어요.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 250" width="100%" role="img" aria-label="래퍼 세 겹을 통과해 플래그가 올라오는 모습">
+  <rect x="80" y="30" width="720" height="180" rx="14" fill="#fdf2f8" stroke="#be185d" stroke-width="2"/>
+  <text x="100" y="54" font-size="12.5" font-weight="700" fill="#be185d">RateLimitedChat (요청 한도 대기)</text>
+
+  <rect x="150" y="66" width="580" height="128" rx="12" fill="#fff7ed" stroke="#e65100" stroke-width="2"/>
+  <text x="170" y="90" font-size="12.5" font-weight="700" fill="#e65100">TracedChat (기록·타임라인)</text>
+
+  <rect x="230" y="104" width="420" height="76" rx="10" fill="#eef4fb" stroke="#1565c0" stroke-width="2"/>
+  <text x="440" y="130" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1565c0">LangChainBackend</text>
+  <text x="440" y="152" text-anchor="middle" font-size="11.5" fill="#2e7d32" font-weight="700">supports_structured_output = True 🙋</text>
+  <text x="440" y="170" text-anchor="middle" font-size="11" fill="#5f6b7a">여기가 실제로 손을 든다</text>
+
+  <path d="M440 100 L440 90" stroke="#2e7d32" stroke-width="2.5" marker-end="url(#f1)"/>
+  <path d="M440 62 L440 52" stroke="#2e7d32" stroke-width="2.5" marker-end="url(#f1)"/>
+  <path d="M440 26 L440 16" stroke="#2e7d32" stroke-width="2.5" marker-end="url(#f1)"/>
+  <defs><marker id="f1" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="#2e7d32"/></marker></defs>
+
+  <text x="470" y="86" font-size="10.5" fill="#2e7d32">__getattr__ 위임</text>
+  <text x="470" y="48" font-size="10.5" fill="#2e7d32">__getattr__ 위임</text>
+  <text x="470" y="14" font-size="11.5" font-weight="700" fill="#2e7d32">→ 바깥에서도 True 로 보인다</text>
+
+  <rect x="14" y="30" width="52" height="180" rx="8" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="40" y="115" text-anchor="middle" font-size="11" fill="#5f6b7a" transform="rotate(-90 40 115)">llm_stage 가 물어봄</text>
+  <path d="M70 120 L76 120" stroke="#5f6b7a" stroke-width="2"/>
+</svg>
+<figcaption><code>__getattr__</code> 위임 덕분에 맨 안쪽 백엔드의 플래그가 맨 바깥까지 그대로 올라옵니다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="ct">⚠️ 같은 기능이 여기선 <em>해법</em>, 저기선 <em>함정</em></span>
+  이 프로젝트의 다른 문서에는 <code>__getattr__</code> 위임을 <strong>조심하라</strong>고 적혀 있습니다.
+  백엔드에 새 <em>메서드</em>를 추가하면 위임 때문에 <strong>기록·대기 기능을 조용히 건너뛰기</strong> 때문이에요.<br><br>
+  그런데 <strong>플래그</strong>(그냥 값)일 때는 정반대입니다. 위임이 값을 위로 전달해주는
+  <em>정확히 필요한 동작</em>이 됩니다. 그래서 우리는 새 <strong>메서드</strong>가 아니라
+  기존 <code>complete()</code> 의 <strong>선택 인자</strong>로 갔습니다.
+</div>
+
+<div class="callout bad">
+  <span class="ct">🚫 절대 하면 안 되는 최적화</span>
+  “<code>getattr</code> 을 매번 부르는 건 낭비니까 <code>__init__</code> 에서 한 번만 읽자” —
+  <strong>안 됩니다.</strong> 서버가 틀을 거절하면 백엔드가 실행 중에 스스로 손을 내리는데,
+  값을 캐시해두면 그 변화가 반영이 안 돼서 <strong>남은 수백 번이 전부 같은 오류에 부딪힙니다.</strong>
+  이 리팩터링을 막으려고 테스트를 하나 붙여뒀습니다
+  (<code>test_the_flag_is_read_per_call_so_a_mid_run_downgrade_takes_effect</code>).
+</div>
+
+<div class="qmemo" data-qid="code-gate-flag" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“그냥 가짜 37개를 다 고치면 되지 않나?” 같은 생각이 들었다면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="code-send">3-5. ④ 실제로 보내기 — <code>llm/langchain_backend.py</code></h3>
+
+<p>
+드디어 서버로 보냅니다. 딱 한 줄 차이예요.
+</p>
+
+<pre><span class="c"># 이전</span>
+resp = chat.bind(<span class="m">temperature=temperature</span>).invoke(messages)
+
+<span class="c"># 이후</span>
+bound = {"temperature": temperature}
+<span class="y">if</span> fmt <span class="y">is</span> <span class="y">not</span> <span class="y">None</span>:
+    bound[<span class="g">"response_format"</span>] = fmt      <span class="c"># ← 틀을 함께 실어 보낸다</span>
+resp = chat.bind(**bound).invoke(messages)</pre>
+
+<div class="callout">
+  <span class="ct">🔎 왜 <code>fmt=None</code> 일 때 키를 <em>아예 안 넣나</em></span>
+  <code>response_format=None</code> 을 넣으면 그걸 그대로 서버에 실어 보내는 SDK 버전이 있습니다.
+  그러면 “끔”이 <strong>“끔이라고 명시함”</strong>으로 바뀌어서 예전과 다른 요청이 돼요.
+  “바이트 단위로 같은 요청”을 지키려면 키 자체가 없어야 합니다.
+</div>
+
+<h4>왜 <code>with_structured_output()</code> 을 안 썼나</h4>
+
+<p>
+LangChain 에는 <code>with_structured_output()</code> 이라는 더 유명한 함수가 있습니다.
+안 쓴 이유가 있는데, <strong>흔히 말하는 이유(반환 타입이 달라짐)가 아니었습니다.</strong>
+</p>
+
+<figure>
+<svg viewBox="0 0 880 220" width="100%" role="img" aria-label="with_structured_output 이 토큰 사용량을 잃는 이유">
+  <text x="14" y="22" font-size="13" font-weight="700" fill="#2e7d32">우리 방식 — bind()</text>
+  <rect x="14" y="34" width="400" height="70" rx="8" fill="#f4faf5" stroke="#2e7d32"/>
+  <text x="214" y="58" text-anchor="middle" font-size="12" font-weight="700">AIMessage 객체가 돌아옴</text>
+  <text x="214" y="80" text-anchor="middle" font-size="11.5" fill="#5f6b7a">.content = 원문 · .usage_metadata = 토큰 수</text>
+  <text x="214" y="96" text-anchor="middle" font-size="11.5" fill="#2e7d32" font-weight="700">토큰 11 / 22 ✓ 기록됨</text>
+
+  <text x="466" y="22" font-size="13" font-weight="700" fill="#c62828">with_structured_output()</text>
+  <rect x="466" y="34" width="400" height="70" rx="8" fill="#fff5f5" stroke="#c62828"/>
+  <text x="666" y="58" text-anchor="middle" font-size="12" font-weight="700">pydantic 객체가 돌아옴</text>
+  <text x="666" y="80" text-anchor="middle" font-size="11.5" fill="#5f6b7a">.usage_metadata 가 <tspan font-weight="700">없다</tspan></text>
+  <text x="666" y="96" text-anchor="middle" font-size="11.5" fill="#c62828" font-weight="700">토큰 미상 ✗</text>
+
+  <rect x="14" y="122" width="852" height="86" rx="8" fill="#fff8f0" stroke="#ef6c00"/>
+  <text x="30" y="146" font-size="12.5" font-weight="700" fill="#ef6c00">⚠️ 그런데 이 프로젝트에서 “미상”은 특별한 뜻이 있다</text>
+  <text x="30" y="168" font-size="11.5" fill="#5f6b7a">우리 규칙: 토큰이 미상이면 <tspan font-weight="700">“서버가 안 알려줬다”</tspan>는 뜻이다.</text>
+  <text x="30" y="188" font-size="11.5" fill="#5f6b7a">→ 그러니 <tspan font-weight="700" fill="#c62828">우리가 잃어버린 것이 서버 탓으로 기록</tspan>되고, 배치 크기를 정하는 근거(tok/sec)가 영영 사라진다.</text>
+</svg>
+<figcaption>겉보기엔 사소한 차이지만, 이 프로젝트의 기존 규칙과 만나면 <strong>진단 정보가 거짓말을 하게</strong> 됩니다.</figcaption>
+</figure>
+
+<p>이유는 이 밖에도 셋 더 있습니다. 정리하면:</p>
+
+<table>
+  <tr><th>#</th><th>잃는 것</th><th>왜 문제인가</th></tr>
+  <tr><td>1</td><td><code>-&gt; str</code> 계약</td><td>래퍼 3겹 전부에 파급된다</td></tr>
+  <tr><td>2</td><td><strong>토큰 사용량</strong></td><td>“우리 잘못”이 “서버 잘못”으로 기록된다 <span class="tag t-code">결정타</span></td></tr>
+  <tr><td>3</td><td>모델 <strong>원문</strong> 기록</td><td>“무엇을 받았나” 보려고 만든 추적이 무력해진다</td></tr>
+  <tr><td>4</td><td><code>parse_failures</code> 계측</td><td>“모델의 JSON 준수도” 통계가 사라진다</td></tr>
+</table>
+
+<h4>서버가 거절하면?</h4>
+
+<p>
+사내 서버가 나중에 바뀌어서 틀을 거절할 수도 있습니다. 그때 프로그램이 죽으면 안 되겠죠.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 180" width="100%" role="img" aria-label="400 거절 시 강등 흐름">
+  <rect x="14" y="30" width="150" height="56" rx="7" fill="#eef4fb" stroke="#1565c0"/>
+  <text x="89" y="54" text-anchor="middle" font-size="12" font-weight="700">틀과 함께 요청</text>
+  <text x="89" y="72" text-anchor="middle" font-size="11" fill="#5f6b7a">1번째</text>
+
+  <path d="M170 58 L212 58" stroke="#c62828" stroke-width="2" marker-end="url(#g1)"/>
+  <defs><marker id="g1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#c62828"/></marker></defs>
+
+  <rect x="218" y="30" width="180" height="56" rx="7" fill="#fdecec" stroke="#c62828"/>
+  <text x="308" y="54" text-anchor="middle" font-size="12" font-weight="700" fill="#c62828">400 거절</text>
+  <text x="308" y="72" text-anchor="middle" font-size="11" fill="#5f6b7a">“response_format 미지원”</text>
+
+  <path d="M404 58 L446 58" stroke="#ef6c00" stroke-width="2" marker-end="url(#g2)"/>
+  <defs><marker id="g2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#ef6c00"/></marker></defs>
+
+  <rect x="452" y="30" width="180" height="56" rx="7" fill="#fff8f0" stroke="#ef6c00"/>
+  <text x="542" y="54" text-anchor="middle" font-size="12" font-weight="700" fill="#ef6c00">틀 없이 다시 한 번</text>
+  <text x="542" y="72" text-anchor="middle" font-size="11" fill="#5f6b7a">+ 이 실행 동안 끄기</text>
+
+  <path d="M638 58 L680 58" stroke="#2e7d32" stroke-width="2" marker-end="url(#g3)"/>
+  <defs><marker id="g3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#2e7d32"/></marker></defs>
+  <rect x="686" y="30" width="180" height="56" rx="7" fill="#e8f6ea" stroke="#2e7d32"/>
+  <text x="776" y="54" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">정상 진행 ✓</text>
+  <text x="776" y="72" text-anchor="middle" font-size="11" fill="#5f6b7a">작업이 안 죽는다</text>
+
+  <rect x="14" y="104" width="852" height="62" rx="8" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="30" y="126" font-size="12" font-weight="700" fill="#5f6b7a">흔적은 세 곳에 남는다 (조용히 사라지는 강등은 만들지 않는다)</text>
+  <text x="30" y="150" font-size="11.5" fill="#5f6b7a">① 화면 경고 1회   ② 타임라인 note 이벤트   ③ run_stats.json 의 structured_calls 가 calls 보다 적어짐</text>
+</svg>
+<figcaption>40분짜리 작업을 한복판에서 끊는 것보다, 예전 방식으로 마저 끝내는 편이 낫습니다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="ct">⚠️ 거절 판정은 <em>일부러 좁게</em></span>
+  “400 이면 무조건 틀 문제”라고 넓게 잡으면 어떻게 될까요? 인증 실패(401)나 프롬프트 초과에도
+  “틀 빼고 다시”를 시도하게 됩니다. 그러면 <strong>모든 실패의 비용이 두 배</strong>가 돼요.
+  그래서 <strong>상태코드(400/422)와 본문 단어를 둘 다</strong> 확인합니다.<br>
+  (참고: 요청 한도 판정은 반대로 <em>넓게</em> 잡습니다. 그쪽은 놓치면 60초를 못 기다려 손해지만,
+  이쪽은 잘못 잡으면 돈을 두 배 씁니다.)
+</div>
+
+<div class="qmemo" data-qid="code-send-fallback" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">강등 정책이나 with_structured_output 기각 이유에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="code-array">3-6. ⑤ 이름표가 자유로운 칸 문제</h3>
+
+<p>
+마지막 걸림돌입니다. 우리 <code>attributes</code> 는 이렇게 생겼어요:
+</p>
+
+<pre>"attributes": {
+  <span class="y">"lower_limit"</span>: {"value": -5, "unit": "℃"},
+  <span class="y">"upper_limit"</span>: {"value": 55, "unit": "℃"},
+  <span class="y">"정격전압"</span>:     {"value": 3.7, "unit": "V"}   <span class="c">← 이름이 엑셀 헤더에서 온다!</span>
+}</pre>
+
+<p>
+문제가 보이시나요? <strong>이름표를 미리 알 수가 없습니다.</strong> 엑셀 열 제목이 뭐냐에 따라
+달라지니까요. 그런데 틀은 “있을 수 있는 칸”을 <strong>전부 미리 적어야</strong> 합니다.
+미리 모르는 이름은 틀로 표현할 방법이 없어요.
+</p>
+
+<p>
+해법은 <strong>모양을 바꾸는 것</strong>이었습니다. 다만 <strong>주고받을 때만</strong> 바꿉니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 250" width="100%" role="img" aria-label="와이어는 배열, 저장은 map">
+  <rect x="14" y="26" width="260" height="118" rx="8" fill="#fff3e8" stroke="#e65100"/>
+  <text x="144" y="48" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e65100">🤖 LLM 이 주는 모양 (와이어)</text>
+  <text x="30" y="72" font-size="10.5" font-family="monospace" fill="#1a1a1a">[</text>
+  <text x="30" y="90" font-size="10.5" font-family="monospace" fill="#1a1a1a">  {"name":"lower_limit",</text>
+  <text x="30" y="106" font-size="10.5" font-family="monospace" fill="#1a1a1a">   "value":-5,"unit":"℃"},</text>
+  <text x="30" y="122" font-size="10.5" font-family="monospace" fill="#1a1a1a">  {"name":"정격전압", ...}</text>
+  <text x="30" y="138" font-size="10.5" font-family="monospace" fill="#1a1a1a">]</text>
+
+  <path d="M280 84 L346 84" stroke="#1565c0" stroke-width="2.5" marker-end="url(#h1)"/>
+  <defs><marker id="h1" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="#1565c0"/></marker></defs>
+
+  <rect x="352" y="40" width="200" height="90" rx="8" fill="#eef4fb" stroke="#1565c0" stroke-width="2"/>
+  <text x="452" y="66" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1565c0">⚙️ parse_attributes</text>
+  <text x="452" y="88" text-anchor="middle" font-size="11" fill="#5f6b7a">유일한 변환 지점</text>
+  <text x="452" y="108" text-anchor="middle" font-size="11" fill="#5f6b7a">두 모양을 다 받는다</text>
+
+  <path d="M558 84 L624 84" stroke="#1565c0" stroke-width="2.5" marker-end="url(#h1)"/>
+
+  <rect x="630" y="26" width="236" height="118" rx="8" fill="#f4faf5" stroke="#2e7d32"/>
+  <text x="748" y="48" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2e7d32">💾 저장하는 모양 (안 바뀜)</text>
+  <text x="646" y="72" font-size="10.5" font-family="monospace">{</text>
+  <text x="646" y="90" font-size="10.5" font-family="monospace">  "lower_limit":</text>
+  <text x="646" y="106" font-size="10.5" font-family="monospace">    {"value":-5,"unit":"℃"},</text>
+  <text x="646" y="122" font-size="10.5" font-family="monospace">  "정격전압": {...}</text>
+  <text x="646" y="138" font-size="10.5" font-family="monospace">}</text>
+
+  <rect x="14" y="164" width="852" height="72" rx="8" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="30" y="188" font-size="12.5" font-weight="700" fill="#5f6b7a">덕분에 안 바뀐 것들</text>
+  <text x="30" y="210" font-size="11.5" fill="#5f6b7a">✓ 기존 artifacts 캐시 파일   ✓ golden 정답 데이터   ✓ 리포트 출력   ✓ 화면(현미경) 코드</text>
+  <text x="30" y="228" font-size="11.5" fill="#5f6b7a">→ 변환이 <tspan font-weight="700">한 함수에서만</tspan> 일어나므로, 캐시에서 읽은 것과 새로 받은 것이 같은 결과로 수렴한다.</text>
+</svg>
+<figcaption>“와이어만 배열, 저장은 그대로 map” — 이 분리가 기존 데이터를 전부 살렸습니다.</figcaption>
+</figure>
+
+<pre><span class="c"># contentcompare/fact/record_models.py</span>
+<span class="y">def</span> parse_attributes(raw):
+    <span class="y">if</span> isinstance(raw, <span class="g">list</span>):                       <span class="c"># ← 새로 추가된 3줄</span>
+        raw = _named_items_to_map(raw, keep=("value", "unit"))
+    <span class="y">if</span> <span class="y">not</span> isinstance(raw, dict):
+        <span class="y">return</span> {}
+    ...                                             <span class="c"># 나머지는 그대로</span></pre>
+
+<div class="callout">
+  <span class="ct">🤔 “같은 이름이 두 번 오면?”</span>
+  목록에는 <code>{"name": "a", ...}</code> 가 두 번 들어갈 수 있습니다(map 에서는 불가능했죠).
+  우리는 <strong>뒤에 온 것이 이긴다</strong>로 정했습니다 — JSON 파서가 중복 키를 다루는 방식과
+  똑같이요. 두 모양의 결과가 같아야 캐시에서 읽은 것과 새로 받은 것이 갈라지지 않습니다.<br>
+  그리고 <strong>이름이 빈 항목은 버립니다.</strong> <code>""</code> 같은 대체 이름을 만들면
+  두 번째 무명 항목이 첫 번째를 <em>조용히</em> 덮어써요. 보이지 않는 손실이 제일 나쁩니다.
+</div>
+
+<div class="qmemo" data-qid="code-array-shape" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">map ↔ 배열 변환이나 “왜 저장 형식은 그대로 두었나”가 궁금하면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="win">4. 그래서 뭐가 좋아졌나 — 예시로</h2>
+
+<h3>예시 1 — 그날의 사건이 다시 일어난다면</h3>
+
+<div class="two">
+  <div class="box" style="border-color:#c62828">
+    <div class="bh" style="color:var(--bad)">예전</div>
+    <div class="kv">배치 7 → 문법 오류
+배치 7 재시도 → 같은 오류
+→ <strong>문서 전체 실패</strong>
+배치 8~13 실행 안 됨
+사람이 로그를 뒤짐</div>
+  </div>
+  <div class="box" style="border-color:#2e7d32">
+    <div class="bh" style="color:var(--ok)">지금</div>
+    <div class="kv">배치 7 → 서버가 문법을 강제
+→ 문법 오류가 <strong>생길 수 없음</strong>
+배치 7~13 정상 완료
+run_stats: parse_failures = 0</div>
+  </div>
+</div>
+
+<h3>예시 2 — 낱말을 지어내는 경우</h3>
+
+<p>
+<code>semantic_role</code> 은 정해진 11개 낱말 중 하나여야 합니다. LLM 이
+<code>"quantitative_min"</code> 같은 없는 낱말을 만들면?
+</p>
+
+<table>
+  <tr><th></th><th>예전</th><th>지금</th></tr>
+  <tr>
+    <td>서버</td>
+    <td>그냥 보내줌</td>
+    <td><strong>그 낱말을 만들 수 없음</strong></td>
+  </tr>
+  <tr>
+    <td>코드</td>
+    <td><code>normalize_role()</code> 이 <code>"unknown"</code> 으로 강등</td>
+    <td>강등할 일이 없음</td>
+  </tr>
+  <tr>
+    <td>결과</td>
+    <td>그 열이 <code>unknown</code> 이 되어 <strong>조용히 비교에서 빠짐</strong></td>
+    <td>정상적으로 비교됨</td>
+  </tr>
+</table>
+
+<p>
+이게 중요한 이유는, 예전 방식에서는 <strong>아무도 오류를 못 봤다</strong>는 것입니다.
+프로그램이 죽지도 않고 경고도 없이, 그냥 그 열 하나가 결과에서 사라졌어요.
+</p>
+
+<h3>예시 3 — 맨 바깥이 목록으로 오는 경우</h3>
+
+<pre><span class="c"># LLM 이 이렇게 답했다면</span>
+<span class="r">[{"record_id": "row-2", ...}, {"record_id": "row-3", ...}]</span>
+
+<span class="c"># 예전: parse_json_object 가 dict 가 아니라며 None 반환</span>
+<span class="c">#       → 정규식 폴백이 첫 { ~ 마지막 } 를 잡아 "{...},{...}" 라는 깨진 조각을 만듦</span>
+<span class="c">#       → 또 실패 → 재시도 → 또 실패 → 죽음</span>
+
+<span class="c"># 지금: 틀의 맨 바깥이 object 라고 못 박혀 있어 [ 로 시작할 수가 없음</span></pre>
+
+<h3>예시 4 — 잘못된 설계도를 커밋하려 할 때</h3>
+
+<p>
+누군가 나중에 와이어 모델에 <code>dict[str, str]</code> 같은 자유 키 칸을 추가한다면?
+</p>
+
+<pre><span class="c"># 예전 같았으면: 배포 후 실제 실행 중에</span>
+<span class="r">HTTP 400 Invalid schema</span>   <span class="c">← 문서 3개 처리한 뒤에, 한복판에서</span>
+
+<span class="c"># 지금: 커밋 전 테스트에서</span>
+<span class="r">ValueError: strict 스키마는 키 이름을 미리 모르는 object 를 표현할 수 없습니다</span>
+<span class="r">           (경로: $.$defs.WireRecord.properties.meta).</span>
+<span class="r">           dict[str, X] 대신 list[{name, value}] 로 바꾸고, map 으로 되돌리는 것은</span>
+<span class="r">           parse_* 함수 한 곳에서 하세요 (예: record_models.parse_attributes).</span></pre>
+
+<h3>비용은 어땠나</h3>
+
+<table>
+  <tr><th>항목</th><th>결과</th></tr>
+  <tr><td>기존 도메인 모델 수정</td><td><strong>0줄</strong> (dataclass 그대로)</td></tr>
+  <tr><td>가짜 chat 37개 수정</td><td><strong>0개</strong> (문지기가 막아줌)</td></tr>
+  <tr><td>저장 파일 형식 변경</td><td><strong>없음</strong> (artifacts·golden 그대로)</td></tr>
+  <tr><td>테스트</td><td>970 → <strong>1060 통과</strong></td></tr>
+  <tr><td>캐시 재계산</td><td>8커밋 중 <strong>마지막 1개만</strong></td></tr>
+  <tr><td>되돌리는 법</td><td><code>llm.structured_output: off</code> <strong>한 줄</strong></td></tr>
+</table>
+
+<div class="callout ok">
+  <span class="ct">💡 커밋 순서에 담긴 생각</span>
+  8개 커밋 중 <strong>7개는 캐시를 하나도 안 건드립니다.</strong> 프롬프트 글자가 안 바뀐
+  4개 단계(profiler·schema·compare·concept)를 먼저 붙여서 <strong>공짜로</strong> 효과를 확인하고,
+  프롬프트가 바뀌어서 전 문서를 다시 계산해야 하는 F2·F3 를 <strong>맨 마지막</strong>에 했습니다.
+  만약 서버가 틀을 거절했다면 마지막 커밋은 <strong>아예 안 해도 됐을 것</strong>입니다.
+</div>
+
+<div class="qmemo" data-qid="win-benefits" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“우리 상황에서도 이 이득이 그대로일까?” 같은 질문을 적어두면 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="quiz">5. 퀴즈</h2>
+
+<p>다섯 문제입니다. 정답을 고르면 바로 채점되고 설명이 나옵니다.</p>
+
+<div class="quiz" data-answer="1">
+  <div class="qq">Q1. 이 작업에서 pydantic 의 역할은 무엇인가?</div>
+  <button class="opt" data-i="0">LLM 이 준 JSON 문자열을 파싱해서 문법 오류를 고쳐준다</button>
+  <button class="opt" data-i="1">원하는 모양을 적어두면 JSON Schema(설계도)를 뽑아준다. 그 설계도를 서버에 보낸다</button>
+  <button class="opt" data-i="2">응답을 받은 뒤 필드가 빠졌는지 검사해서 예외를 던진다</button>
+  <button class="opt" data-i="3">기존 dataclass 를 전부 대체한다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="qq">Q2. <code>complete()</code> 에 <code>schema=</code> 를 <strong>무조건</strong> 넘기면 어떤 일이 벌어지나?</div>
+  <button class="opt" data-i="0">아무 일도 없다. 파이썬은 모르는 인자를 무시한다</button>
+  <button class="opt" data-i="1">서버가 400 을 돌려주고 자동으로 강등된다</button>
+  <button class="opt" data-i="2">테스트의 가짜 chat 37개가 동시에 TypeError 로 터진다</button>
+  <button class="opt" data-i="3">래퍼가 흡수해서 조용히 스키마 없이 호출된다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="qq">Q3. <code>attributes</code> 를 “와이어만 배열”로 바꾼 이유로 <strong>맞는</strong> 것은?</div>
+  <button class="opt" data-i="0">strict 스키마는 키 이름을 미리 모르는 object 를 표현할 수 없기 때문. 저장은 map 그대로 둬서 기존 캐시·golden 을 살렸다</button>
+  <button class="opt" data-i="1">배열이 map 보다 파싱 속도가 빠르기 때문</button>
+  <button class="opt" data-i="2">LLM 이 map 보다 배열을 더 정확히 만들기 때문</button>
+  <button class="opt" data-i="3">저장 용량을 줄이기 위해</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="qq">Q4. <code>with_structured_output()</code> 을 쓰지 않은 <strong>결정적</strong> 근거는?</div>
+  <button class="opt" data-i="0">langchain 버전이 낮아서 그 함수가 없었다</button>
+  <button class="opt" data-i="1">사내 게이트웨이가 그 방식을 지원하지 않았다</button>
+  <button class="opt" data-i="2">단순히 반환 타입이 str 이 아니라서 불편했다</button>
+  <button class="opt" data-i="3">반환이 AIMessage 가 아니라 토큰 사용량을 못 읽는데, 이 프로젝트에서 “미상”은 “서버가 안 줬다”는 뜻이라 우리 실수가 서버 탓으로 기록된다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="qq">Q5. 구조화 출력을 켠 뒤에도 <strong>여전히 코드가 막아야 하는</strong> 것은?</div>
+  <button class="opt" data-i="0">JSON 문법 오류 (쉼표·따옴표)</button>
+  <button class="opt" data-i="1">LLM 이 원문에 없는 문장을 근거(evidence_text)라고 적는 것</button>
+  <button class="opt" data-i="2">최상위가 배열로 오는 것</button>
+  <button class="opt" data-i="3">confidence 자리에 문자열이 오는 것</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있었다면 왜 헷갈렸는지 적어두세요. 그게 가장 좋은 후속 질문이 됩니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr style="margin:48px 0 20px;border:0;border-top:1px solid var(--line)">
+<p style="color:var(--muted);font-size:.9em">
+관련 커밋: <code>eaec791</code>(스키마 생성기) · <code>65e2a5c</code>(와이어 모델) ·
+<code>9690c4d</code>(배선) · <code>9e3ab9f</code>(문지기) · <code>3524742</code>(4단계 배선) ·
+<code>462bb47</code>(파서) · <code>063c66b</code>(F2·F3 배열화).<br>
+관련 코드: <code>contentcompare/llm/structured.py</code> ·
+<code>contentcompare/fact/wire_models.py</code> · <code>contentcompare/fact/schemas.py</code> ·
+<code>contentcompare/fact/llm_stage.py</code> · <code>contentcompare/llm/langchain_backend.py</code>
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-28-explanation-pydantic-structured-output.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-28-explanation-pydantic-structured-output.html';
+  });
+})();
+
+(function () {
+  var FB = {
+    0: ['pydantic 을 파서로 쓰는 것은 흔한 오해입니다. model_validate_json 도 json.loads 만큼 엄격해서 쉼표 오류를 못 고칩니다.',
+        '정답입니다. pydantic 은 요청 앞단(설계도 만들기)에 있고, 응답 경로는 한 줄도 안 바뀌었습니다.',
+        '검사도 pydantic 의 기능이지만 이 작업에서 쓴 용도는 아닙니다. 파싱은 여전히 parse_json_object → from_llm 이 합니다.',
+        '반대입니다. 기존 dataclass 를 그대로 두려고 와이어 모델을 따로 만들었습니다.'],
+    1: ['파이썬은 모르는 키워드 인자를 만나면 TypeError 를 냅니다. 무시하지 않습니다.',
+        '서버까지 가지도 못합니다. 파이썬이 함수 호출 단계에서 먼저 터집니다.',
+        '정답입니다. 그래서 supports_structured_output 플래그로 "받는 쪽에게 물어본 뒤"에만 넘깁니다.',
+        '래퍼는 인자를 그대로 통과시킬 뿐 흡수하지 않습니다. 흡수하면 "조용히 스키마 없이 호출"이 되어 더 나쁩니다.'],
+    2: ['정답입니다. additionalProperties 가 금지되어 자유 키 map 을 표현할 수 없고, 변환은 parse_attributes 한 곳에서만 일어납니다.',
+        '속도 문제가 아닙니다. 애초에 map 을 strict 스키마로 표현할 방법이 없다는 것이 이유입니다.',
+        '정확도 때문이 아닙니다. 표현 가능성의 문제입니다.',
+        '용량과는 무관합니다. 저장 형식은 오히려 map 그대로 두었습니다.'],
+    3: ['버전 문제가 아닙니다. langchain-openai 1.1.11 에 그 함수가 있습니다.',
+        '게이트웨이는 json_schema 를 지원합니다(프로브로 확인했습니다).',
+        '반환 타입도 이유이긴 하지만 결정적이지는 않습니다. 더 깊은 이유가 있습니다.',
+        '정답입니다. 이 프로젝트에서 "토큰 미상 = 서버가 안 줬다"는 규약이라, 우리가 잃어버린 것이 서버 탓으로 기록되고 tok/sec 이 사라집니다.'],
+    4: ['문법은 이제 서버가 강제하므로 코드가 막을 필요가 없어졌습니다.',
+        '정답입니다. 틀은 모양을 보장하지 내용을 보장하지 않습니다. 인용 검증·source_ids 교집합 같은 기존 방어선을 절대 걷어내면 안 됩니다.',
+        '최상위 형태도 스키마가 못 박습니다.',
+        '타입도 스키마가 강제합니다.']
+  };
+  document.querySelectorAll('.quiz').forEach(function (q, qi) {
+    var answer = parseInt(q.dataset.answer, 10);
+    var fb = q.querySelector('.fb');
+    q.querySelectorAll('button.opt').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = parseInt(b.dataset.i, 10);
+        var ok = i === answer;
+        q.querySelectorAll('button.opt').forEach(function (x) {
+          x.classList.remove('right', 'wrong');
+        });
+        b.classList.add(ok ? 'right' : 'wrong');
+        if (!ok) {
+          q.querySelector('button.opt[data-i="' + answer + '"]').classList.add('right');
+        }
+        fb.className = 'fb show ' + (ok ? 'ok' : 'no');
+        fb.textContent = (ok ? '✅ 정답 — ' : '❌ 아쉽네요 — ') + FB[qi][i];
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

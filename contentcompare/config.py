@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterator, Optional
 
 try:
@@ -174,6 +174,63 @@ class LLMConfig:
 
     사내 한도가 분당 60회면 **55** 정도를 권한다(다른 프로세스·재시도 여유분).
     """
+    timeout_wait: float = 0.0
+    """타임아웃(``APITimeoutError`` 등) 뒤 대기 초. **0=끔**(기본).
+
+    사내 게이트웨이가 한도 초과를 429 가 아니라 **응답을 붙들고 있는 것**으로 알리면
+    클라이언트에는 타임아웃으로 보인다. 그때 짧게 재시도하면 같은 벽에 다시 부딪히므로
+    한도가 회복될 만큼(보통 60초) 기다렸다 다시 부른다.
+
+    ⚠️ **기본이 꺼짐인 이유는 대기가 공짜가 아니기 때문이다.** 타임아웃의 원인이 한도가
+    아니라 *생성이 느린 것*(배치당 출력이 많음)이면 60초 대기는 순수한 낭비이고, 게다가
+    SDK 자체 재시도(:attr:`max_retries`)와 **곱해진다** — 실측 기준 timeout 120s ·
+    max_retries 3 이면 한 호출이 이미 최악 8분인데, 여기에 60초 대기 2회를 얹으면
+    **26분**이 된다. 켤 때는 ``max_retries`` 를 0~1 로 낮출 것(`build_clients` 가
+    이 조합을 감지해 경고한다).
+    """
+
+    timeout_max_retries: int = 2
+    """타임아웃 전용 재시도 횟수. 한도 재시도(:attr:`rate_limit_max_retries`)와
+    **예산을 따로** 센다 — 섞어 세면 "왜 갑자기 포기했나"를 설명할 수 없다."""
+
+    structured_output: str = "auto"
+    """구조화 출력(JSON Schema 강제) 정책. ``auto`` | ``json_schema`` | ``json_object`` | ``off``.
+
+    프롬프트로 "JSON 만 출력하세요"라고 **부탁**하는 것과, 서버가 문법적으로 그것만 만들 수
+    있게 **강제**하는 것은 다르다. 후자를 쓰면 ``LlmRunner.parse_failures`` 가 0 으로
+    수렴하고, 파싱 실패 재시도(호출 예산의 순손실)가 사라진다.
+
+    - ``auto``(기본): 백엔드가 지원한다고 밝히고(:attr:`~.langchain_backend.LangChainBackend
+      .supports_structured_output`) 그 단계에 와이어 스키마가 있으면 ``json_schema`` +
+      strict 로 요구하고, 아니면 조용히 오늘과 같이 동작한다. **기본이 auto 인 이유**는
+      이 설정이 켜져도 결과가 나빠질 길이 없기 때문이다 — 성공하면 모양이 보장되고, 서버가
+      거절하면 한 번 알린 뒤 오늘의 동작으로 돌아간다. 기본을 off 로 두면 실제로 켜지는
+      일이 없다.
+    - ``json_schema``: 명시적으로 요구. 실패해도 실행을 죽이지는 않는다(아래).
+    - ``json_object``: 스키마 없이 "JSON 이기만 하면 된다". 게이트웨이가 JSON 모드는 되는데
+      우리 스키마는 거절할 때의 중간 단계다.
+    - ``off``: 오늘과 **바이트 단위로 같은** 요청. 무언가를 의심할 때 되돌릴 자리.
+
+    **서버가 400 을 주면.** 백엔드가 그 400 이 스키마 때문인지 좁게 판정하고
+    (:func:`~contentcompare.llm.structured.looks_like_schema_rejection` — 상태코드 400/422
+    **그리고** 본문 마커), 맞으면 **스키마 없이 한 번 더 부른 뒤 이 실행 동안 스스로
+    강등**한다. 실행을 죽이지 않는 이유는 대안이 더 나쁘기 때문이다 — 40분짜리 파이프라인을
+    한복판에서 끊는 것보다 오늘의 동작으로 마저 끝내는 편이 낫다. 대신 흔적을 **세 곳**에
+    남긴다: 화면(첫 회 1번) · 타임라인(``note`` 이벤트) · ``run_stats.json``
+    (``stats.llm.structured_calls`` 가 총 호출 수보다 적으면 중간에 꺼진 것이다).
+
+    ``json_schema`` 로 **명시**했는데도 강등이 일어나는 것이 거슬릴 수 있는데, 그것을 치명
+    오류로 올리면 "요구가 관철됐음을 확인하는" 대가로 결과물 전체를 잃는다. 관철 여부는 위
+    세 기록으로 사후에 확인하는 편이 싸다.
+
+    ⚠️ ``json_object`` 는 OpenAI 규격상 프롬프트에 'json' 이라는 낱말이 있어야 한다. 우리
+    ``*_SYSTEM`` 여섯 개는 전부 "JSON 만 출력하세요"를 담고 있고 ``test_fact_prompts`` 가
+    그것을 고정한다 — 프롬프트를 다듬다 그 낱말을 지우면 이 모드가 조용히 400 이 된다.
+
+    ⚠️ pydantic 이 없는 환경에서는 ``auto`` 여도 스키마가 ``None`` 이라 자동으로 꺼진다
+    (:mod:`contentcompare.fact.schemas`). ``pip install -e .[langchain]`` 이면 딸려 온다.
+    """
+
     rate_limit_status_codes: list = field(default_factory=lambda: [429])
     """한도 초과로 볼 HTTP 상태코드. 표준은 429 지만 사내 게이트웨이는 다를 수 있다."""
     rate_limit_markers: list = field(default_factory=lambda: [
@@ -186,7 +243,38 @@ class LLMConfig:
     """
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     internal: InternalConfig = field(default_factory=InternalConfig)
+    embed_internal: Optional[InternalConfig] = None
+    """임베딩 전용 접속 정보. **비워두면 :attr:`internal` 을 그대로 쓴다.**
+
+    ⚠️ 기본값이 ``InternalConfig()`` 가 아니라 ``None`` 인 것이 중요하다. 기본 인스턴스로
+    두면 ``LLMConfig(internal=커스텀)`` 처럼 **직접 생성**했을 때 임베딩만 조용히 기본
+    주소를 쓰게 된다(실측: ``test_unset_proxy_false_keeps_proxy`` 가 이 결함을 잡았다).
+    ``None`` 은 "안 적었다"를 명확히 뜻하고 :meth:`__post_init__` 이 ``internal`` 로 잇는다.
+
+    사내에서 chat 과 임베딩이 **다른 주소·다른 키**로 서비스되는 경우가 있다(실측:
+    chat 게이트웨이와 별개로 ``.../openai/v1`` 에 bge-m3 임베딩이 따로 있었다). 예전에는
+    두 백엔드가 ``internal`` 하나를 공유해서 그 조합을 표현할 방법이 아예 없었다.
+
+    **덮어쓰기 규칙**: YAML 의 ``llm.embed_internal`` 에 **적은 키만** ``internal`` 위에
+    덮인다(:meth:`AppConfig.from_dict`). 그래서 ``base_url``·``api_key`` 만 적으면
+    ``verify_ssl``·``unset_proxy`` 같은 나머지는 자동으로 물려받는다 — 불리언까지
+    "빈 값이면 상속"으로 처리하려다 삼중 상태를 만드는 것을 피하려는 설계다.
+
+    아무것도 안 적으면 :attr:`internal` 과 **값이 같아지고**, :func:`~contentcompare.llm.
+    factory.build_clients` 는 그 동등성을 보고 **오늘과 완전히 같은 객체 구성**을 만든다.
+    """
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
+
+    def __post_init__(self) -> None:
+        """``embed_internal`` 이 없으면 ``internal`` 을 **그대로 가리키게** 한다.
+
+        복사가 아니라 같은 객체를 가리키므로, 이후 누가 ``internal`` 을 고쳐도 임베딩이
+        따라간다 — "안 적었으면 chat 과 같은 곳"이라는 약속이 런타임 내내 유지된다.
+        :func:`~contentcompare.llm.factory._make_embed` 는 이 동등성을 보고 객체를 가를지
+        정하므로, 여기가 어긋나면 임베딩만 엉뚱한 주소로 나간다.
+        """
+        if self.embed_internal is None:
+            self.embed_internal = self.internal
 
     # --- 로컬 LLM 입출력 추적 (서버 불필요) ------------------------------- #
     # Langfuse 는 서버가 있어야 하지만, 파이프라인 현미경은 **파일**을 읽는다.
@@ -386,6 +474,27 @@ class FactConfig:
     """
 
     # --- F7 개념 그래프 ------------------------------------------------- #
+    search_text_augment: str = "off"
+    """F7 recall 이 임베딩할 ``search_text`` 를 근거 원문으로 보강할지. ``off|numbers|full``.
+
+    ``_build_search_text`` 는 원문이 아니라 **속성에서 재조립**한다 — 속성 이름은 넣지 않고
+    값이 ``None`` 이면 건너뛴다. 그래서 F3 가 속성 칸만 만들고 값을 안 채우면 그 fact 의
+    검색 문자열에 **숫자가 하나도 없다**(``numeric_coverage`` 가 잡는 바로 그 경우).
+    같은 표의 옆 항목은 값이 채워져 숫자가 들어가므로 순위 경쟁이 조용히 기울어진다 —
+    실측(spec_en)에서 정답 후보가 16위로 밀렸다가 근거 원문을 붙이자 1위가 됐다.
+
+    ``numbers`` 는 수치가 하나도 없는 fact 에만 근거의 숫자를 덧붙이고, ``full`` 은 근거
+    전문을 덧붙인다. 둘을 나눈 이유는 ``-5~5℃`` 처럼 **값·단위가 붙은 형태**가 살아 있느냐가
+    갈리기 때문이다 — ``numbers`` 는 그 형태를 ``-5``/``5`` 로 분해한다.
+
+    ⚠️ **기본이 ``off`` 인 이유**는 이득이 데이터에 달렸기 때문이다. 근거 전문은 길어서
+    임베딩을 희석할 수 있고, 한 항목이 올라간 만큼 다른 항목의 정답이 밀릴 수 있다.
+    켜기 전에 ``scripts/sweep_recall.py --modes off,numbers,full --detail`` 로 골든 전체를
+    재고, 한 항목이 아니라 recall@k 로 판단할 것.
+
+    모드는 ``facts`` 캐시 지문에 섞이므로 바꾸면 재추출된다(``off`` 는 기존 캐시 유지).
+    """
+
     use_concept_graph: bool = True
     """False 면 F5 가 기존 유사도 매칭으로 동작한다(롤백 스위치)."""
 
@@ -465,6 +574,22 @@ class LoggingConfig:
     ``CONTENTCOMPARE_LOG_NOISY=1`` 이 전체를 여는 것과 달리 **골라서** 연다.
     """
 
+    timeline: bool = True
+    """실행 타임라인(:mod:`contentcompare.timeline`) 기록 여부.
+
+    기본이 켬인 이유는 이것이 **실패했을 때 비로소 필요해지는** 기록이기 때문이다.
+    꺼 두면 정작 필요한 그 실행에는 없다. 원문을 담지 않으므로 켜 둬도 안전하다.
+    """
+
+    timeline_console: bool = True
+    """타임라인을 화면에도 실시간으로 출력할지. CLI 의 ``--quiet`` 가 이긴다.
+
+    끄면 파일에는 계속 남는다 — 화면이 조용한 것과 기록이 없는 것은 다르다.
+    """
+
+    timeline_dir: str = ""
+    """기록 위치. 비우면 ``<fact.artifacts_dir>/_timeline``."""
+
 
 @dataclass
 class AppConfig:
@@ -495,8 +620,15 @@ class AppConfig:
         llm_raw = dict(data.get("llm", {}))
         ollama = OllamaConfig(**llm_raw.pop("ollama", {}) or {})
         internal = InternalConfig(**llm_raw.pop("internal", {}) or {})
+        # 임베딩 전용 접속 정보: ``internal`` 을 밑판으로 깔고 **적힌 키만** 덮는다.
+        # ``replace`` 를 쓰는 이유는 불리언 때문이다 — "빈 문자열이면 상속"으로 처리하면
+        # ``verify_ssl: false`` 를 명시한 것과 안 적은 것을 구분할 수 없다. YAML 에
+        # 키가 있느냐로 판단하면 그 모호함이 사라진다.
+        embed_raw = llm_raw.pop("embed_internal", {}) or {}
+        embed_internal = replace(internal, **embed_raw) if embed_raw else None
         langfuse = LangfuseConfig(**llm_raw.pop("langfuse", {}) or {})
-        llm = LLMConfig(ollama=ollama, internal=internal, langfuse=langfuse, **llm_raw)
+        llm = LLMConfig(ollama=ollama, internal=internal,
+                        embed_internal=embed_internal, langfuse=langfuse, **llm_raw)
         # fact 도 중첩 섹션을 갖는다 — pop 하지 않으면 dict 인 채로 필드에 박힌다.
         fact_raw = dict(data.get("fact", {}) or {})
         fast_path = FastPathConfig(**fact_raw.pop("fast_path", {}) or {})

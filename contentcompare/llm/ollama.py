@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional
 
 from ..config import LLMConfig
 from .http import LLMRequestError, RetryPolicy, extract, post_json
+from .usage import UNKNOWN, Usage, from_response
 
 
 class OllamaBackend:
@@ -21,6 +22,16 @@ class OllamaBackend:
 
     자세한 이유는 :attr:`.internal.InternalBackend.handles_rate_limit` 참고.
     """
+
+    last_usage: Usage = UNKNOWN
+    """마지막 ``complete()`` 의 토큰 사용량. 서버가 안 주면 미상으로 남는다.
+
+    **반환값 대신 속성인 이유**: ``LLMClient.complete`` 의 서명(``-> str``)을 바꾸면
+    ``comparison/``·``readers/`` 까지 파급되는데 그쪽은 코드 무수정 원칙이다.
+    :class:`~contentcompare.llm.tracing.TracedChat` 이 호출 직후 이 값을 읽어
+    타임라인에 얹는다 — ``handles_rate_limit`` 과 같은 덕 타이핑 규약이다.
+    """
+
 
     def __init__(
         self,
@@ -54,6 +65,9 @@ class OllamaBackend:
 
     # --- LLMClient -------------------------------------------------------- #
     def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
+        # 이전 호출 값이 이번 호출에 묻어나지 않게 **먼저** 비운다 — 실패해서
+        # 응답이 없을 때 직전 성공의 토큰 수가 남으면 기록이 거짓말을 한다.
+        self.last_usage = UNKNOWN
         url = f"{self.host}/api/chat"
         options: dict[str, Any] = {"temperature": temperature}
         if self.config.ollama.num_ctx:
@@ -70,6 +84,7 @@ class OllamaBackend:
         if self.config.ollama.think is not None:
             payload["think"] = self.config.ollama.think
         data = self._post(url, payload)
+        self.last_usage = from_response(data)
         content = extract(data, "message", "content", url=url)
         if not content:
             self._explain_empty(data, url)

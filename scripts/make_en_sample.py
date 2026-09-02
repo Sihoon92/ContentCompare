@@ -3,17 +3,17 @@
 ``samples/자표준_규격서.docx`` 의 영어판이다. 원래는 단락 11 + 표 6행짜리 소형 픽스처였고
 그 부분은 ``LEGACY_*`` 로 **그대로 보존**한다(기존 골든셋 라벨이 이 문장들에 걸려 있다).
 
-여기에 기준 엑셀 27~106행(규격 항목 80건)에 대응하는 영문 내용을 얹어, **평가 가능한**
+여기에 기준 엑셀 23~102행(규격 항목 80건)에 대응하는 영문 내용을 얹어, **평가 가능한**
 교차언어 비교 픽스처로 확장했다. 세 산출물이 **하나의 ``CASES`` 테이블**에서 함께 나온다:
 
-1. ``samples/자표준문서.xlsx`` 27~106행의 값 칸(F~N)  — ``fill_reference()``
+1. ``samples/자표준문서.xlsx`` 23~102행의 값 칸(F~N)  — ``fill_reference()``
 2. ``samples/spec_en.docx``                          — ``build_word()``
 3. ``golden/spec_en_골든셋.jsonl`` (104건 정답지)     — ``write_golden()``
 
 문서만 바꾸고 정답을 안 고치는 드리프트가 구조적으로 불가능하게 하려는 것이다
 (``scripts/make_synthetic_targets.py`` 와 같은 설계, ``golden/README.md`` 참고).
 
-**3~26행은 건드리지 않는다.** ``golden/자표준_골든셋.jsonl`` 27건이 그 행의 값과
+**3~22행은 건드리지 않는다.** ``golden/자표준_골든셋.jsonl`` 27건이 그 행의 값과
 "기준 문서는 단위 열(K)이 비어 있다"는 라벨 전제에 걸려 있다. 그 행들은 이미 문서에 있는
 ``LEGACY_*`` 문장과 대조해 정답지에만 등재한다(``place="pre"``).
 
@@ -43,7 +43,11 @@ OUT_DOCX = "samples/spec_en.docx"
 OUT_GOLDEN = "golden/spec_en_골든셋.jsonl"
 REF_XLSX = "samples/자표준문서.xlsx"
 REF_SHEET = "데이터"
-REF_FIRST_NEW_ROW = 27      # 신규 규격 항목이 시작하는 행 (3~26 은 불가침)
+# 신규 규격 항목이 시작하는 행 (그 위 3~22 는 불가침).
+# f0ad3fe 가 충전온도범위 4행을 지우면서 27 → 23 으로 내려왔다. 이 값이 어긋나면
+# write_golden 이 순번을 못 찾아 KeyError 로 죽는다 — 조용한 오답이 아니라 즉사라
+# 그나마 낫지만, 행을 지우거든 여기부터 볼 것.
+REF_FIRST_NEW_ROW = 23
 
 # 엑셀 열 인덱스
 COL = {"seq": 2, "class": 3, "mid": 4, "sub": 5, "lower": 6, "target": 7, "upper": 8,
@@ -141,7 +145,7 @@ def C(**kw):
 
 
 # place 값 = 워드 문서에서 어디에 실리는가
-#   pre    : 이미 LEGACY_* 에 있음 (엑셀 3~26행 — 값 칸을 건드리지 않는 행)
+#   pre    : 이미 LEGACY_* 에 있음 (엑셀 3~22행 — 값 칸을 건드리지 않는 행)
 #   method : 3. Measurement and Sampling — 서술 문단
 #   dim    : 4. Dimensions and Weight  (Item/Min/Typ/Max/Unit 5열 표)
 #   bullet : 5. Appearance and Workmanship 불릿
@@ -155,7 +159,7 @@ def C(**kw):
 #   None   : 문서에 없음 (missing)
 
 CASES = [
-    # ---- 기존 3~26행: 값 칸 불가침. 이미 문서에 있는 문장과 대조만 한다 ----------
+    # ---- 기존 3~22행: 값 칸 불가침. 이미 문서에 있는 문장과 대조만 한다 ----------
     C(row=3, ko="고객 표준 버전", en="Approval specification version",
       qual="배터리승인규격 ver 4.7\nSEC Req. ver.4.7", place="pre",
       text="This specification conforms to Battery Approval Specification ver 4.7 (SEC Req. ver.4.7).",
@@ -178,7 +182,7 @@ CASES = [
     C(row=9, ko="충전방법", en="Charging method", place="pre",
       text="2.3.4 | Charging Method | CC-CV(constant voltage with limited current) | CC-CV",
       expected="unknown",
-      reason="대상 2.3.4 에 CC-CV 가 있으나 기준 9행은 값 칸이 비어 있어(3~26행 불가침) 대조 불가"),
+      reason="대상 2.3.4 에 CC-CV 가 있으나 기준 9행은 값 칸이 비어 있어(3~22행 불가침) 대조 불가"),
     C(row=10, ko="충전방법(SOC28->SOC64)", en="Charging method (SOC28->SOC64)",
       expected="missing", reason="영문 문서에 해당 구간 충전 방법 없음"),
     C(row=11, ko="표준충전전류", en="Standard charging current", target=230, place="pre",
@@ -203,9 +207,25 @@ CASES = [
       text="The evaluation ambient humidity shall be within the range of 33 to 53 %RH, "
            "with a center value of 43 %RH.",
       expected="match", reason="33/43/53 일치"),
+    # f0ad3fe 가 기준 엑셀을 실제 문서대로 고쳤다 — 수치 -5/25/55 이고 정성규격 한 칸에
+    # 5구간 프로토콜이 들어간다. 구간별 4행(옛 23~26)은 실제 문서에 없어 이리로 통합됐다.
+    #
+    # expected=mismatch 인 근거: 기준 프로토콜이 대상 문서의 **두 블록 어느 쪽과도** 다르다.
+    #   1절 충전온도 문단 : 12~15 0.7C · 15~45 1.2C(4.20V) · 45~55 구간 없음
+    #   2.3.23 표        : 45~55 를 0.8C(4.28V) 로 적는다
+    #   기준(실제 문서)   : 45~55 가 0.8C(4.33V)
+    # 가장 가까운 2.3.23 과도 45~55 전압이 어긋나므로 mismatch 다.
     C(row=17, ko="충전환경온도", en="Charging ambient temperature",
-      lower=-5, target=35, upper=85, expected="missing",
-      reason="영문 문서에 충전환경온도 단일 항목 없음 (구간표만 있음)"),
+      lower=-5, target=25, upper=55,
+      qual="-5~5\u2103, 0.1C(4.55V)\n5~12\u2103, 0.3C(4.55V)\n12~15\u2103, 0.8C(4.55V)\n"
+           "15~45\u2103, 1.3C(4.10V C/O), 1.1C(4.28V), 0.8C C/O, 0.8C(4.55V) 0.1C C/O\n"
+           "45~55\u2103, 0.8C(4.33V)",
+      place="pre",
+      text="-5~5\u00b0C, 0.1C(4.55V) 5~12\u00b0C, 0.3C(4.55V) 12~15\u00b0C, 0.8C(4.55V) "
+           "15~45\u00b0C, 1.3C(4.10V) 1.1C(4.28V) 0.8C(4.55V) 45~55\u00b0C, 0.8C(4.28V)",
+      expected="mismatch", mismatch=("qualitative_spec",),
+      reason="45~55\u2103 전압이 어긋난다 — 기준 0.8C(4.33V) vs 2.3.23 0.8C(4.28V). "
+             "1절 충전온도 문단(0.7C·1.2C)과는 더 크게 어긋난다"),
     C(row=18, ko="방전환경온도", en="Discharging ambient temperature",
       lower=-30, target=30, upper=90, expected="missing",
       reason="영문 문서에 없음"),
@@ -217,27 +237,14 @@ CASES = [
       lower=-10, target=35, upper=70, expected="missing", reason="영문 문서에 없음"),
     C(row=22, ko="1년저장온도", en="Storage temperature (1 year)",
       lower=-10, target=35, upper=55, expected="missing", reason="영문 문서에 없음"),
-    C(row=23, ko="충전온도범위(-5~5℃)", en="Charge temperature range (-5 to 5 °C)",
-      lower=-5, upper=5, qual="충전전류 0.1C, 충전전압 4.55V", place="pre",
-      text="-5~5℃, 0.1C(4.55V)",
-      expected="match", reason="구간·전류·전압 모두 일치"),
-    C(row=24, ko="충전온도범위(5~12℃)", en="Charge temperature range (5 to 12 °C)",
-      lower=5, upper=12, qual="충전전류 0.3C, 충전전압 4.55V", place="pre",
-      text="5~12℃, 0.3C(4.55V)",
-      expected="match", reason="구간·전류·전압 모두 일치"),
-    C(row=25, ko="충전온도범위(12~15℃)", en="Charge temperature range (12 to 15 °C)",
-      lower=12, upper=15, qual="충전전류 0.7C, 충전전압 4.55V", place="pre",
-      text="12~15°C, 0.8C(4.55V)",
-      expected="mismatch", mismatch=("qualitative_spec",),
-      reason="대상 문서가 자기모순 — 충전온도 문단은 0.7C, 2.3.23 은 0.8C. 기준 0.7C 와 어긋나는 진술이 있음"),
-    C(row=26, ko="충전온도범위(15~45℃)", en="Charge temperature range (15 to 45 °C)",
-      lower=15, upper=45, qual="충전전류 1.2C, 충전전압 4.20V", place="pre",
-      text="15~45°C, 1.3C(4.10V)",
-      expected="mismatch", mismatch=("qualitative_spec",),
-      reason="대상 문서가 자기모순 — 충전온도 문단은 1.2C(4.20V), 2.3.23 은 같은 구간에 1.3C(4.10V)·1.1C(4.28V)·0.8C(4.55V) 세 조건"),
+    # 옛 row 23~26 (충전온도범위 4구간)은 여기 없다 — f0ad3fe 가 기준 엑셀에서 그 4행을
+    # 지우고 row 17 정성규격으로 통합했다. 실제 문서에 그런 행 구조가 없기 때문이다.
+    #
+    # ⚠️ 그 4행이 담당하던 시험 차원 둘이 함께 사라졌다. 복구할지 판단할 것:
+    #   (1) F5 1:N — 기준 4행 대 대상 1 fact. 지금은 row 17 하나가 대상 두 블록을 마주한다
+    #   (2) 문서 자기모순 — 옛 row 25 가 "1절 0.7C vs 2.3.23 0.8C" 를 정면으로 시험했다
+    # LEGACY_CHARGE_TEMP 와 GENERAL_SPEC_TABLE 이 어긋나는 것 자체는 그대로 남아 있다.
 
-    # ---- 신규 27~106행: 값 칸을 여기서 채운다 ----------------------------------
-    # 기본사양 --------------------------------------------------------------
     C(seq=90, ko="두께 측정방법", en="Thickness measurement method",
       qual="평판 가압법, 하중 300gf, 유지 10초", level="B",
       remark="측정 지그 MS-JIG-02 사용", method="MS-TH-001",

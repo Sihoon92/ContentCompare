@@ -310,6 +310,25 @@ class FactPipeline:
             "comparisons": [c.to_dict() for c in result.comparisons],
         })
 
+    @staticmethod
+    def _stage_durations_for(doc_label: str) -> list[dict]:
+        """이 문서의 단계별 소요(타임라인이 꺼져 있거나 실패하면 빈 목록).
+
+        계측 수집이 본 실행을 방해하면 안 되므로 어떤 실패도 삼킨다 — ``run_stats``
+        저장 자체가 ``finally`` 안에 있고, 그 안에서 예외가 나면 **원래 예외를
+        가린다**(그것이 우리가 보려는 예외다).
+        """
+        from ..timeline import get_timeline, load_timeline, stage_durations
+
+        path = getattr(get_timeline(), "path", "")
+        if not path:
+            return []
+        try:
+            rows = stage_durations(load_timeline(path))
+        except Exception:  # noqa: BLE001
+            return []
+        return [r for r in rows if doc_label in r["name"]]
+
     def _process_one_safe(
         self, path: str, store: FactStore, *, is_reference: bool = False
     ) -> dict:
@@ -394,7 +413,10 @@ class FactPipeline:
                     )
                 stages.append("records")
                 # F3: records → facts (코드 결정적, 무 LLM)
-                facts = extract_facts(compact, records=records, store=store, stats=fact_stats)
+                facts = extract_facts(
+                    compact, records=records, store=store, stats=fact_stats,
+                    search_text_augment=self.fact.search_text_augment,
+                )
             else:
                 # F3: Word/PPT 는 블록/도형 → facts 직행 (LLM)
                 with stage(f"F3 facts · {doc_label}"):
@@ -403,6 +425,7 @@ class FactPipeline:
                         store=store, batch_blocks=self.fact.fact_batch_blocks,
                         stats=fact_stats,
                         lines_by_block=raw_obj.to_dict(),
+                        search_text_augment=self.fact.search_text_augment,
                     )
             stages.append("facts")
 
@@ -440,6 +463,11 @@ class FactPipeline:
                 stats["records"] = record_stats
             if fact_stats:
                 stats["facts"] = fact_stats
+            # 단계별 소요 — ``stages`` 는 "어디까지 갔나"만 답하고 "어디서 오래
+            # 걸렸나"는 답하지 못했다. 타임라인에서 이 문서 몫만 뽑아 함께 남긴다.
+            durations = self._stage_durations_for(doc_label)
+            if durations:
+                stats["stage_durations"] = durations
             try:
                 store.save("run_stats", {"path": path, "stages": stages, **stats})
             except OSError:  # 계측 저장 실패가 본 예외를 가리지 않도록

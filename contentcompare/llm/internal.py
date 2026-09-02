@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 
 from ..config import LLMConfig, no_proxy
 from .http import RetryPolicy, extract, post_json
+from .usage import UNKNOWN, Usage, from_response
 
 logger = logging.getLogger("contentcompare.llm")
 
@@ -32,6 +33,15 @@ class InternalBackend:
     :mod:`.ratelimit` 래퍼가 이 플래그를 보고 **사후 재시도를 건너뛴다**. 안 그러면
     예산 소진 메시지("요청 한도(429)로 …")를 래퍼가 다시 한도로 인식해 5회×60초가
     두 겹으로 쌓인다. 사전 스로틀은 그대로 적용된다.
+    """
+
+    last_usage: Usage = UNKNOWN
+    """마지막 ``complete()`` 의 토큰 사용량. 서버가 안 주면 미상으로 남는다.
+
+    **반환값 대신 속성인 이유**: ``LLMClient.complete`` 의 서명(``-> str``)을 바꾸면
+    ``comparison/``·``readers/`` 까지 파급되는데 그쪽은 코드 무수정 원칙이다.
+    :class:`~contentcompare.llm.tracing.TracedChat` 이 호출 직후 이 값을 읽어
+    타임라인에 얹는다 — ``handles_rate_limit`` 과 같은 덕 타이핑 규약이다.
     """
 
     def __init__(
@@ -89,6 +99,7 @@ class InternalBackend:
 
     # --- LLMClient -------------------------------------------------------- #
     def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
+        self.last_usage = UNKNOWN  # 이유는 :attr:`last_usage` 참고
         url = f"{self.base_url}/chat/completions"
         data = self._post(
             url,
@@ -101,6 +112,7 @@ class InternalBackend:
                 "temperature": temperature,
             },
         )
+        self.last_usage = from_response(data)
         return extract(data, "choices", 0, "message", "content", url=url)
 
     # --- EmbeddingClient -------------------------------------------------- #

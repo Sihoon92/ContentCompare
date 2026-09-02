@@ -157,10 +157,81 @@ xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 �
 | 업로드 시 Permission denied | 사내 보안(nasca)/DRM 이 임시저장 차단 → **파일 경로 입력** 사용(원본 직접 오픈) |
 | Word `Open.Close`/COM AttributeError | 문서 열기 자체가 실패(DRM/권한) 또는 gen_py 캐시 손상. `logs\` 의 `[Word] 처리 실패` 직전 로그 확인. 캐시 정리: `%LOCALAPPDATA%\Temp\gen_py` 폴더 삭제 후 재시도 |
 | 내부 동작 로그 | 모든 실행은 `logs\contentcompare_<시각>.log` 에 기록(웹 UI 사이드바 '로그 보기'에서도 확인/다운로드) |
+| `APITimeoutError` 가 계속 난다 | 원인이 둘이다. ①**요청 한도**를 게이트웨이가 429 대신 '응답을 붙들어' 알리는 경우 → `llm.timeout_wait: 60` (아래) ②**생성이 느린 것**(배치당 출력이 많음) → `fact.record_batch_rows`/`fact_batch_blocks` 를 줄이기. ⏱ 타임라인의 재시도 결과로 갈린다 — 대기 후 성공하면 ①, 계속 실패하면 ② |
 | 사내 LLM 연결 실패 | `unset_proxy`/`base_url`/API 키 env 확인, `log_proxy: true` 로 실제 프록시 확인 |
-| 타임아웃/간헐 실패 | `timeout` 상향, `max_retries` 확인(자동 지수 백오프 재시도) |
+| 타임아웃/간헐 실패 | **⏱ 타임라인 먼저 보기**(아래) — 어느 단계·몇 번째 배치·몇 번째 시도에서 났는지가 나옵니다. 배치당 출력량이 원인이면 `fact.record_batch_rows` 를 줄이는 쪽이 `timeout` 상향보다 확실합니다 |
+| 실행 중 화면이 조용하다 | 정상입니다 — 타임라인이 켜져 있으면 단계·재시도가 실시간으로 찍힙니다. `--quiet` 로 끌 수 있고, 꺼도 파일에는 남습니다 |
+| 화면에 더 자세히 보고 싶다 | `--verbose` 로 INFO 까지 보입니다. **프롬프트·LLM 원문·HTTP 페이로드(DEBUG)는 화면에 안 나옵니다** — 로그 파일에는 항상 남으니 그쪽을 보세요(`logs/contentcompare_<시각>.log`). 서드파티 저수준 로그까지 열려면 `CONTENTCOMPARE_LOG_NOISY=1` |
 | 임베딩 매번 느림 | `cache_dir` 설정 확인(파일 해시 기반 캐시 재사용) |
 | 표시값과 다른 비교 | `excel.value_as_displayed`(표시문자 vs 원시값) 전환 |
+
+### 타임아웃이 반복될 때 (`timeout_wait`)
+
+사내 게이트웨이가 한도 초과를 **429 가 아니라 응답을 붙들고 있는 것**으로 알리면
+클라이언트에는 타임아웃으로 보입니다. 그때 짧게 재시도하면 같은 벽에 다시 부딪히므로
+한도가 회복될 만큼 기다렸다 다시 부릅니다.
+
+```yaml
+llm:
+  timeout_wait: 60        # 0=끔(기본). 타임아웃 뒤 대기 초
+  timeout_max_retries: 2
+  max_retries: 1          # ⚠️ 함께 낮출 것 — 아래 참고
+```
+
+⚠️ **대기는 SDK 자체 재시도와 곱해집니다.** `timeout: 120` · `max_retries: 3` 이면 한
+호출이 이미 최악 8분인데, 여기에 60초 대기 2회를 얹으면 **26분**이 됩니다. 켜면
+실행 시작 시 그 산수를 그대로 알려 주니 `max_retries` 를 0~1 로 낮추세요.
+
+**원인 판별**: 첫 대기 때 예외 실물이 함께 출력됩니다. 대기 후 재시도가 **성공하면
+요청 한도**, 계속 실패하면 원인은 한도가 아니라 **생성 지연**이므로 배치 크기를
+줄이는 쪽이 답입니다.
+
+### ⏱ 실행 타임라인 — 실패했을 때 가장 먼저 볼 것
+
+실행 중 화면에 단계·LLM 호출·재시도·대기가 시각과 함께 흐릅니다. 같은 내용이
+`artifacts/_timeline/<실행>.jsonl` 에 남아 나중에 다시 볼 수 있습니다.
+
+```
+17:59:11.1 ▶ F2 records · 자표준원문.xlsx (rows=120, batches=4)
+17:59:11.1   ▶ 배치 2/4 (rows=30)
+17:59:11.8   │  ⚠ 응답 없음(전송 실패·타임아웃) — 재시도 1/2
+17:59:12.6   ✗ F2 records · 자표준원문.xlsx · 배치 2/4 중단 — APITimeoutError (1.5s)
+```
+
+실패 줄 하나에 **어느 문서 · 어느 단계 · 몇 번째 배치 · 왜**가 함께 있습니다.
+
+```bash
+python scripts/show_timeline.py            # 최근 실행 전체
+python scripts/show_timeline.py --errors   # 실패·재시도·대기만
+python scripts/show_timeline.py --slow 60  # 60초 넘게 걸린 것만
+python scripts/show_timeline.py --list     # 남아 있는 실행 목록
+```
+
+웹 UI 에서는 **⏱ 타임라인** 탭에서 같은 내용을 막대그래프로 봅니다.
+실행이 끝나면 CLI 가 **단계별 소요**와 **다음에 볼 것**(증상별 조치)을 함께 출력합니다.
+
+설정은 `logging.timeline`(기본 켬) / `logging.timeline_console` / `logging.timeline_dir`.
+프롬프트 원문은 담기지 않습니다(길이·회차·상태코드만) — 원문이 필요하면
+`llm.trace_local` 을 켜세요.
+
+#### 호출당 토큰·소요 — 배치 크기를 정하는 근거
+
+응답 줄에 서버가 알려준 **토큰 수와 생성 속도**가 함께 남습니다.
+
+```
+17:59:11.1   ├ LLM 요청 (rows=30, prompt_chars=12345)
+18:00:23.1   ├ ✓ 응답 (72.0s, input_tokens=3204, output_tokens=512, tok_per_sec=7.1, output_chars=1880) ⚠ 느림
+```
+
+`fact.record_batch_rows` 를 얼마로 줄일지는 이 숫자로 계산합니다 — 위 예에서 30행에
+출력 512토큰이 72초였으니, `llm.timeout: 120` 안에 들어오려면 배치당 출력이 대략
+850토큰을 넘지 않아야 합니다. **행당 약 17토큰**이므로 지금은 여유가 있고, 60행으로
+올리면 한계에 닿습니다. 반대로 `tok_per_sec` 이 실행마다 크게 흔들리면 배치 크기가
+아니라 서버 부하가 원인입니다.
+
+토큰 수는 **서버가 준 값 그대로**이고, 안 주는 게이트웨이면 그 칸이 통째로 빠집니다 —
+글자 수에서 토큰을 추정해 채우지 않습니다(추정과 실측이 섞이면 대조가 불가능해집니다).
+그때는 같은 줄의 `prompt_chars`/`output_chars` 를 대신 씁니다.
 
 ## 7. 비용/성능 메모
 

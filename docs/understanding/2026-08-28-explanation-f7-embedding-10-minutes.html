@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10분의 침묵 — 우체국에 98번 다녀온 이야기</title>
+<style>
+  :root{
+    --code:#1565c0; --llm:#e65100; --embed:#00796b; --human:#6a1b9a;
+    --ink:#1a1a1a; --muted:#5f6b7a; --line:#dfe4ea; --bg:#fff; --soft:#f7f9fb;
+    --ok:#2e7d32; --bad:#c62828; --warn:#ef6c00;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+    line-height:1.8;font-size:16.5px;}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 160px;}
+  header.top{border-bottom:3px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  h1{font-size:2em;line-height:1.25;margin:0 0 10px}
+  .sub{color:var(--muted);margin:0;font-size:1.02em}
+  h2{font-size:1.42em;margin:56px 0 14px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:1.13em;margin:32px 0 10px}
+  h4{font-size:1.02em;margin:22px 0 6px;color:var(--muted)}
+  p{margin:14px 0}
+  code{background:var(--soft);padding:1px 5px;border-radius:4px;
+    font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;
+    overflow-x:auto;white-space:pre;font-family:"Cascadia Mono",Consolas,monospace;
+    font-size:.85em;line-height:1.65;margin:14px 0}
+  pre .c{color:#7dd3fc} pre .g{color:#86efac} pre .r{color:#fca5a5}
+  pre .m{color:#94a3b8} pre .y{color:#fde047}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:.93em}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600}
+  .tag{display:inline-block;font-size:.68em;padding:2px 8px;border-radius:99px;
+    border:1px solid currentColor;vertical-align:middle;font-weight:600}
+  .t-code{color:var(--code)} .t-llm{color:var(--llm)}
+  .t-embed{color:var(--embed)} .t-human{color:var(--human)}
+  .callout{border-left:4px solid var(--code);background:var(--soft);
+    padding:12px 16px;border-radius:0 8px 8px 0;margin:18px 0}
+  .callout.warn{border-left-color:var(--warn);background:#fff8f0}
+  .callout.bad{border-left-color:var(--bad);background:#fff5f5}
+  .callout.ok{border-left-color:var(--ok);background:#f4faf5}
+  .callout.def{border-left-color:var(--human);background:#faf6fd}
+  .callout.emb{border-left-color:var(--embed);background:#f2fafa}
+  .callout .ct{font-weight:700;display:block;margin-bottom:4px}
+  nav.toc{background:var(--soft);border:1px solid var(--line);border-radius:10px;
+    padding:16px 20px;margin:24px 0}
+  nav.toc ol{margin:8px 0 0;padding-left:22px}
+  nav.toc ol ol{padding-left:20px;margin:4px 0}
+  nav.toc a{color:var(--code);text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+  nav.toc li{margin:3px 0}
+  figure{margin:24px 0;padding:16px;border:1px solid var(--line);border-radius:10px;
+    background:#fff;overflow-x:auto}
+  figcaption{color:var(--muted);font-size:.88em;margin-top:10px;text-align:center}
+  .skip{font-size:.9em;color:var(--muted);background:var(--soft);
+    border:1px dashed var(--line);border-radius:8px;padding:10px 14px;margin:16px 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  @media (max-width:760px){ .two{grid-template-columns:1fr} body{font-size:16px} }
+  .box{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#fff}
+  .box .bh{font-weight:700;font-size:.9em;margin-bottom:6px}
+  .kv{font-family:"Cascadia Mono",Consolas,monospace;font-size:.84em;white-space:pre-wrap}
+  .big{font-size:1.9em;font-weight:800;line-height:1.1}
+
+  .qmemo{border:2px dashed #c7d2de;background:#fbfcfe;border-radius:10px;
+    padding:12px 14px;margin:22px 0}
+  .qmemo[data-status="answered"]{border:2px solid var(--human);background:#faf6fd}
+  .qmemo-head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:6px}
+  .qmemo-label{font-weight:700;font-size:.86em;color:var(--human)}
+  .qmemo-hint{font-size:.8em;color:var(--muted)}
+  .qmemo-question{min-height:2.2em;background:#fff;border:1px solid var(--line);
+    border-radius:6px;padding:8px 10px;font-size:.95em;outline:none}
+  .qmemo-question:focus{border-color:var(--human)}
+  .qmemo-question:empty:before{content:attr(data-placeholder);color:#aab4c0}
+  .qmemo-answer{margin-top:10px;padding:10px 12px;background:#fff;
+    border-left:3px solid var(--human);border-radius:0 6px 6px 0;font-size:.95em}
+  #qmemo-bar{position:fixed;left:0;right:0;bottom:0;background:#0f172a;color:#e2e8f0;
+    padding:10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+    font-size:.88em;z-index:99}
+  #qmemo-save-btn{background:var(--human);color:#fff;border:0;border-radius:6px;
+    padding:8px 16px;font-size:1em;cursor:pointer;font-weight:600}
+  #qmemo-save-btn:hover{filter:brightness(1.12)}
+  #qmemo-saymsg{color:#94a3b8;word-break:break-all}
+
+  .quiz{border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:20px 0;background:#fff}
+  .quiz .qq{font-weight:700;margin-bottom:10px}
+  .quiz button.opt{display:block;width:100%;text-align:left;margin:6px 0;padding:10px 12px;
+    border:1px solid var(--line);border-radius:8px;background:var(--soft);cursor:pointer;
+    font-size:.95em;font-family:inherit;line-height:1.55}
+  .quiz button.opt:hover{border-color:var(--code)}
+  .quiz button.opt.right{background:#e8f6ea;border-color:var(--ok);color:#14532d}
+  .quiz button.opt.wrong{background:#fdecec;border-color:var(--bad);color:#7f1d1d}
+  .quiz .fb{margin-top:10px;padding:10px 12px;border-radius:8px;font-size:.93em;display:none}
+  .quiz .fb.show{display:block}
+  .quiz .fb.ok{background:#f4faf5;border-left:3px solid var(--ok)}
+  .quiz .fb.no{background:#fff5f5;border-left:3px solid var(--bad)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>10분의 침묵</h1>
+  <p class="sub">F7 개념 판정 앞에서 우체국에 98번 다녀온 이야기 — 982건은 어떻게 만들어졌나</p>
+</header>
+
+<p>
+로그에 이렇게 찍혔습니다.
+</p>
+
+<pre><span class="m">16:23:25.9</span>  F7 개념 판정 시작
+            [Ontology] 10 쌍 로드
+            [Concept] 후보 쌍 <span class="y">982</span>건 (온톨로지 보강 0건)
+            [Concept] 코드/온톨로지 확정 2건, LLM 위임 <span class="y">980</span>건
+<span class="m">16:33:22.5</span>  LLM 요청 (prompt_chars=12468)</pre>
+
+<p>
+두 시각 사이가 <strong>9분 57초</strong>입니다. 그동안 화면에는 아무것도 안 나왔어요.
+컴퓨터는 멈춘 걸까요? 아닙니다. <strong>아주 바쁘게, 아주 비효율적으로 일하고 있었습니다.</strong>
+</p>
+
+<p>
+이 글은 그 10분 안에서 무슨 일이 있었는지, 그리고 982라는 숫자가 어디서 나왔는지를
+그림으로 풀어봅니다.
+</p>
+
+<nav class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#bg">배경 — 짝을 찾는다는 것</a>
+      <ol>
+        <li><a href="#bg-what">이 프로그램이 하는 일 (알면 건너뛰기)</a></li>
+        <li><a href="#bg-embed">임베딩 — 문장을 좌표로 바꾸기</a></li>
+      </ol>
+    </li>
+    <li><a href="#num">982는 어떻게 나온 숫자인가</a></li>
+    <li><a href="#why">10분 — 우체국에 98번 다녀오기</a>
+      <ol>
+        <li><a href="#why-one">느린 이유 ① 한 통씩 부친다</a></li>
+        <li><a href="#why-copy">느린 이유 ② 갈 때마다 수첩을 통째로 베낀다</a></li>
+      </ol>
+    </li>
+    <li><a href="#code">코드 — 딱 두 줄이 만든 10분</a></li>
+    <li><a href="#fix">어떻게 고치나</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+</nav>
+
+<div class="callout def">
+  <span class="ct">📝 이 페이지에는 “질문 메모”가 있습니다</span>
+  읽다가 막히는 곳마다 <strong>질문 메모</strong> 상자가 있어요. 궁금한 걸 그냥 타이핑하세요.
+  브라우저에 자동 저장되고, 맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 그대로 박힌
+  사본이 내려받아집니다. 그 파일로 원본을 덮어쓴 뒤 Claude 에게 “질문에 답해줘”라고 하면 답이 채워집니다.
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="bg">1. 배경 — 짝을 찾는다는 것</h2>
+
+<h3 id="bg-what">1-1. 이 프로그램이 하는 일 <span class="tag t-human">알면 건너뛰기</span></h3>
+
+<div class="skip">이미 안다면 <a href="#bg-embed">1-2 로 건너뛰세요</a>.</div>
+
+<p>
+기준 문서(엑셀)와 대상 문서(워드·PPT)가 있습니다. 둘이 같은 말을 하는지 확인해야 해요.
+</p>
+
+<p>
+그런데 그냥 비교할 수가 없습니다. 기준에는 <strong>“충전환경온도”</strong> 라고 쓰여 있는데
+대상에는 <strong>“Charging Ambient Temperature”</strong> 라고 쓰여 있을 수도 있거든요.
+글자만 보면 완전히 다른 말입니다.
+</p>
+
+<p>
+그래서 <strong>먼저 짝을 찾아야</strong> 합니다. “기준의 이 항목은 대상의 저 항목과 짝이겠구나”
+하고요. 그게 <strong>F7 개념 판정</strong> 단계이고, 그 앞에 <strong>후보 고르기</strong> 가 있습니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 190" width="100%" role="img" aria-label="짝 찾기의 두 단계">
+  <rect x="14" y="30" width="240" height="120" rx="10" fill="#eef4fb" stroke="#1565c0"/>
+  <text x="134" y="56" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">1단계 · 후보 고르기</text>
+  <text x="134" y="80" text-anchor="middle" font-size="11.5" fill="#5f6b7a">비슷해 보이는 것 10개씩</text>
+  <text x="134" y="102" text-anchor="middle" font-size="11.5" fill="#5f6b7a">🔢 임베딩(숫자 계산)</text>
+  <text x="134" y="126" text-anchor="middle" font-size="12" font-weight="700" fill="#c62828">← 10분이 여기</text>
+
+  <path d="M262 90 L318 90" stroke="#5f6b7a" stroke-width="2.5" marker-end="url(#z1)"/>
+  <defs><marker id="z1" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="#5f6b7a"/></marker></defs>
+
+  <rect x="324" y="30" width="240" height="120" rx="10" fill="#fff3e8" stroke="#e65100"/>
+  <text x="444" y="56" text-anchor="middle" font-size="13" font-weight="700" fill="#e65100">2단계 · 진짜 짝인가 판정</text>
+  <text x="444" y="80" text-anchor="middle" font-size="11.5" fill="#5f6b7a">후보 중에서 골라내기</text>
+  <text x="444" y="102" text-anchor="middle" font-size="11.5" fill="#5f6b7a">🤖 LLM 이 읽고 판단</text>
+  <text x="444" y="126" text-anchor="middle" font-size="12" font-weight="700" fill="#e65100">← 16:33 부터 시작</text>
+
+  <path d="M572 90 L628 90" stroke="#5f6b7a" stroke-width="2.5" marker-end="url(#z1)"/>
+
+  <rect x="634" y="46" width="232" height="88" rx="10" fill="#f4faf5" stroke="#2e7d32"/>
+  <text x="750" y="76" text-anchor="middle" font-size="13" font-weight="700" fill="#2e7d32">3단계 · 값 비교</text>
+  <text x="750" y="100" text-anchor="middle" font-size="11.5" fill="#5f6b7a">55도 vs 55도 → 같음</text>
+</svg>
+<figcaption>1단계는 “후보만” 추립니다. 판정은 2단계가 합니다. <strong>10분은 전부 1단계</strong>에서 났습니다.</figcaption>
+</figure>
+
+<h3 id="bg-embed">1-2. 임베딩 — 문장을 좌표로 바꾸기</h3>
+
+<p>
+컴퓨터는 “충전환경온도”와 “Charging Ambient Temperature”가 같은 뜻인지 모릅니다.
+글자가 다르니까요. 그래서 <strong>문장을 숫자 목록으로 바꿉니다.</strong> 이걸 임베딩이라고 해요.
+</p>
+
+<div class="callout emb">
+  <span class="ct">📖 임베딩이 뭐예요? — 지도 좌표라고 생각하세요</span>
+  <p style="margin:6px 0">
+  지도에서 서울은 <code>(37.5, 127.0)</code>, 부산은 <code>(35.1, 129.0)</code> 입니다.
+  숫자 두 개로 위치가 정해지죠. 그리고 <strong>숫자가 가까우면 실제로도 가깝습니다.</strong>
+  </p>
+  <p style="margin:6px 0">
+  임베딩도 똑같습니다. 다만 숫자가 2개가 아니라 <strong>1,024개</strong>이고, 지도가 아니라
+  <strong>“뜻의 지도”</strong> 입니다. 뜻이 비슷한 문장끼리 가까운 자리에 놓입니다.
+  </p>
+</div>
+
+<figure>
+<svg viewBox="0 0 880 260" width="100%" role="img" aria-label="문장이 뜻의 지도 위 좌표가 되는 그림">
+  <rect x="14" y="24" width="290" height="210" rx="10" fill="#f2fafa" stroke="#00796b"/>
+  <text x="159" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="#00796b">문장</text>
+  <rect x="34" y="62" width="250" height="34" rx="6" fill="#fff" stroke="#c9d2dc"/>
+  <text x="159" y="84" text-anchor="middle" font-size="11.5">충전환경온도 -5~55℃</text>
+  <rect x="34" y="106" width="250" height="34" rx="6" fill="#fff" stroke="#c9d2dc"/>
+  <text x="159" y="128" text-anchor="middle" font-size="11">Charging Ambient Temp -5~55℃</text>
+  <rect x="34" y="150" width="250" height="34" rx="6" fill="#fff" stroke="#c9d2dc"/>
+  <text x="159" y="172" text-anchor="middle" font-size="11.5">정격전압 3.7V</text>
+  <text x="159" y="212" text-anchor="middle" font-size="11" fill="#5f6b7a">글자만 보면 위 둘도 남남</text>
+
+  <path d="M312 130 L372 130" stroke="#00796b" stroke-width="2.5" marker-end="url(#z2)"/>
+  <defs><marker id="z2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="#00796b"/></marker></defs>
+  <text x="342" y="120" text-anchor="middle" font-size="10.5" fill="#00796b">임베딩</text>
+
+  <rect x="380" y="24" width="486" height="210" rx="10" fill="#fff" stroke="#00796b"/>
+  <text x="623" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="#00796b">뜻의 지도 (1,024차원 중 2개만 그림)</text>
+
+  <line x1="420" y1="210" x2="840" y2="210" stroke="#c9d2dc"/>
+  <line x1="420" y1="210" x2="420" y2="66" stroke="#c9d2dc"/>
+
+  <circle cx="560" cy="110" r="7" fill="#00796b"/>
+  <text x="574" y="106" font-size="11">충전환경온도</text>
+  <circle cx="586" cy="126" r="7" fill="#00796b"/>
+  <text x="600" y="146" font-size="11">Charging Ambient Temp</text>
+  <path d="M567 114 L579 122" stroke="#2e7d32" stroke-width="2"/>
+  <text x="546" y="166" font-size="10.5" fill="#2e7d32" font-weight="700">가깝다 = 뜻이 비슷하다</text>
+
+  <circle cx="790" cy="186" r="7" fill="#c62828"/>
+  <text x="706" y="182" font-size="11">정격전압</text>
+  <text x="706" y="200" font-size="10.5" fill="#c62828">멀다 = 다른 얘기</text>
+</svg>
+<figcaption>글자가 달라도 뜻이 같으면 지도에서 가까운 자리에 놓입니다. 이게 교차언어 비교의 핵심입니다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="ct">⚠️ 이 좌표를 얻으려면 <strong>서버에 물어봐야</strong> 합니다</span>
+  좌표는 우리 컴퓨터가 계산하지 못합니다. 문장을 사내 서버로 보내면 서버가
+  1,024개의 숫자를 돌려줍니다. 즉 <strong>임베딩 = 인터넷 왕복 1회</strong> 입니다.
+  이 사실이 이 글 전체의 핵심입니다.
+</div>
+
+<div class="qmemo" data-qid="bg-embed-basics" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">임베딩이나 “1,024개 숫자”가 아직 애매하면 여기 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="num">2. 982는 어떻게 나온 숫자인가</h2>
+
+<p>
+로그의 <strong>982</strong> 는 마법의 숫자가 아닙니다. 아주 단순한 곱셈입니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 300" width="100%" role="img" aria-label="982건이 만들어지는 과정">
+  <text x="14" y="24" font-size="13" font-weight="700" fill="#5f6b7a">기준 문서의 항목 100개를 하나씩 처리한다</text>
+
+  <rect x="14" y="38" width="180" height="60" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+  <text x="104" y="62" text-anchor="middle" font-size="12" font-weight="700">기준 항목 1개</text>
+  <text x="104" y="82" text-anchor="middle" font-size="11" fill="#5f6b7a">“충전환경온도”</text>
+
+  <path d="M200 68 L246 68" stroke="#5f6b7a" stroke-width="2" marker-end="url(#n1)"/>
+  <defs><marker id="n1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#5f6b7a"/></marker></defs>
+
+  <path d="M252 68 L252 40 L300 40" stroke="#2e7d32" stroke-width="2" fill="none" marker-end="url(#n2)"/>
+  <path d="M252 68 L252 130 L300 130" stroke="#00796b" stroke-width="2" fill="none" marker-end="url(#n3)"/>
+  <defs>
+    <marker id="n2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 z" fill="#2e7d32"/></marker>
+    <marker id="n3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 z" fill="#00796b"/></marker>
+  </defs>
+  <text x="255" y="64" font-size="10.5" fill="#5f6b7a">갈림길</text>
+
+  <rect x="306" y="18" width="270" height="46" rx="7" fill="#e8f6ea" stroke="#2e7d32"/>
+  <text x="441" y="38" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">이름이 똑같은 대상이 있다</text>
+  <text x="441" y="56" text-anchor="middle" font-size="11" fill="#5f6b7a">→ 즉시 1건 확정, 임베딩 <b>안 함</b></text>
+
+  <rect x="306" y="106" width="270" height="46" rx="7" fill="#f2fafa" stroke="#00796b"/>
+  <text x="441" y="126" text-anchor="middle" font-size="12" font-weight="700" fill="#00796b">이름이 다르다 (대부분)</text>
+  <text x="441" y="144" text-anchor="middle" font-size="11" fill="#5f6b7a">→ 🔢 <b>임베딩 요청 1회</b> → 상위 10건</text>
+
+  <path d="M582 41 L628 41" stroke="#2e7d32" stroke-width="2" marker-end="url(#n2)"/>
+  <path d="M582 129 L628 129" stroke="#00796b" stroke-width="2" marker-end="url(#n3)"/>
+
+  <rect x="634" y="18" width="232" height="46" rx="7" fill="#fff" stroke="#2e7d32"/>
+  <text x="750" y="46" text-anchor="middle" font-size="13" font-weight="700"><tspan fill="#2e7d32">2</tspan>개 항목 × 1건 = <tspan fill="#2e7d32">2</tspan>건</text>
+
+  <rect x="634" y="106" width="232" height="46" rx="7" fill="#fff" stroke="#00796b"/>
+  <text x="750" y="134" text-anchor="middle" font-size="13" font-weight="700"><tspan fill="#00796b">98</tspan>개 항목 × 10건 = <tspan fill="#00796b">980</tspan>건</text>
+
+  <line x1="634" y1="172" x2="866" y2="172" stroke="#1a1a1a" stroke-width="2"/>
+  <text x="750" y="198" text-anchor="middle" font-size="16" font-weight="800">합계 982건</text>
+
+  <rect x="14" y="222" width="852" height="66" rx="8" fill="#fff8f0" stroke="#ef6c00"/>
+  <text x="30" y="246" font-size="12.5" font-weight="700" fill="#ef6c00">⚠️ 여기서 읽어야 할 것</text>
+  <text x="30" y="268" font-size="11.5" fill="#5f6b7a">100개 항목 중 <tspan font-weight="700">98개가 아래쪽 길</tspan>로 갔다 = 임베딩 요청을 <tspan font-weight="700">98번</tspan> 보냈다.</text>
+  <text x="30" y="284" font-size="11.5" fill="#5f6b7a">이름이 똑같은 건 2개뿐이었다 — 기준이 한국어, 대상이 영어라면 당연한 결과다.</text>
+</svg>
+<figcaption>982 = 98 × 10 + 2. 로그의 “코드/온톨로지 확정 2건”이 위쪽 초록 길입니다.</figcaption>
+</figure>
+
+<p>
+그리고 로그의 마지막 줄, <strong>“LLM 위임 980건”</strong> 은 이런 뜻입니다:
+</p>
+
+<div class="callout">
+  <span class="ct">💬 “LLM 위임 980건” 을 우리말로 풀면</span>
+  “후보 982건 중 2건은 이름이 똑같아서 코드가 이미 확정했습니다.
+  <strong>나머지 980건은 앞으로 LLM 에게 물어볼 예정입니다.</strong>”<br><br>
+  <strong>예정</strong>입니다. 실적이 아닙니다. 이 로그가 찍힌 시점에 LLM 은 아직 한 번도 안 불렸습니다.
+</div>
+
+<div class="qmemo" data-qid="num-log-is-a-forecast" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“예정과 실적”의 차이 — 로그를 읽을 때 헷갈렸던 점이 있으면 여기 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<div class="qmemo" data-qid="num-982-arithmetic" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“왜 10건씩인가?”, “이름이 똑같은 게 왜 2개뿐인가?” 같은 질문을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="why">3. 10분 — 우체국에 98번 다녀오기</h2>
+
+<p>
+자, 이제 98이라는 숫자를 손에 쥐었습니다. 10분은 <strong>597초</strong>입니다.
+</p>
+
+<div style="text-align:center;margin:24px 0">
+  <span class="big" style="color:var(--bad)">597초 ÷ 98번 ≈ 건당 6.1초</span>
+</div>
+
+<p>
+문장 하나를 좌표로 바꾸는 데 <strong>6초</strong>가 걸렸습니다. 왜 이렇게 오래 걸릴까요?
+이유가 <strong>두 개 겹쳐</strong> 있습니다.
+</p>
+
+<h3 id="why-one">3-1. 느린 이유 ① — 편지를 한 통씩 부친다</h3>
+
+<p>
+편지 98통을 부쳐야 한다고 해봅시다. 두 가지 방법이 있죠.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 300" width="100%" role="img" aria-label="98번 왕복 vs 한 번에 가져가기">
+  <text x="14" y="24" font-size="13" font-weight="700" fill="#c62828">지금 방식 — 한 통씩, 98번 왕복</text>
+  <g>
+    <rect x="14" y="36" width="90" height="52" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+    <text x="59" y="58" text-anchor="middle" font-size="11.5" font-weight="700">우리 PC</text>
+    <text x="59" y="76" text-anchor="middle" font-size="18">🏠</text>
+
+    <rect x="740" y="36" width="126" height="52" rx="8" fill="#f2fafa" stroke="#00796b"/>
+    <text x="803" y="58" text-anchor="middle" font-size="11.5" font-weight="700">사내 서버</text>
+    <text x="803" y="76" text-anchor="middle" font-size="18">🏢</text>
+
+    <path d="M110 50 L734 50" stroke="#c62828" stroke-width="1.6" marker-end="url(#w1)"/>
+    <path d="M734 74 L110 74" stroke="#c9d2dc" stroke-width="1.6" marker-end="url(#w2)"/>
+    <defs>
+      <marker id="w1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#c62828"/></marker>
+      <marker id="w2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#c9d2dc"/></marker>
+    </defs>
+    <text x="422" y="44" text-anchor="middle" font-size="10.5" fill="#c62828">문장 1개 보냄</text>
+    <text x="422" y="88" text-anchor="middle" font-size="10.5" fill="#5f6b7a">좌표 1개 받음</text>
+    <text x="422" y="112" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">이 왕복을 98번 반복 → 약 10분</text>
+  </g>
+
+  <line x1="14" y1="132" x2="866" y2="132" stroke="#dfe4ea"/>
+
+  <text x="14" y="160" font-size="13" font-weight="700" fill="#2e7d32">고친 뒤 — 98통을 한 봉투에, 1번</text>
+  <g>
+    <rect x="14" y="172" width="90" height="52" rx="8" fill="#eef4fb" stroke="#1565c0"/>
+    <text x="59" y="194" text-anchor="middle" font-size="11.5" font-weight="700">우리 PC</text>
+    <text x="59" y="212" text-anchor="middle" font-size="18">🏠</text>
+
+    <rect x="740" y="172" width="126" height="52" rx="8" fill="#f2fafa" stroke="#00796b"/>
+    <text x="803" y="194" text-anchor="middle" font-size="11.5" font-weight="700">사내 서버</text>
+    <text x="803" y="212" text-anchor="middle" font-size="18">🏢</text>
+
+    <path d="M110 186 L734 186" stroke="#2e7d32" stroke-width="3" marker-end="url(#w3)"/>
+    <path d="M734 210 L110 210" stroke="#2e7d32" stroke-width="3" marker-end="url(#w4)"/>
+    <defs>
+      <marker id="w3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0 0 L9 4.5 L0 9 z" fill="#2e7d32"/></marker>
+      <marker id="w4" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0 0 L9 4.5 L0 9 z" fill="#2e7d32"/></marker>
+    </defs>
+    <text x="422" y="180" text-anchor="middle" font-size="10.5" fill="#2e7d32">문장 98개를 한 번에</text>
+    <text x="422" y="224" text-anchor="middle" font-size="10.5" fill="#2e7d32">좌표 98개를 한 번에</text>
+    <text x="422" y="248" text-anchor="middle" font-size="13" font-weight="700" fill="#2e7d32">왕복 1번 → 수 초</text>
+  </g>
+
+  <rect x="14" y="262" width="852" height="32" rx="6" fill="#f7f9fb" stroke="#dfe4ea"/>
+  <text x="30" y="283" font-size="11.5" fill="#5f6b7a">※ 재미있는 건, <tspan font-weight="700">대상 문서 쪽은 이미 한 번에 보내고 있다</tspan>는 점이다 — 기준 쪽만 한 통씩 간다.</text>
+</svg>
+<figcaption>인터넷 왕복은 “얼마나 많이 보내느냐”보다 <strong>“몇 번 가느냐”</strong>가 훨씬 비쌉니다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="ct">⚠️ 왜 대상은 한 번에, 기준은 한 통씩인가</span>
+  대상 문서의 fact 들은 <strong>미리 다 알고 있으니까</strong> 한꺼번에 보낼 수 있습니다.
+  기준 항목은 <code>for</code> 반복문 안에서 <strong>하나씩 꺼내며</strong> 처리하는 구조라,
+  그 자리에서는 “지금 이 하나”밖에 손에 없습니다. 코드 모양이 그대로 통신 횟수가 된 것이죠.
+</div>
+
+
+<div class="qmemo" data-qid="why-roundtrip-cost" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“왕복 1번에 6초”가 잘 안 믿기거나, 배치로 묶는 게 왜 그렇게 큰 차이인지 궁금하면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="why-copy">3-2. 느린 이유 ② — 갈 때마다 수첩을 통째로 베낀다</h3>
+
+<p>
+여기서 두 번째 문제가 겹칩니다. 우리 프로그램에는 <strong>주소 수첩</strong>이 있습니다.
+같은 문장을 또 물어보지 않으려고, 한 번 받은 좌표를 파일에 적어두는 거예요.
+좋은 아이디어입니다. 그런데 <strong>적는 방식</strong>이 문제입니다.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 320" width="100%" role="img" aria-label="캐시 전체를 매번 다시 쓰는 그림">
+  <text x="14" y="24" font-size="13" font-weight="700" fill="#5f6b7a">새 좌표 1개를 얻을 때마다…</text>
+
+  <g font-size="11.5">
+    <rect x="14" y="36" width="150" height="70" rx="8" fill="#f2fafa" stroke="#00796b"/>
+    <text x="89" y="60" text-anchor="middle" font-weight="700" fill="#00796b">새 좌표 1개</text>
+    <text x="89" y="80" text-anchor="middle" fill="#5f6b7a">[0.12, -0.44, …]</text>
+    <text x="89" y="97" text-anchor="middle" fill="#5f6b7a">1,024개 숫자</text>
+
+    <path d="M170 71 L216 71" stroke="#5f6b7a" stroke-width="2" marker-end="url(#s1)"/>
+    <defs><marker id="s1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 z" fill="#5f6b7a"/></marker></defs>
+
+    <rect x="222" y="36" width="180" height="70" rx="8" fill="#fff" stroke="#c9d2dc"/>
+    <text x="312" y="60" text-anchor="middle" font-weight="700">수첩에 한 줄 추가</text>
+    <text x="312" y="82" text-anchor="middle" fill="#2e7d32">여기까진 정상 ✓</text>
+
+    <path d="M408 71 L454 71" stroke="#c62828" stroke-width="2.5" marker-end="url(#s2)"/>
+    <defs><marker id="s2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c62828"/></marker></defs>
+
+    <rect x="460" y="30" width="406" height="82" rx="8" fill="#fff5f5" stroke="#c62828" stroke-width="2"/>
+    <text x="663" y="54" text-anchor="middle" font-weight="700" fill="#c62828">수첩 전체를 새 공책에 다시 베껴 쓴다</text>
+    <text x="663" y="76" text-anchor="middle" fill="#5f6b7a">한 줄 늘었다고 처음부터 끝까지 전부</text>
+    <text x="663" y="98" text-anchor="middle" fill="#c62828" font-weight="700">← 문제는 여기</text>
+  </g>
+
+  <text x="14" y="146" font-size="13" font-weight="700" fill="#5f6b7a">그래서 이렇게 쌓인다</text>
+  <g font-size="11">
+    <rect x="14" y="158" width="852" height="96" rx="8" fill="#fff" stroke="#dfe4ea"/>
+    <text x="34" y="180">1번째 심부름 →  수첩 1줄 베껴 씀</text>
+    <rect x="300" y="170" width="8" height="12" fill="#c62828" opacity=".3"/>
+    <text x="34" y="202">2번째 심부름 →  수첩 2줄 베껴 씀</text>
+    <rect x="300" y="192" width="16" height="12" fill="#c62828" opacity=".4"/>
+    <text x="34" y="224">…</text>
+    <text x="34" y="246">98번째 심부름 → 수첩 98줄 전부 베껴 씀</text>
+    <rect x="300" y="236" width="240" height="12" fill="#c62828" opacity=".75"/>
+    <text x="556" y="246" font-weight="700" fill="#c62828">← 뒤로 갈수록 점점 오래 걸린다</text>
+  </g>
+
+  <rect x="14" y="266" width="852" height="46" rx="8" fill="#fff8f0" stroke="#ef6c00"/>
+  <text x="30" y="288" font-size="12" font-weight="700" fill="#ef6c00">⚠️ 그리고 이 수첩은 실행할 때마다 계속 자란다 — 한 번도 안 지운다</text>
+  <text x="30" y="305" font-size="11.5" fill="#5f6b7a">수첩이 두꺼울수록 매 심부름이 더 느려진다. 실측: 항목 1개 = RAM 32.8 KB.</text>
+</svg>
+<figcaption>수첩(캐시)에 한 줄을 더할 때마다 <strong>수첩 전체</strong>를 디스크에 다시 씁니다. 98번이면 1+2+…+98 = 4,851줄을 쓴 셈입니다.</figcaption>
+</figure>
+
+<div class="callout bad">
+  <span class="ct">🚨 이것이 9GB 메모리의 정체이기도 합니다</span>
+  이 수첩은 프로그램이 시작할 때 <strong>통째로 메모리에 올라옵니다.</strong> 그리고 실행이
+  끝나도 파일에 남아서, 다음 실행에 더 커진 채로 다시 올라옵니다.<br><br>
+  실측한 숫자: <strong>수첩 항목 1개 = RAM 32.8 KB</strong>. 항목이 30만 개가 되면
+  <strong>9.8 GB</strong> 입니다.
+</div>
+
+<div class="callout">
+  <span class="ct">🤔 왜 32.8 KB나 되나 — 숫자 하나가 24바이트짜리 “상자”라서</span>
+  파이썬에서 숫자 하나는 그냥 8바이트가 아니라 <strong>24바이트짜리 객체</strong>입니다.
+  1,024개면 24 KB, 거기에 목록이 그 상자들을 가리키는 화살표 8 KB 가 더해져 <strong>약 32 KB</strong>.<br>
+  전용 숫자 배열(<code>numpy float32</code>)을 썼다면 <strong>4 KB</strong> 였을 겁니다 —
+  <strong>8배 낭비</strong>입니다.
+</div>
+
+<div class="qmemo" data-qid="why-cache-rewrite" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“왜 매번 전체를 다시 쓰지?”, “한 줄만 덧붙이면 안 되나?” 같은 질문을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="code">4. 코드 — 딱 두 줄이 만든 10분</h2>
+
+<p>
+10분의 원인은 서로 다른 파일에 있는 <strong>두 줄</strong>이 만났기 때문입니다.
+따로 보면 둘 다 멀쩡해 보입니다.
+</p>
+
+<h3>줄 하나 — “기준 항목 하나씩 임베딩”</h3>
+
+<pre><span class="c"># contentcompare/fact/fact_matcher.py:151-153</span>
+<span class="y">def</span> _embed_scores(self, ref: Fact) -> list[float]:
+    query = _normalize(self.embedder.embed(<span class="r">[fact_text(ref)]</span>, kind="query")[0])
+    <span class="c">#                                       ↑ 리스트에 딱 1개</span>
+    <span class="y">return</span> [_dot(query, vec) <span class="y">for</span> vec <span class="y">in</span> (self._vectors <span class="y">or</span> [])]</pre>
+
+<p>
+<code>embed()</code> 는 <strong>리스트를 받는 함수</strong>입니다. 여러 개를 한 번에 보낼 수 있어요.
+그런데 여기서는 항상 <strong>1개짜리 리스트</strong>를 줍니다. 그리고 이 함수가 기준 항목마다
+한 번씩, 즉 98번 불립니다.
+</p>
+
+<h3>줄 둘 — “미스가 나면 수첩 전체 저장”</h3>
+
+<pre><span class="c"># contentcompare/similarity/cache.py:110-131</span>
+<span class="y">def</span> embed(self, texts, *, kind="passage"):
+    self._load()                       <span class="c"># ← 수첩 전체를 메모리로 (첫 호출)</span>
+    ...
+    <span class="y">if</span> misses:                          <span class="c"># 수첩에 없는 문장이 있으면</span>
+        fresh = self._embedder.embed(...)   <span class="c"># 서버에 물어보고</span>
+        ...
+        self._dirty = <span class="y">True</span>
+        <span class="r">self._save()</span>                   <span class="c"># ← 수첩 **전체**를 디스크에 다시 씀</span></pre>
+
+<p>
+그리고 <code>_save()</code> 안은 이렇습니다:
+</p>
+
+<pre><span class="c"># cache.py:76-95 (요약)</span>
+<span class="y">def</span> _save(self):
+    fd, tmp = tempfile.mkstemp(...)        <span class="c"># 새 임시 파일을 만들고</span>
+    <span class="y">with</span> os.fdopen(fd, "w") <span class="y">as</span> f:
+        <span class="r">json.dump(self._cache, f)</span>      <span class="c"># ← 수첩 전체를 거기에 쏟아붓고</span>
+    _replace_with_retry(tmp, path)          <span class="c"># 원래 파일과 바꿔치기</span></pre>
+
+<h3>둘이 만나면</h3>
+
+<figure>
+<svg viewBox="0 0 880 250" width="100%" role="img" aria-label="두 코드가 만나 98번 반복되는 흐름">
+  <rect x="14" y="18" width="852" height="180" rx="10" fill="#fbfcfe" stroke="#c7d2de" stroke-dasharray="6 4"/>
+  <text x="34" y="44" font-size="12.5" font-weight="700" fill="#5f6b7a">for ref_fact in 기준_항목_98개:   ← 이 반복문이 전부다</text>
+
+  <rect x="54" y="58" width="220" height="52" rx="7" fill="#eef4fb" stroke="#1565c0"/>
+  <text x="164" y="80" text-anchor="middle" font-size="11.5" font-weight="700">matcher.search(ref_fact)</text>
+  <text x="164" y="98" text-anchor="middle" font-size="11" fill="#5f6b7a">이름 같나? → 아니오</text>
+
+  <path d="M280 84 L322 84" stroke="#00796b" stroke-width="2" marker-end="url(#c9)"/>
+  <defs><marker id="c9" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#00796b"/></marker></defs>
+
+  <rect x="328" y="58" width="220" height="52" rx="7" fill="#f2fafa" stroke="#00796b"/>
+  <text x="438" y="80" text-anchor="middle" font-size="11.5" font-weight="700">embed([문장 1개])</text>
+  <text x="438" y="98" text-anchor="middle" font-size="11" fill="#c62828">🌐 인터넷 왕복 1회</text>
+
+  <path d="M554 84 L596 84" stroke="#c62828" stroke-width="2" marker-end="url(#c10)"/>
+  <defs><marker id="c10" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#c62828"/></marker></defs>
+
+  <rect x="602" y="58" width="240" height="52" rx="7" fill="#fff5f5" stroke="#c62828"/>
+  <text x="722" y="80" text-anchor="middle" font-size="11.5" font-weight="700">_save()</text>
+  <text x="722" y="98" text-anchor="middle" font-size="11" fill="#c62828">💾 수첩 전체 재작성</text>
+
+  <path d="M722 116 L722 138 L164 138 L164 116" stroke="#5f6b7a" stroke-width="2"
+        fill="none" stroke-dasharray="5 4" marker-end="url(#c11)"/>
+  <defs><marker id="c11" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0 0 L9 4.5 L0 9 z" fill="#5f6b7a"/></marker></defs>
+  <text x="443" y="156" text-anchor="middle" font-size="12" font-weight="700" fill="#5f6b7a">98번 반복</text>
+
+  <text x="443" y="184" text-anchor="middle" font-size="13.5" font-weight="800" fill="#c62828">
+    인터넷 왕복 98회 + 수첩 재작성 98회 = 약 10분</text>
+
+  <text x="14" y="228" font-size="11.5" fill="#5f6b7a">
+    ※ 두 파일은 서로를 모른다. <tspan font-weight="700">fact_matcher</tspan> 는 “캐시가 저장까지 하는 줄” 모르고,</text>
+  <text x="14" y="244" font-size="11.5" fill="#5f6b7a">
+    <tspan font-weight="700">cache</tspan> 는 “자기가 98번 불릴 줄” 모른다. 각자 보면 멀쩡한 코드가 만나서 문제가 된다.</text>
+</svg>
+<figcaption>이런 종류의 성능 문제는 한 파일만 봐서는 절대 안 보입니다. 두 파일이 만나는 자리에서 생깁니다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="ct">📖 이런 걸 뭐라고 부르나 — “N+1 문제”</span>
+  한 번에 가져올 수 있는 것을 <strong>N번 나눠 가져오는</strong> 패턴을 데이터베이스 세계에서
+  <strong>N+1 문제</strong>라고 부릅니다. 아주 흔하고, 아주 잘 숨습니다 — 코드만 읽으면
+  “한 번 요청하네” 로 보이고, <strong>몇 번 불리는지는 다른 파일에 있기 때문</strong>입니다.
+</div>
+
+<div class="qmemo" data-qid="code-two-lines" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드 두 줄이나 “N+1 문제”에 대해 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="fix">5. 어떻게 고치나</h2>
+
+<h3>지금 당장 (설정만 바꾸기)</h3>
+
+<pre><span class="c"># config/config.yaml</span>
+similarity:
+  cache_dir: ""     <span class="c"># 수첩을 아예 안 쓴다 → 재작성 98회가 사라짐</span></pre>
+
+<p>
+수첩을 끄면 같은 문장을 또 물어보게 되지만, <strong>재작성 98회가 통째로 사라집니다.</strong>
+지금 상태에서는 수첩이 도움보다 짐입니다.
+</p>
+
+<pre><span class="c"># 이미 커진 수첩 비우기</span>
+rm .cache/embeddings/emb_*.json</pre>
+
+<h3>제대로 고치기 — 순서대로</h3>
+
+<table>
+  <tr><th>#</th><th>고칠 것</th><th>효과</th><th>난이도</th></tr>
+  <tr>
+    <td>1</td>
+    <td><strong>기준 항목 98개를 한 번에 임베딩</strong><br>
+        <span style="color:var(--muted);font-size:.9em">반복문 앞에서 미리 다 모아서 한 번 요청</span></td>
+    <td>왕복 98회 → <strong>1회</strong><br>10분 → 수 초</td>
+    <td>중</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>수첩 저장을 <strong>실행 끝에 한 번만</strong></td>
+    <td>재작성 98회 → 1회</td>
+    <td>하</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>좌표를 <code>numpy float32</code> 로</td>
+    <td>메모리 <strong>32 KB → 4 KB</strong> (8배)</td>
+    <td>중</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>수첩 크기 상한 + 오래된 것 버리기</td>
+    <td>무한 증가 차단</td>
+    <td>중</td>
+  </tr>
+</table>
+
+<div class="callout ok">
+  <span class="ct">💡 1번을 하면 2번은 저절로 해결됩니다</span>
+  왕복이 1번이 되면 <code>_save()</code> 도 1번만 불립니다. 그래서
+  <strong>1번이 가장 값어치 있는 수정</strong>입니다.
+</div>
+
+<h3>그런데 그 뒤에는 뭐가 기다리나</h3>
+
+<p>
+10분을 수 초로 줄여도 <strong>끝이 아닙니다.</strong> 16:33:22.5 부터 시작되는 2단계가 남아 있어요.
+</p>
+
+<figure>
+<svg viewBox="0 0 880 200" width="100%" role="img" aria-label="남은 LLM 호출 49회">
+  <rect x="14" y="26" width="852" height="70" rx="8" fill="#fff3e8" stroke="#e65100"/>
+  <text x="34" y="50" font-size="13" font-weight="700" fill="#e65100">2단계 · LLM 판정 — 아직 시작도 안 했다</text>
+  <text x="34" y="74" font-size="13">980건 ÷ 20건씩 묶기 = <tspan font-weight="800" font-size="16">49번</tspan>의 LLM 호출
+    <tspan fill="#5f6b7a" font-size="11.5">   (16:33:22.5 의 그 요청이 49번 중 1번째)</tspan></text>
+
+  <text x="14" y="124" font-size="12.5" font-weight="700" fill="#5f6b7a">호출 하나가 얼마나 걸리냐에 따라</text>
+  <g font-size="12">
+    <rect x="14"  y="136" width="270" height="34" rx="6" fill="#f4faf5" stroke="#2e7d32"/>
+    <text x="149" y="158" text-anchor="middle">30초 × 49 = <tspan font-weight="700">25분</tspan></text>
+    <rect x="300" y="136" width="270" height="34" rx="6" fill="#fff8f0" stroke="#ef6c00"/>
+    <text x="435" y="158" text-anchor="middle">60초 × 49 = <tspan font-weight="700">49분</tspan></text>
+    <rect x="586" y="136" width="280" height="34" rx="6" fill="#fff5f5" stroke="#c62828"/>
+    <text x="726" y="158" text-anchor="middle">190초 × 49 = <tspan font-weight="700">2시간 35분</tspan></text>
+  </g>
+  <text x="14" y="190" font-size="11.5" fill="#5f6b7a">※ 190초는 F2 단계에서 실제로 측정된 값이다. 같은 서버·같은 모델이므로 최악의 경우다.</text>
+</svg>
+<figcaption>임베딩 10분은 <strong>준비운동</strong>이었습니다. 본 경기는 그 뒤에 있습니다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="fix-priority" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“어느 것부터 고쳐야 하나”, “LLM 49회는 어떻게 줄이나” 같은 질문을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ===================================================================== -->
+<h2 id="quiz">6. 퀴즈</h2>
+
+<p>다섯 문제입니다. 고르면 바로 채점되고 설명이 나옵니다.</p>
+
+<div class="quiz" data-answer="2">
+  <div class="qq">Q1. 후보 쌍 982건은 어떻게 나온 숫자인가?</div>
+  <button class="opt" data-i="0">기준 항목 982개를 각각 1건씩 처리해서</button>
+  <button class="opt" data-i="1">대상 문서의 fact 가 982개라서</button>
+  <button class="opt" data-i="2">이름이 다른 기준 항목 98개 × 후보 10건 = 980, 여기에 이름이 똑같은 2건을 더해서</button>
+  <button class="opt" data-i="3">기준 항목 × 대상 항목을 전부 곱해서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="qq">Q2. 로그에 “LLM 위임 980건”이 찍힌 시점에, LLM 은 몇 번 불렸나?</div>
+  <button class="opt" data-i="0">980번 — 그래서 10분이 걸렸다</button>
+  <button class="opt" data-i="1">0번 — “앞으로 물어볼 예정”이라는 예고이고, 첫 호출은 그 뒤 16:33:22.5 다</button>
+  <button class="opt" data-i="2">49번 — 배치로 묶어서 이미 끝났다</button>
+  <button class="opt" data-i="3">2번 — 코드가 확정한 2건만 불렸다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="qq">Q3. 10분의 주된 원인은?</div>
+  <button class="opt" data-i="0">LLM 이 980건을 판정하느라</button>
+  <button class="opt" data-i="1">엑셀 파일을 읽느라</button>
+  <button class="opt" data-i="2">1,024개 숫자를 곱하는 계산이 무거워서</button>
+  <button class="opt" data-i="3">기준 항목 98개를 한 개씩 서버에 물어보고(왕복 98회), 그때마다 캐시 파일 전체를 다시 써서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="qq">Q4. 좌표 1개가 RAM 32.8 KB 나 차지하는 이유는?</div>
+  <button class="opt" data-i="0">파이썬 리스트에 담으면 숫자 하나가 24바이트짜리 객체가 되어서. 전용 숫자 배열이면 4 KB 면 된다</button>
+  <button class="opt" data-i="1">좌표를 JSON 문자열로 저장해서</button>
+  <button class="opt" data-i="2">차원이 32,800개라서</button>
+  <button class="opt" data-i="3">같은 좌표를 8번 중복 저장해서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="qq">Q5. 가장 값어치 있는 수정 하나를 고른다면?</div>
+  <button class="opt" data-i="0">후보 수(top_k)를 10에서 5로 줄인다</button>
+  <button class="opt" data-i="1">캐시 파일을 매번 지운다</button>
+  <button class="opt" data-i="2">기준 항목 98개를 한 번에 임베딩한다 — 왕복이 1회가 되면 캐시 재작성도 저절로 1회가 된다</button>
+  <button class="opt" data-i="3">LLM 예산(max_llm_calls_per_concept)을 늘린다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있었다면 왜 헷갈렸는지 적어두세요. 가장 좋은 후속 질문이 됩니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr style="margin:48px 0 20px;border:0;border-top:1px solid var(--line)">
+<p style="color:var(--muted);font-size:.9em">
+관련 코드: <code>contentcompare/fact/fact_matcher.py</code>(151행 <code>_embed_scores</code>) ·
+<code>contentcompare/similarity/cache.py</code>(110–131행 <code>embed</code>/<code>_save</code>) ·
+<code>contentcompare/fact/concept_builder.py</code>(<code>candidate_pairs</code>/<code>judge_pairs</code>).<br>
+관련 문서: <a href="2026-08-05-explanation-ontology-concept-graph.html">온톨로지 개념 그래프</a>(F7 설계) ·
+<a href="2026-08-06-explanation-cross-language-recall-bottleneck.html">언어가 다르면 왜 비교가 무너지는가</a>(정확도 쪽 이야기) ·
+<a href="2026-08-18-explanation-search-text-embedding.html">검색 문자열은 원문이 아니다</a>(임베딩에 들어가는 문자열).
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-28-explanation-f7-embedding-10-minutes.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\ContentCompare\\docs\\understanding\\2026-08-28-explanation-f7-embedding-10-minutes.html';
+  });
+})();
+
+(function () {
+  var FB = {
+    0: ['982개 항목을 처리한 게 아니라, 98개 항목이 각각 10건씩 만든 것입니다.',
+        '대상 fact 수와는 무관합니다. 후보 쌍은 기준 항목마다 상위 10건만 담습니다.',
+        '정답입니다. 98 × 10 + 2 = 982. 로그의 “확정 2건”이 이름 완전일치입니다.',
+        '전부 곱하면 훨씬 큰 수가 됩니다. 상위 10건으로 잘라내기 때문에 982에서 멈춥니다.'],
+    1: ['980번 불렸다면 몇 시간이 걸렸을 것입니다. 10분은 임베딩 시간입니다.',
+        '정답입니다. 그 로그는 resolve_known 이 “앞으로 넘길 양”을 알리는 예고입니다.',
+        '49번은 앞으로 할 호출 수입니다. 그 시점엔 0번입니다.',
+        '코드가 확정한 2건은 LLM 없이 정한 것이라 호출이 없습니다.'],
+    2: ['LLM 판정은 16:33:22.5 부터 시작합니다. 10분 안에는 없었습니다.',
+        '엑셀 읽기는 F0 단계이고 훨씬 앞에서 끝났습니다.',
+        '1,024개 곱셈은 컴퓨터에게 눈 깜짝할 일입니다. 느린 건 계산이 아니라 통신과 파일 쓰기입니다.',
+        '정답입니다. 인터넷 왕복 98회 + 캐시 전체 재작성 98회가 겹쳤습니다.'],
+    3: ['정답입니다. list[float] 는 float 객체 1,024개 + 포인터 배열이라 약 32 KB, numpy float32 면 4 KB 입니다.',
+        'JSON 은 디스크 저장 형식이고, 메모리에 올라온 뒤에는 파이썬 객체가 됩니다.',
+        '차원은 1,024개입니다. 32.8 KB 는 그 1,024개를 담는 비용입니다.',
+        '중복 저장은 없습니다. 한 항목당 좌표는 하나뿐입니다.'],
+    4: ['top_k 를 줄이면 LLM 호출은 줄지만, 정답 후보가 6~10위에 있을 때 놓칩니다(실측 사례 있음).',
+        '지우면 그 순간은 빨라지지만 다음 실행에 또 커집니다. 원인이 아니라 증상만 미룹니다.',
+        '정답입니다. 왕복이 1회가 되면 _save() 도 1회만 불려 두 문제가 한 번에 풀립니다.',
+        '예산은 폭주 방지선이라 늘려도 느린 건 그대로입니다. 오히려 더 오래 걸립니다.']
+  };
+  document.querySelectorAll('.quiz').forEach(function (q, qi) {
+    var answer = parseInt(q.dataset.answer, 10);
+    var fb = q.querySelector('.fb');
+    q.querySelectorAll('button.opt').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = parseInt(b.dataset.i, 10);
+        var ok = i === answer;
+        q.querySelectorAll('button.opt').forEach(function (x) {
+          x.classList.remove('right', 'wrong');
+        });
+        b.classList.add(ok ? 'right' : 'wrong');
+        if (!ok) q.querySelector('button.opt[data-i="' + answer + '"]').classList.add('right');
+        fb.className = 'fb show ' + (ok ? 'ok' : 'no');
+        fb.textContent = (ok ? '✅ 정답 — ' : '❌ 아쉽네요 — ') + FB[qi][i];
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

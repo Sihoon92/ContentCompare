@@ -31,6 +31,7 @@ from .fact_store import FactStore
 from .llm_stage import LlmBudgetExceeded
 from .ontology import Ontology
 from .prompts import CONCEPT_SYSTEM, build_concept_user
+from .schemas import schema_for
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +239,8 @@ def _judge_batch(
     user = build_concept_user(batch, knowledge=knowledge, purpose=purpose,
                               ontology_summary=ontology_summary)
     try:
-        obj = runner.complete_json(CONCEPT_SYSTEM, user)
+        obj = runner.complete_json(CONCEPT_SYSTEM, user,
+                                   schema=schema_for("concept"))
     except Exception as e:  # noqa: BLE001 — 배치 격리(LlmBudgetExceeded·파싱실패·네트워크)
         logger.warning("[Concept] 배치 판정 실패(%s) → 보류: %s", type(e).__name__, e)
         exhausted = len(batch) if isinstance(e, LlmBudgetExceeded) else 0

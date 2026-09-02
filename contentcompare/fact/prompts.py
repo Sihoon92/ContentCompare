@@ -158,7 +158,16 @@ def build_schema_user(sheet: dict, profile: dict) -> str:
 # --------------------------------------------------------------------------- #
 # Record Normalizer (F2) — 데이터 행 → record
 # --------------------------------------------------------------------------- #
-RECORD_VERSION = "record-v2"
+RECORD_VERSION = "record-v3"
+"""v3: attributes·metadata 를 map 에서 **배열**로 — strict JSON Schema 는 키 이름을 미리
+모르는 object 를 표현할 수 없다(``additionalProperties`` 금지). 저장 포맷은 그대로 map 이고
+변환은 ``record_models.parse_attributes``/``parse_metadata`` 한 곳에서만 일어난다.
+
+⚠️ 이 상수를 올리면 **모든 엑셀 문서가 재정규화된다.** 프롬프트 텍스트가 실제로 바뀌었기
+때문에 올린 것이고, ``llm.structured_output`` 을 켜고 끄는 것 자체는 여기에 들어오지 않는다 —
+그건 ``chat_model`` 과 같은 부류의 설정이고 이 저장소는 모델 이름을 지문에 넣지 않기로 이미
+정했다. 스위치 하나에 수백 회의 LLM 작업이 날아가면 아무도 그 스위치를 실험하지 않는다.
+"""
 
 RECORD_SYSTEM = """\
 당신은 표 데이터 정규화기입니다. 주어진 열 스키마(열 → 역할)에 따라 각 데이터 행을
@@ -168,9 +177,9 @@ record(JSON)로 변환합니다.
 - display_name 은 가장 구체적인 항목 이름(소분류 우선)으로 정합니다.
 - 상위 분류(category/subcategory)가 빈 칸이면 '직전까지 확정된 분류'로 채웁니다.
 - 소계·합계·빈 행은 record 로 만들지 말고 제외합니다(records 에서 빼세요).
-- 각 데이터 컬럼을 attributes 의 한 속성(value+unit)으로 만듭니다. 속성 이름 규칙:
+- 각 데이터 컬럼을 attributes 배열의 한 항목({"name", "value", "unit"})으로 만듭니다. name 규칙:
   · 규격 경계 컬럼(하한/중심/상한)은 각각 lower_limit / target_value / upper_limit.
-  · 그 외 값·정성 컬럼은 그 컬럼의 이름(field_name)을 그대로 속성 이름으로(예: 정격전압, 재질).
+  · 그 외 값·정성 컬럼은 그 컬럼의 이름(field_name)을 그대로 name 으로(예: 정격전압, 재질).
   · 단위 컬럼이 있으면 그 값을 해당 정량 속성의 unit 에 넣습니다.
 - 비교 대상이 아닌 메타(순번/작성일/버전 등)와 의미 불명 컬럼은 metadata 로 보냅니다.
 - 값은 셀에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
@@ -183,8 +192,8 @@ record(JSON)로 변환합니다.
     {
       "record_id": "row-<행번호>",
       "entity": {"category": "...", "subcategory": "...", "display_name": "..."},
-      "attributes": {"<속성이름>": {"value": <값|null>, "unit": "<단위>"}},
-      "metadata": {"<필드명>": "<값>"},
+      "attributes": [{"name": "<속성이름>", "value": <값|null>, "unit": "<단위>"}],
+      "metadata": [{"name": "<필드명>", "value": "<값>"}],
       "source": {"row": <행번호>},
       "evidence_text": "...",
       "confidence": <0~1 실수>
@@ -226,7 +235,12 @@ def build_record_user(batch: list, column_schema: Any, table_profile: Any, carry
 # --------------------------------------------------------------------------- #
 # Fact Extractor (F3) — Word/PPT 블록/도형 → fact (Excel 은 코드 매핑이라 미사용)
 # --------------------------------------------------------------------------- #
-FACT_VERSION = "fact-v3"  # v3: 블록·셀 경계 재구성 — 조건별 속성 + inherited_from
+FACT_VERSION = "fact-v4"
+"""v3: 블록·셀 경계 재구성 — 조건별 속성 + inherited_from.
+v4: attributes 를 map 에서 **배열**로(이유는 :data:`RECORD_VERSION` 참고).
+
+⚠️ 올리면 **모든 Word/PPT 문서가 재추출된다.**
+"""
 
 FACT_SYSTEM = """\
 당신은 문서에서 비교 가능한 fact 를 추출하는 분석가입니다. 각 항목 앞의 [id] 가 붙은
@@ -238,7 +252,7 @@ FACT_SYSTEM = """\
 - 한 항목에 조건이 여럿이면(온도 구간별 충전전류 등) fact 를 나누지 말고 하나로 두되, 조건마다 속성을 나눠 담으세요: charge_temp_range_1 / charge_rate_1 / charge_temp_range_2 / … 처럼 번호를 붙입니다. 조건 하나만 담고 나머지를 버리거나, 값을 한 문자열로 뭉쳐 담으면 둘 다 비교가 불가능해집니다.
 - 다른 블록·줄의 레이블을 이어받아 조건을 채웠으면 inherited_from 에 그 [id] 를 적으세요. 판단이 서지 않으면 이어받지 말고 confidence 를 낮추세요 — 틀린 상속은 없는 내용을 만들어내는 것이라 누락보다 나쁩니다.
 - 값·단위는 본문에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
-- attributes 이름: 규격 경계는 lower_limit/target_value/upper_limit 로, 그 외는 그 속성의 고유 이름을 그대로 씁니다.
+- attributes 는 {"name", "value", "unit"} 항목의 배열입니다. name 은 규격 경계면 lower_limit/target_value/upper_limit, 그 외는 그 속성의 고유 이름을 그대로 씁니다.
 - evidence_text 는 입력에 실제로 있는 문구만 적습니다(지어내기 금지).
 - source_ids 에는 이 fact 의 근거가 된 [id] 만 넣습니다(입력에 보인 id 만).
 - 비교할 사실이 없는 장식/목차/빈 블록은 fact 로 만들지 않습니다.
@@ -250,7 +264,7 @@ FACT_SYSTEM = """\
       "fact_type": "quantitative_spec|qualitative_statement|descriptive",
       "entity_name": "<무엇에 대한 사실인가>",
       "entity_path": ["<상위 맥락>", "..."],
-      "attributes": {"<이름>": {"value": <값|null>, "unit": "<단위>"}},
+      "attributes": [{"name": "<이름>", "value": <값|null>, "unit": "<단위>"}],
       "evidence_text": "<입력에 실제 있는 근거 문구>",
       "source_ids": ["<근거 블록/도형 id>"],
       "inherited_from": ["<레이블을 이어받은 [id]>"],
