@@ -49,7 +49,10 @@ WAIT = "wait"
 NOTE = "note"
 
 #: 실패를 뜻하는 status. 조회 스크립트·UI 가 공유한다.
-ERROR_STATUSES = ("error", "timeout", "rate_limit")
+#:
+#: ``length`` 는 **자동 복구(배치 축소)에 성공해도 실패로 남긴다.** 지우면 사람이
+#: ``fact.record_batch_rows`` 를 영영 안 고치고, 다음 문서에서 또 실패 1회를 낭비한다.
+ERROR_STATUSES = ("error", "timeout", "rate_limit", "length")
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +163,14 @@ def classify_error(exc: BaseException) -> str:
     """
     name = type(exc).__name__.lower()
     text = str(exc).lower()
+    # ⚠️ **length 를 맨 앞에서 본다.** 조치가 timeout 과 정반대이기 때문이다 — 그쪽은
+    # "더 기다려라"인데 이쪽은 기다려도 안 풀린다. 순서를 바꾸면 조치 안내에 섞인
+    # ``llm.timeout`` 같은 낱말 하나에 "timeout" 으로 오분류된다.
+    #
+    # ``context_length_exceeded``(입력 초과, 400)도 여기 걸리는데 **의도한 것**이다 —
+    # 입력이든 출력이든 조치가 "배치를 줄여라"로 같다.
+    if "length" in name or "length limit" in text or "context length" in text:
+        return "length"
     if "timeout" in name or "timed out" in text or "timeout" in text:
         return "timeout"
     if ("ratelimit" in name or "rate limit" in text
@@ -421,6 +432,12 @@ _HINTS: tuple[tuple[str, str], ...] = (
      "응답 생성이 timeout 을 넘겼습니다. 배치당 출력량이 원인인 경우가 많습니다 — "
      "`fact.record_batch_rows`(또는 `fact_batch_blocks`)를 줄이거나 "
      "`llm.timeout` 을 올리세요."),
+    ("length",
+     "모델 출력이 토큰 한도에서 잘렸습니다. **기다리거나 `llm.timeout` 을 올려도 풀리지 "
+     "않습니다**(temperature=0 이라 재전송이 같은 지점에서 잘립니다) — 배치를 줄이세요"
+     "(`fact.record_batch_rows` / `fact.fact_batch_blocks`). 자동 축소가 깊이 한도까지 "
+     "내려가도 실패했다면 원인은 배치 크기가 아니라 **행/블록 하나가 크거나 모델이 같은 "
+     "구조를 반복 생성한 것**입니다 — `input_tokens` 대비 `output_tokens` 비를 보세요."),
     ("rate_limit",
      "요청 한도에 걸렸습니다. `llm.max_calls_per_minute` 는 기본 0(꺼짐)입니다 — "
      "사내 한도가 분당 60회면 55 정도를 권합니다."),
@@ -446,6 +463,8 @@ def diagnose(events: Iterable[TimelineEvent]) -> list[str]:
     seen: set[str] = set()
     for event in events:
         detail = event.detail or {}
+        if event.status == "length":
+            seen.add("length")
         if event.status == "timeout":
             seen.add("timeout")
         if event.status == "rate_limit":

@@ -10,7 +10,8 @@ import time
 from typing import Any, Callable, Optional
 
 from ..config import LLMConfig
-from .http import LLMRequestError, RetryPolicy, extract, post_json
+from .http import RetryPolicy, extract, post_json
+from .truncation import LENGTH, LengthLimitError, from_truncated
 from .usage import UNKNOWN, Usage, from_response
 
 
@@ -86,28 +87,39 @@ class OllamaBackend:
         data = self._post(url, payload)
         self.last_usage = from_response(data)
         content = extract(data, "message", "content", url=url)
-        if not content:
-            self._explain_empty(data, url)
+        self._explain_length(data, url, content)
         return content
 
     @staticmethod
-    def _explain_empty(data: dict, url: str) -> None:
-        """빈 응답의 원인을 설명하는 에러로 바꾼다.
+    def _explain_length(data: dict, url: str, content: str) -> None:
+        """``done_reason="length"`` 를 원인이 보이는 예외로 바꾼다.
 
-        Ollama 는 컨텍스트가 모자라면 오류 대신 **빈 ``content``** 를 돌려준다
-        (``done_reason="length"``). thinking 모델은 사고 토큰이 컨텍스트를 먼저
-        먹어치우기 때문에 문서가 조금만 커져도 이 상황이 된다 — 원인을 모르면
-        "LLM JSON 파싱 실패: ''" 로만 보여 디버깅이 매우 어렵다.
+        Ollama 는 한도에 닿아도 오류를 주지 않는다 — 원인을 모르면 "LLM JSON 파싱
+        실패: ''" 로만 보여 디버깅이 매우 어렵다.
+
+        ⚠️ **content 유무와 무관하게 본다.** 예전에는 빈 응답일 때만 봤는데, 그러면
+        *부분 생성*(컨텍스트는 충분한데 출력이 상한에 닿아 잘린 경우)이 조용히 통과해
+        다른 백엔드 셋과 **같은 결함**이 됐다. 두 경우는 조치가 다르므로 문구를 가른다:
+
+        - 빈 응답 → 입력·사고가 컨텍스트를 먹었다. ``num_ctx``/``think`` 가 답이다.
+        - 부분 생성 → **출력** 상한이다. ``num_ctx`` 를 올려도 안 풀리고 배치를 줄여야 한다.
+
+        둘 다 :class:`~contentcompare.llm.truncation.LengthLimitError` 로 올리므로
+        ``fact`` 쪽 배치 축소 복구가 양쪽에 다 걸린다(입력이 줄면 둘 다 완화된다).
+        ``LLMRequestError`` 의 하위형이라 기존 호출부·테스트는 그대로 동작한다.
         """
-        if data.get("done_reason") != "length":
+        if data.get("done_reason") != LENGTH:
             return
+        if content:
+            raise from_truncated(data, backend="ollama", output=content)
         used = data.get("prompt_eval_count", 0) + data.get("eval_count", 0)
         thinking = (data.get("message") or {}).get("thinking")
-        raise LLMRequestError(
+        raise LengthLimitError(
             f"{url} 응답이 비었습니다(done_reason=length, 사용 토큰 ≈{used})."
             + (" 모델이 컨텍스트를 사고(thinking)에 모두 사용했습니다." if thinking else "")
             + " config 의 llm.ollama.num_ctx 를 늘리거나(예: 16384)"
-            " llm.ollama.think: false 로 사고를 끄세요."
+            " llm.ollama.think: false 로 사고를 끄세요.",
+            usage=from_response(data), backend="ollama",
         )
 
     # --- EmbeddingClient -------------------------------------------------- #

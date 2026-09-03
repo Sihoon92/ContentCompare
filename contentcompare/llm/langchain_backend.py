@@ -20,6 +20,7 @@ from ..config import LLMConfig, no_proxy
 from ..logging_setup import log_print
 from .structured import looks_like_schema_rejection, normalize_mode, response_format
 from .tracing import current_stage
+from .truncation import LENGTH, finish_reason_of, from_exception, from_truncated, is_length_limit
 from .usage import UNKNOWN, Usage, from_response
 
 logger = logging.getLogger("contentcompare.llm.langchain_backend")
@@ -190,6 +191,17 @@ class LangChainBackend:
         try:
             return self._invoke(chat, messages, temperature, fmt)
         except Exception as exc:  # noqa: BLE001 — 스키마 거절만 흡수하고 나머지는 올려보낸다
+            if is_length_limit(exc):
+                # ⚠️ **스키마 거절 판정보다 먼저** 본다. 이 예외는 우리가 붙인
+                # ``response_format`` 때문에 SDK 의 ``.parse()`` 경로에서 나는데
+                # (``finish_reason=="length"`` → ``LengthFinishReasonError``), 아래
+                # ``_disable_structured`` 로 잘못 흘러가면 **이 실행 내내 strict 가 꺼진다**.
+                # 원인은 스키마가 아니라 출력이 길어서다.
+                err = from_exception(exc, backend="langchain")
+                # 예외 경로에서도 토큰을 남긴다 — 비우면 ``usage.py`` 규약상 "서버가 안
+                # 줬다"가 되어, 우리가 버린 숫자가 서버 탓으로 기록된다.
+                self.last_usage = err.usage
+                raise err from exc
             if fmt is None or not looks_like_schema_rejection(exc):
                 # 스키마와 무관한 실패를 재시도하면 **모든 실패의 비용이 두 배**가 된다.
                 raise
@@ -211,7 +223,13 @@ class LangChainBackend:
             resp = chat.bind(**bound).invoke(messages)
         self.last_usage = from_response(resp)
         content = getattr(resp, "content", resp)
-        return content if isinstance(content, str) else str(content)
+        text = content if isinstance(content, str) else str(content)
+        # ``response_format`` 이 없으면(=``structured_output: off``) SDK 가 ``.parse()`` 를
+        # 안 타므로 절단이 **예외로 오지 않는다** — 잘린 본문이 그대로 돌아와 "JSON 파싱
+        # 실패"로만 보였다. 그 경로도 여기서 같은 예외로 모은다.
+        if finish_reason_of(resp) == LENGTH:
+            raise from_truncated(resp, backend="langchain", output=text)
+        return text
 
     def _disable_structured(self, exc: Exception) -> None:
         """서버가 스키마를 거절했다 — 이 실행에서는 끄고 **한 번만** 알린다.

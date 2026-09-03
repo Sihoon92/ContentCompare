@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 
 from ..config import LLMConfig, no_proxy
 from .http import RetryPolicy, extract, post_json
+from .truncation import LENGTH, finish_reason_of, from_truncated
 from .usage import UNKNOWN, Usage, from_response
 
 logger = logging.getLogger("contentcompare.llm")
@@ -113,6 +114,13 @@ class InternalBackend:
             },
         )
         self.last_usage = from_response(data)
+        # 이 백엔드는 절단을 **예외로 알리지 않는다** — 200 에 잘린 본문을 담아 주므로
+        # 지금까지 "LLM JSON 파싱 실패"로만 보였다. ``extract`` 보다 **먼저** 보는 이유는
+        # 잘린 응답이 ``message.content`` 경로를 통째로 빠뜨릴 수 있어서다(그러면
+        # "형식이 예상과 다릅니다"로 원인이 뒤바뀐다).
+        if finish_reason_of(data) == LENGTH:
+            raise from_truncated(data, backend="internal",
+                                 output=_partial_content(data))
         return extract(data, "choices", 0, "message", "content", url=url)
 
     # --- EmbeddingClient -------------------------------------------------- #
@@ -126,3 +134,18 @@ class InternalBackend:
         # input 순서 유지를 위해 index 로 정렬.
         items = sorted(items, key=lambda d: d.get("index", 0))
         return [extract(d, "embedding", url=url) for d in items]
+
+
+def _partial_content(data: Any) -> str:
+    """잘린 응답에서 본문을 **관대하게** 읽는다. 못 찾으면 빈 문자열.
+
+    ``extract`` 와 달리 던지지 않는다 — 여기서 던지면 "출력이 잘렸다"는 진짜 원인이
+    "응답 형식이 이상하다"로 바뀐다. 못 읽은 것은 :mod:`.truncation` 원칙대로 미상으로 둔다.
+    """
+    try:
+        choices = data.get("choices") or []
+        message = (choices[0] or {}).get("message") or {}
+        content = message.get("content")
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return content if isinstance(content, str) else ""

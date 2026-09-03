@@ -158,6 +158,19 @@ def is_timeout(exc: BaseException) -> bool:
     ⚠️ :func:`contentcompare.timeline.classify_error` 에도 비슷한 판정이 있지만 그쪽은
     **기록에 붙일 이름**을 고르는 것이고 이쪽은 **60초를 기다릴지**를 정한다. 둘이
     갈려도 동작에는 영향이 없다.
+
+    ⚠️ **여기에 ``is_length_limit`` 을 두지 말 것.** 이 모듈의 계약은 "예외를 판정한다"가
+    아니라 **"기다릴지 정한다"** 이다(위 둘은 :meth:`_RateLimitedBase._call` 의 "잔다 →
+    다시 부른다" 루프를 구동한다). 출력 길이 한도는 기다려도 회복되지 않는다 —
+    ``temperature=0`` 이라 재전송이 **확실히** 같은 지점에서 잘린다. 여기 두면 다음
+    사람이 자연스럽게 세 번째 ``if`` 를 달아 5회×60초를 순수하게 버린다. 판정은
+    :mod:`contentcompare.llm.truncation`, 복구는 **배치 축소**
+    (:func:`contentcompare.fact.llm_stage.run_batch`)다.
+
+    같은 이유로 :data:`_TIMEOUT_MARKERS`/:data:`DEFAULT_MARKERS` 를 넓힐 때 조심해야
+    한다. 절단 예외의 메시지에 ``timeout``·``rate limit`` 같은 낱말이 섞이면 이 함수가
+    참을 돌려주고 **기다려도 안 풀리는 것을 기다리기 시작한다.**
+    ``tests/test_llm_truncation.py`` 가 그 역방향을 고정한다.
     """
     if "timeout" in type(exc).__name__.replace("_", "").lower():
         return True

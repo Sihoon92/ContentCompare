@@ -620,6 +620,9 @@ class TracedChat:
         started = time.monotonic()
         error = ""
         output = ""
+        # 0 이면 ``output`` 길이를 그대로 쓴다. 절단 예외만 이 값을 채우는데, 그 ``output``
+        # 은 앞뒤만 남기고 접힌 것이라 길이를 그대로 쓰면 "출력이 짧았다"로 뒤집혀 읽힌다.
+        raw_chars = 0
         status = "ok"
         # 시작 이벤트를 **호출 전에** 낸다 — 이것이 없으면 응답이 오지 않는 동안
         # 화면이 조용해서, 8분을 기다릴지 끊을지 판단할 근거가 없다.
@@ -632,6 +635,17 @@ class TracedChat:
         except Exception as exc:  # noqa: BLE001 — 기록만 하고 그대로 올려보낸다
             error = f"{type(exc).__name__}: {exc}"
             status = timeline.classify_error(exc)
+            # 실패한 호출의 응답 원문이 가장 중요하다는 것이 :class:`JsonlTracer` 의
+            # 전제인데, 정작 이 경로가 ``output=""`` 이라 **아무것도 안 남고 있었다.**
+            # 절단(:class:`~contentcompare.llm.truncation.LengthLimitError`)은 잘린 본문을
+            # 예외에 실어 오므로 그것을 기록에 얹는다 — 반복 생성인지 진짜 긴 내용인지를
+            # 가르는 유일한 확정 증거다.
+            #
+            # ``getattr`` 로 읽는 것은 ``_usage()`` 가 ``last_usage`` 를 읽는 것과 같은
+            # 덕 타이핑 규약이다(이 모듈이 ``truncation`` 을 import 하지 않아 결합이 안 는다).
+            # **반환값이 아니라 기록만** 채우므로 "인자·반환값을 변형하지 않는다"는 계약은 그대로다.
+            output = getattr(exc, "output", "") or ""
+            raw_chars = getattr(exc, "output_chars", 0) or 0
             raise
         finally:
             took = int((time.monotonic() - started) * 1000)
@@ -643,7 +657,7 @@ class TracedChat:
             schema = _schema_label(kwargs)
             timeline.emit(
                 timeline.LLM_END, name, status=status, duration_ms=took,
-                output_chars=len(output or ""), slow=slow, schema=schema,
+                output_chars=raw_chars or len(output or ""), slow=slow, schema=schema,
                 error=(error[:200] if error else None),
                 **used.as_detail(took),
             )
