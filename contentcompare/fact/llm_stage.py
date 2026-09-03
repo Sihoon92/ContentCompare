@@ -6,6 +6,20 @@ fact 파이프라인의 모든 LLM 단계(Profiler/Schema/...)가 공유한다.
 - :func:`fingerprint_for`: 입력 지문(캐시 무효화 판단용).
 - :class:`LlmRunner`: chat 클라이언트 래퍼. 파싱 실패 1회 재시도 + **문서당 호출 예산**
   (결정 #2)을 강제한다. 단계 함수는 :meth:`LlmRunner.complete_json` 만 호출한다.
+- :func:`run_batch`: 배치 실행 + **출력 절단 시 자동 축소**. F2/F3 가 공유한다.
+
+**재시도가 세 종류**라는 것이 이 모듈의 요점이다. 원인이 달라서 조치도 다르다:
+
+===================  ==================================  ==============================
+층                   무엇이 실패했나                     조치
+===================  ==================================  ==============================
+전송(:mod:`..llm.http`)  응답이 오지 않았다              백오프 후 재전송
+파싱(:meth:`~LlmRunner.complete_json`)  모양이 틀렸다   프롬프트·모델
+절단(:func:`run_batch`)  응답이 잘렸다                   **배치 축소**
+===================  ==================================  ==============================
+
+앞 둘은 같은 입력을 다시 보내지만 절단은 **입력을 줄여야** 한다 — ``temperature=0`` 이라
+같은 입력의 재전송은 확실히 같은 지점에서 잘린다. 셋을 한 자리에 뭉치면 그 차이가 사라진다.
 """
 
 from __future__ import annotations
@@ -14,16 +28,95 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .. import timeline
 from ..llm.tracing import current_stage
+from ..llm.truncation import LengthLimitError
 
 logger = logging.getLogger(__name__)
 
 
 class LlmBudgetExceeded(RuntimeError):
     """문서당 LLM 호출 예산을 초과했을 때."""
+
+
+def run_batch(
+    items: list,
+    call: Callable[[list, str], None],
+    *,
+    name: Callable[[list, int], str],
+    min_items: int = 1,
+    max_depth: int = 3,
+    stats: Optional[dict] = None,
+    _depth: int = 0,
+) -> None:
+    """``items`` 를 ``call`` 에 넘기고, **출력이 잘리면 반으로 갈라 순서대로** 다시 부른다.
+
+    F2(``record_normalizer``)와 F3(``fact_extractor``)에 글자 그대로 같은 배치 루프가 있어
+    복구를 각자 넣으면 한쪽만 고치는 사고가 난다(``ratelimit.retry_after_of`` 가 명시적으로
+    경계한 형태). 그래서 **쪼개고·이름 붙이고·세는 기계**만 여기 모으고, 결과 병합·carry·
+    ``batch_ids`` 검증 같은 도메인 지식은 호출부에 남긴다.
+
+    ``call(items, label)``
+        호출부의 클로저. 프롬프트 빌드·LLM 호출·**후처리까지** 한 덩어리로 한다.
+        반환값을 쓰지 않는 것이 핵심 제약이다 — 아래 참고.
+    ``name(items, depth)``
+        ``substage`` 라벨을 만든다. ``depth == 0`` 이면 **오늘과 한 글자도 같은** 이름을
+        돌려주도록 호출부가 책임진다(분할이 없으면 타임라인이 오늘과 동일해야 한다).
+
+    ⚠️ **"두 조각을 다 부르고 결과를 병합"하는 설계는 틀렸다.** F2 의 carry-over
+    (category/subcategory)는 그 배치를 **파싱한 뒤** 갱신되어 **다음 배치 프롬프트**로
+    들어간다. 배치 3 이 3a/3b 로 갈리면 3b 는 3a 가 갱신한 carry 를 받아야 하는데, 병합형
+    설계에서는 3b 가 배치 2 의 carry 를 받아 **조용히 틀린 분류**가 된다 — 실패보다 나쁘다.
+    그래서 ``call`` 이 후처리까지 맡고 이 함수는 **한 번에 하나씩 순서대로** 부른다.
+    순서만 보장하면 carry 는 자동으로 옳다.
+
+    ⚠️ **:class:`LengthLimitError` 만 잡는다.** :class:`LlmBudgetExceeded` 나 파싱 실패는
+    그대로 올라간다 — 예산이 떨어졌는데 더 쪼개면 같은 예외를 더 빨리 다시 만날 뿐이다.
+
+    하한 둘로 무한 분할을 막는다. ``min_items`` 까지 줄여도 잘리면 원인이 배치 크기가
+    아니므로(항목 하나가 크거나 모델이 반복 생성 중이거나) **조치가 다른 메시지**로 바꿔
+    올린다. ``max_depth`` 는 30행 기준 30→15→7/8→3/4, 최악 15회다 — 안 두면 배치 하나가
+    ``max_llm_calls_per_doc`` 의 12% 를 태울 수 있다.
+
+    분할 호출은 ``complete_json`` 이 호출 직전에 예산을 검사하므로 **새 예산 없이**
+    ``max_llm_calls_per_doc`` 에 자동으로 잡힌다. 성격이 일반 호출과 같기 때문이며, 따로
+    세면 그 설정값이 거짓말을 하게 된다.
+    """
+    label = name(items, _depth)
+    try:
+        call(items, label)
+    except LengthLimitError as exc:
+        if len(items) <= min_items or _depth >= max_depth:
+            raise LengthLimitError(
+                f"{label}: 더 줄일 수 없는데도 출력이 잘립니다"
+                f"(항목 {len(items)}개, 분할 깊이 {_depth}). 배치 크기 문제가 아닙니다. "
+                "항목 하나가 크거나 모델이 같은 구조를 반복 생성하고 있습니다. "
+                "타임라인의 input_tokens 대비 output_tokens 비를 보세요.",
+                output=exc.output, output_chars=exc.output_chars,
+                usage=exc.usage, backend=exc.backend,
+            ) from exc
+        mid = len(items) // 2
+        if stats is not None:
+            stats["batches_split"] = stats.get("batches_split", 0) + 1
+            stats["max_split_depth"] = max(stats.get("max_split_depth", 0), _depth + 1)
+        # 전송 재시도·파싱 재시도와 **원인이 달라** 갈라 남긴다. 조치도 다르다
+        # (그 둘은 프롬프트·모델 쪽, 이쪽은 배치 크기).
+        timeline.emit(
+            timeline.RETRY, label, status="length",
+            reason="출력 길이 한도, 배치 축소", items=len(items),
+            split_into=[mid, len(items) - mid], depth=_depth + 1,
+        )
+        logger.warning("[Fact] %s 출력 절단 → %d+%d 로 분할(깊이 %d)",
+                       label, mid, len(items) - mid, _depth + 1)
+        for part in (items[:mid], items[mid:]):
+            run_batch(part, call, name=name, min_items=min_items,
+                      max_depth=max_depth, stats=stats, _depth=_depth + 1)
+        return
+    if stats is not None:
+        used = stats.get("min_items_used")
+        stats["min_items_used"] = len(items) if used is None else min(used, len(items))
 
 
 def parse_json_object(raw: str) -> Optional[dict]:

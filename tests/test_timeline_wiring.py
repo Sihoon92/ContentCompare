@@ -478,6 +478,53 @@ def test_record_batches_are_named_in_the_timeline(tmp_path):
     assert names == ["배치 1/3", "배치 2/3", "배치 3/3"]
 
 
+def test_split_batches_are_named_by_row_range(tmp_path):
+    """출력 절단으로 쪼개진 조각은 **행 범위**로 이름 붙는다.
+
+    ``a``/``b`` 접미어(3단이면 ``aa``)와 달리 깊이가 몇이든 이름 길이가 일정하고, 이름
+    자체가 "무엇이 재시도됐는지"를 답한다 — ``배치 1/3`` 두 줄만으로는 같은 2행을
+    가리키는 것처럼 보인다.
+
+    ⚠️ **깊이 0 은 오늘과 한 글자도 같다**(위 테스트가 그것을 고정한다). 분할이 없으면
+    타임라인이 오늘과 바이트 단위로 같아야 하기 때문이다.
+    """
+    import re
+
+    from contentcompare.fact.llm_stage import LlmRunner
+    from contentcompare.fact.record_normalizer import normalize_records
+    from contentcompare.llm.truncation import LengthLimitError
+
+    schema, profile = _schema_and_profile()
+    compact = {"doc_type": "excel", "sheets": [{
+        "sheet_name": "Sheet1",
+        "rows": [{"r": r, "cells": {"A": f"항목{r}", "B": r}} for r in range(2, 8)],
+    }]}
+
+    class Chat:
+        """2행 이상이면 잘린다 → 모든 배치가 1행씩으로 갈린다."""
+
+        def complete(self, system, user, *, temperature=0.0):
+            if len(re.findall(r"^행 \d+:", user, re.M)) >= 2:
+                raise LengthLimitError("잘렸습니다", output="{", backend="fake")
+            return '{"records": []}'
+
+    tl.set_timeline(_make(tmp_path))
+    normalize_records(compact, profile, schema, LlmRunner(Chat(), max_calls=30),
+                      batch_rows=2)
+
+    events = tl.load_timeline(tmp_path / "run.jsonl")
+    names = [e.name for e in events if e.kind == "stage_start"]
+    assert names == [
+        "배치 1/3", "배치 1/3 행 2-2", "배치 1/3 행 3-3",
+        "배치 2/3", "배치 2/3 행 4-4", "배치 2/3 행 5-5",
+        "배치 3/3", "배치 3/3 행 6-6", "배치 3/3 행 7-7",
+    ]
+    # 축소는 전송 재시도·파싱 재시도와 **원인이 달라** 갈라 남는다.
+    splits = [e for e in events if e.kind == "retry" and e.status == "length"]
+    assert len(splits) == 3
+    assert splits[0].detail["split_into"] == [1, 1]
+
+
 def test_failing_batch_points_at_itself(tmp_path):
     """지난 실패에서 run_stats 의 llm.calls 를 세어 알아내던 것을 여기서 끝낸다."""
     from contentcompare.fact.llm_stage import LlmRunner

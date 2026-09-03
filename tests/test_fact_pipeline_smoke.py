@@ -267,8 +267,12 @@ def test_run_stats_artifact_has_llm_and_stage_counters(tmp_path):
     )
     assert stats["llm"]["calls"] == 3  # profile + schema + record
     assert stats["llm"]["parse_failures"] == 0
+    # 정확히 일치시키는 것이 목적이다 — 키가 조용히 늘거나 사라지는 것을 잡는다.
+    # ``batches_split``/``max_split_depth`` 가 **없는 것**도 계약이다: 분할이 없었으면
+    # 0 을 남기지 않고 키 자체를 뺀다(usage.py 가 미상을 안 남기는 것과 같은 규약).
     assert stats["records"] == {
         "cached": False, "rows_in": 1, "records_out": 1, "records_without_row": 0,
+        "batch_rows": 30, "columns": 2, "min_items_used": 1,
     }
     assert stats["facts"]["records_in"] == 1 and stats["facts"]["facts_out"] == 1
     assert stats["validation"]["facts"] == 1
