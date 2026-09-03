@@ -259,3 +259,74 @@ def test_length_hint_does_not_tell_you_to_wait_longer():
     (hint,) = diagnose([event])
     assert "record_batch_rows" in hint
     assert "풀리지 않습니다" in hint
+
+
+# --------------------------------------------------------------------------- #
+# 7) max_tokens — **한 테스트가 세 백엔드를 동시에 붙잡는다**
+#
+# `_needs_rate_limit_wrapper` 가 "설정에는 있는데 호출 경로에는 없는" 결함으로 두 번
+# 깨진 이유는 조건이 인라인이라 **같이 고칠 자리가 안 보였기** 때문이다. 여기서는 이
+# 테스트가 그 자리다 — 백엔드를 하나 더 만들거나 한 곳만 배선하면 여기서 깨진다.
+# --------------------------------------------------------------------------- #
+def _capture_payload():
+    """``poster`` 가 받은 payload 를 그대로 잡아 둔다(ollama·internal 공용)."""
+    from tests.test_llm_http import FakeResponse
+
+    seen: dict = {}
+
+    def poster(url, **kwargs):
+        seen.update(kwargs.get("json") or {})
+        return FakeResponse(200, {
+            "message": {"content": "{}"},                       # ollama
+            "choices": [{"message": {"content": "{}"}}],        # internal
+        })
+
+    return poster, seen
+
+
+class _BindSpy:
+    """``chat.bind(**kwargs).invoke(...)`` 의 kwargs 를 잡는 langchain chat 흉내."""
+
+    def __init__(self) -> None:
+        self.bound: dict = {}
+
+    def bind(self, **kwargs):
+        self.bound = kwargs
+        return self
+
+    def invoke(self, messages):
+        return type("AIMessage", (), {"content": "{}", "response_metadata": {}})()
+
+
+def _langchain_bound(cfg) -> dict:
+    from contentcompare.llm.langchain_backend import LangChainBackend
+
+    spy = _BindSpy()
+    backend = LangChainBackend(cfg, chat=spy)
+    backend.complete("s", "u")
+    return spy.bound
+
+
+@pytest.mark.parametrize("max_tokens", [0, 2048])
+def test_max_tokens_reaches_every_backend(max_tokens):
+    """세 백엔드가 **같은 설정 한 줄**을 각자의 이름으로 서버에 보낸다.
+
+    ``0`` 일 때 키가 **아예 없어야** 하는 것도 같이 고정한다 — 이 손잡이의 기본값 계약이
+    "오늘과 바이트 단위로 같은 요청"이기 때문이다(``response_format=None`` 을 안 싣는
+    규칙과 같은 근거).
+    """
+    from tests.test_llm_http import _NOSLEEP
+    from contentcompare.llm.internal import InternalBackend
+    from contentcompare.llm.ollama import OllamaBackend
+
+    cfg = LLMConfig(max_tokens=max_tokens)
+
+    poster, seen = _capture_payload()
+    OllamaBackend(cfg, poster=poster, sleep=_NOSLEEP).complete("s", "u")
+    assert seen["options"].get("num_predict") == (max_tokens or None)
+
+    poster, seen = _capture_payload()
+    InternalBackend(cfg, poster=poster, sleep=_NOSLEEP).complete("s", "u")
+    assert seen.get("max_tokens") == (max_tokens or None)
+
+    assert _langchain_bound(cfg).get("max_tokens") == (max_tokens or None)

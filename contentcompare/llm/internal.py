@@ -102,17 +102,18 @@ class InternalBackend:
     def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
         self.last_usage = UNKNOWN  # 이유는 :attr:`last_usage` 참고
         url = f"{self.base_url}/chat/completions"
-        data = self._post(
-            url,
-            {
-                "model": self.config.chat_model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": temperature,
-            },
-        )
+        payload: dict[str, Any] = {
+            "model": self.config.chat_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+        }
+        # 0 이면 키를 아예 안 넣는다 — 오늘과 바이트 단위로 같은 요청이어야 한다.
+        if self.config.max_tokens:
+            payload["max_tokens"] = self.config.max_tokens
+        data = self._post(url, payload)
         self.last_usage = from_response(data)
         # 이 백엔드는 절단을 **예외로 알리지 않는다** — 200 에 잘린 본문을 담아 주므로
         # 지금까지 "LLM JSON 파싱 실패"로만 보였다. ``extract`` 보다 **먼저** 보는 이유는

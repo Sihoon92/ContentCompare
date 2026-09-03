@@ -219,6 +219,13 @@ class LangChainBackend:
         bound: dict[str, Any] = {"temperature": temperature}
         if fmt is not None:
             bound["response_format"] = fmt
+        # ⚠️ 생성자(``ChatOpenAI(max_tokens=...)``)가 아니라 **여기**여야 한다.
+        # ``_ensure_chat()`` 이 클라이언트를 캐시하므로 생성자에 두면 주입된 chat
+        # (테스트·``scripts/compare_engines.py``)에는 적용되지 않아 관측이 불가능해진다.
+        # ``temperature`` 와 같은 자리인 ``bind`` 가 유일하게 확인 가능한 지점이다.
+        # 0 이면 위 ``response_format`` 과 같은 이유로 키를 아예 뺀다.
+        if self.config.max_tokens:
+            bound["max_tokens"] = self.config.max_tokens
         with self._proxy_ctx():
             resp = chat.bind(**bound).invoke(messages)
         self.last_usage = from_response(resp)

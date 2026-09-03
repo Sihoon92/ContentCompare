@@ -73,6 +73,10 @@ class OllamaBackend:
         options: dict[str, Any] = {"temperature": temperature}
         if self.config.ollama.num_ctx:
             options["num_ctx"] = self.config.ollama.num_ctx
+        # 0 이면 키를 아예 안 넣는다 — 오늘과 바이트 단위로 같은 요청이어야 한다.
+        # ``num_ctx``(입력)와 짝이 되는 **출력** 쪽 손잡이다.
+        if self.config.max_tokens:
+            options["num_predict"] = self.config.max_tokens
         payload: dict[str, Any] = {
             "model": self.config.chat_model,
             "messages": [

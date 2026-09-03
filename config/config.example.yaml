@@ -15,6 +15,21 @@ llm:
   embed_query_prefix: ""     # 검색어(기준 항목)용. e5 권장: 'query: '
   embed_passage_prefix: ""   # 본문(대상 청크)용.   e5 권장: 'passage: '
   timeout: 120
+
+  # 한 호출이 **생성**할 수 있는 최대 토큰. 0=미지정(기본, 오늘과 같은 요청).
+  #
+  # ⚠️ 이 값은 잘림을 막지 않고 **앞당긴다.** 지금 잘리는 것은 모델/게이트웨이의 기본
+  #   상한(실측 32768)에 닿아서이고, 명시하면 그것이 더 낮은 새 상한이 된다. 4096 을
+  #   무심코 넣으면 오늘 통과하던 배치의 상당수가 잘린다.
+  #
+  # 쓸 자리는 하나다 — **재현**. fact 엔진은 출력이 잘리면 배치를 반으로 갈라 자동
+  # 복구하는데(fact/llm_stage.run_batch), 그 경로가 실서버에서 실제로 도는지 보려면
+  # 32k 를 채워야 한다. 2048 로 한 번 돌리면 즉시 재현된다. 확인이 끝나면 0 으로 되돌릴 것.
+  #
+  # 세 백엔드 모두에 전달된다: ollama=options.num_predict / internal=max_tokens /
+  # langchain=bind(max_tokens=).
+  max_tokens: 0
+
   max_retries: 3           # 일시 오류(연결/타임아웃/5xx) 재시도 횟수
   backoff_base: 2          # 지수 백오프 기준(2 → 2s,4s,8s,…)
   rate_limit_wait: 60      # 요청 한도(HTTP 429) 시 대기 초. 서버 Retry-After 가 있으면 그 값 우선
