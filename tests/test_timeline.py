@@ -373,3 +373,21 @@ def test_diagnose_stays_quiet_about_thinking_when_nothing_was_truncated():
          {"output_tokens": 900, "reasoning_tokens": 400}),
     )
     assert tl.diagnose(events) == []
+
+
+def test_llm_line_shows_reasoning_next_to_the_total():
+    """사고 토큰은 ``output_tokens`` **바로 옆**에 보여야 한다.
+
+    JSONL 에만 있고 화면에 없으면 사람이 원본 파일을 열어야 하는데, 이 값의 용도가
+    바로 "지금 쓰는 모델이 사고를 하는가"를 **한눈에** 답하는 것이다. 총량 옆에
+    두는 것은 그것이 총량의 내역(포함된 값)이라는 뜻을 자리로 말하기 위해서다.
+    """
+    (event,) = _events(
+        ("llm_end", "F2", "ok", 400,
+         {"input_tokens": 42, "output_tokens": 310, "reasoning_tokens": 288,
+          "output_chars": 2}),
+    )
+    line = tl.format_line(event)
+    assert "output_tokens=310" in line
+    assert "reasoning_tokens=288" in line
+    assert line.index("output_tokens=310") < line.index("reasoning_tokens=288")

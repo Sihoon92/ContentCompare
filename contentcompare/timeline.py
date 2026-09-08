@@ -253,8 +253,11 @@ def format_line(event: TimelineEvent) -> str:
                     f"({format_duration(event.duration_ms)}{tail})")
         # 토큰을 글자 수보다 앞에 둔다 — 배치 크기를 정하는 근거가 토큰이고
         # 글자 수는 서버가 토큰을 안 줄 때의 대체재다.
+        # ``reasoning_tokens`` 는 ``output_tokens`` **바로 뒤**다 — 그것이 총량에 이미
+        # 포함된 내역이라는 뜻을 자리로 말한다. 서버가 안 주면 키가 없어 안 보인다.
         extra = _detail_text(
-            detail, ("input_tokens", "output_tokens", "tok_per_sec", "output_chars"))
+            detail, ("input_tokens", "output_tokens", "reasoning_tokens",
+                     "tok_per_sec", "output_chars"))
         # 타임아웃은 이미 늦은 신호다. 근접 경고는 **죽기 전에** 보인다.
         slow = " ⚠ 느림" if detail.get("slow") else ""
         return (f"{head}✓ 응답 ({format_duration(event.duration_ms)}"
