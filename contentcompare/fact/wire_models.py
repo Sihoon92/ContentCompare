@@ -70,13 +70,6 @@ class WireAttribute(BaseModel):
     unit: str
 
 
-class WireNamedText(BaseModel):
-    """``metadata`` 처럼 자유 키 map 이던 것의 배열형. :class:`WireAttribute` 와 같은 이유."""
-
-    name: str
-    value: str
-
-
 # --------------------------------------------------------------------------- #
 # F1a Document Profiler
 # --------------------------------------------------------------------------- #
@@ -175,10 +168,22 @@ class WireRecordSource(BaseModel):
 
 
 class WireRecord(BaseModel):
-    record_id: str
+    """``record_id`` 가 **없다** — ``row`` 하나면 ``Record.from_llm`` 이 만든다.
+
+    ``metadata`` 는 **열 이름만** 온다. 값은 ``record_normalizer`` 가 그 행의 셀에서
+    그대로 주워 담는다(``sheet``/``cell_range`` 와 같은 대우). 값까지 받으면 출력의
+    27.8%(실측 104행)를 **아무도 읽지 않을 데이터**를 생성하는 데 쓰게 된다 — ``Fact`` 에
+    ``metadata`` 필드가 없어 ``records.json`` 에서 죽는다. strict 가 모든 속성을 required
+    로 만들기 때문에 그건 "무시됨"이 아니라 **"반드시 지어내야 함"** 이었다.
+
+    ⚠️ 그럼에도 **이름은 계속 LLM 이 고른다.** 어느 열이 메타인지는 판단이라
+    ``column_schema`` 의 ``semantic_role`` 로 대체할 수 없다 — 실측에서 역할이
+    ``qualitative_spec`` 인 열(``L``/``M``/``N``)을 LLM 이 메타로 보냈다.
+    """
+
     entity: WireEntity
     attributes: list[WireAttribute]
-    metadata: list[WireNamedText]
+    metadata_columns: list[str]
     source: WireRecordSource
     evidence_text: str
     confidence: float

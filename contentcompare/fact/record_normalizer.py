@@ -68,6 +68,31 @@ def _cell_range(row: dict, columns: list[str], r: int) -> str:
     return f"{lo}{r}" if lo == hi else f"{lo}{r}:{hi}{r}"
 
 
+def _metadata_from_columns(names: Any, row: Optional[dict]) -> dict[str, Any]:
+    """LLM 이 고른 메타 **열 이름** + 원본 행 → ``{열: 값}`` (record-v4).
+
+    ``source.cell_range`` 를 코드가 채우는 것과 같은 대우다 — **LLM 은 어느 열을 볼지
+    정하고, 값은 원문에서 온다.** 값까지 받으면 출력의 27.8%(실측 104행)를 아무도 읽지
+    않을 데이터에 쓴다(``wire_models.WireRecord`` 참고).
+
+    행에 없는 열은 버린다. 지어낸 이름에 넣을 값이 애초에 없고, ``None`` 으로 채우면
+    "빈 셀"과 "없는 열"이 구별되지 않는다 — 보이지 않는 손실이 가장 나쁘다.
+    """
+    if not isinstance(names, list):
+        return {}
+    cells = (row or {}).get("cells") or {}
+    out: dict[str, Any] = {}
+    for name in names:
+        key = _as_col(name)
+        if key and key in cells:
+            out[key] = cells[key]
+    return out
+
+
+def _as_col(name: Any) -> str:
+    return name.strip() if isinstance(name, str) else ""
+
+
 def normalize_records(
     compact: dict,
     table_profile: TableProfile,
@@ -156,6 +181,13 @@ def normalize_records(
                 if rec.source.row is not None and rec.source.row in row_by_r:
                     rec.source.cell_range = _cell_range(
                         row_by_r[rec.source.row], schema_columns, rec.source.row
+                    )
+                # metadata 값도 코드가 원본 셀에서 채운다(record-v4). ``metadata_columns``
+                # 가 없으면 손대지 않는다 — 구조화 출력을 끈 백엔드가 옛 모양(값이 담긴
+                # ``metadata``)을 주면 ``from_llm`` 이 파싱한 것을 그대로 살린다.
+                if isinstance(raw, dict) and "metadata_columns" in raw:
+                    rec.metadata = _metadata_from_columns(
+                        raw.get("metadata_columns"), row_by_r.get(rec.source.row)
                     )
                 batch_records.append(rec)
             # carry-over: 이 배치의 마지막 non-empty 분류를 다음 배치로 전달.

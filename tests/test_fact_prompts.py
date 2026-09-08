@@ -181,4 +181,7 @@ def test_f2_f3_prompts_ask_for_attribute_arrays():
 
     for text in (RECORD_SYSTEM, FACT_SYSTEM):
         assert '"attributes": [{"name"' in text
-    assert '"metadata": [{"name"' in RECORD_SYSTEM
+    # metadata 는 record-v4 에서 **값을 싣지 않는다** — 열 이름만 배열로 오고 값은
+    # ``record_normalizer`` 가 원본 셀에서 채운다. 옛 모양이 되살아나면 여기서 죽는다.
+    assert '"metadata": [{"name"' not in RECORD_SYSTEM
+    assert '"metadata_columns": ["' in RECORD_SYSTEM

@@ -295,3 +295,62 @@ def test_no_split_leaves_the_measurement_keys_out():
     stats: dict = {}
     normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30, stats=stats)
     assert "batches_split" not in stats and "max_split_depth" not in stats
+
+
+# --------------------------------------------------------------------------- #
+# metadata 는 코드가 셀에서 복원한다 (record-v4)
+# --------------------------------------------------------------------------- #
+def _wire_rec(row, name, cat="", attrs=None, meta_cols=None):
+    """record-v4 와이어 모양 — ``record_id`` 없음, metadata 는 **열 이름만**."""
+    return {
+        "source": {"row": row},
+        "entity": {"category": cat, "display_name": name},
+        "attributes": attrs or {},
+        "metadata_columns": meta_cols or [],
+        "evidence_text": name, "confidence": 0.9,
+    }
+
+
+def test_metadata_values_come_from_the_cells_not_the_llm():
+    """LLM 은 어느 열이 메타인지만 고르고, 값은 코드가 그 행에서 그대로 주워 담는다.
+
+    값까지 LLM 에게 받으면 출력의 27.8%(실측)를 아무도 안 읽을 데이터를 생성하는 데 쓴다 —
+    ``Fact`` 에 ``metadata`` 필드가 없어 ``records.json`` 에서 죽는다.
+    """
+    chat = _RecChat([json.dumps({"records": [
+        _wire_rec(2, "충전환경온도", "기본사양", meta_cols=["D", "F"]),
+    ]})])
+
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+
+    # 행2 = {"D": "기본사양", "E": "충전환경온도", "F": -5}
+    assert rs.records[0].metadata == {"D": "기본사양", "F": -5}
+
+
+def test_metadata_columns_the_row_does_not_have_are_dropped():
+    """없는 열을 지어내면 버린다 — 값을 코드가 채우므로 대체할 값 자체가 없다."""
+    chat = _RecChat([json.dumps({"records": [
+        _wire_rec(3, "방전환경온도", meta_cols=["F", "Z"]),   # 행3 에 Z 열은 없다
+    ]})])
+
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+
+    assert rs.records[0].metadata == {"F": -10}
+
+
+def test_record_id_is_generated_by_code_when_the_wire_omits_it():
+    """``record_id`` 도 와이어에서 뺐다 — ``row`` 하나면 코드가 만든다(폴백이 주 경로)."""
+    chat = _RecChat([json.dumps({"records": [
+        _wire_rec(2, "충전환경온도", "기본사양"), _wire_rec(3, "방전환경온도"),
+    ]})])
+
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+
+    assert [r.record_id for r in rs.records] == ["row-2", "row-3"]
+
+
+def test_prompt_asks_for_column_names_only():
+    """스키마와 프롬프트가 갈리면 안 된다 — ``structured_output: off`` 면 프롬프트만 남는다."""
+    from contentcompare.fact.prompts import RECORD_SYSTEM
+
+    assert "metadata_columns" in RECORD_SYSTEM

@@ -158,8 +158,19 @@ def build_schema_user(sheet: dict, profile: dict) -> str:
 # --------------------------------------------------------------------------- #
 # Record Normalizer (F2) — 데이터 행 → record
 # --------------------------------------------------------------------------- #
-RECORD_VERSION = "record-v3"
-"""v3: attributes·metadata 를 map 에서 **배열**로 — strict JSON Schema 는 키 이름을 미리
+RECORD_VERSION = "record-v4"
+"""v4: ``metadata`` 값과 ``record_id`` 를 **출력에서 뺐다** — 둘 다 코드가 만들 수 있다.
+
+실측(``artifacts/자표준문서_xlsx``, 104행)에서 출력의 **27.8% 가 ``metadata``, 5.0% 가
+``record_id``** 였다. ``metadata`` 는 ``Fact`` 에 필드조차 없어 ``records.json`` 에서
+죽고(``fact_extractor._facts_from_records`` 가 안 읽는다), ``record_id`` 는
+``Record.from_llm`` 이 이미 ``row-{row}`` 폴백을 갖고 있다. 33행 예시 525자 → 286자.
+
+**어느 열이 메타인가는 여전히 LLM 이 정한다**(``metadata_columns``) — 값 복사만 코드로
+넘긴 것이다. ``semantic_role`` 로 대체하려다 실패한다: 실측에서 역할이 ``qualitative_spec``
+인 열을 LLM 이 메타로 보냈다.
+
+v3: attributes·metadata 를 map 에서 **배열**로 — strict JSON Schema 는 키 이름을 미리
 모르는 object 를 표현할 수 없다(``additionalProperties`` 금지). 저장 포맷은 그대로 map 이고
 변환은 ``record_models.parse_attributes``/``parse_metadata`` 한 곳에서만 일어난다.
 
@@ -181,7 +192,8 @@ record(JSON)로 변환합니다.
   · 규격 경계 컬럼(하한/중심/상한)은 각각 lower_limit / target_value / upper_limit.
   · 그 외 값·정성 컬럼은 그 컬럼의 이름(field_name)을 그대로 name 으로(예: 정격전압, 재질).
   · 단위 컬럼이 있으면 그 값을 해당 정량 속성의 unit 에 넣습니다.
-- 비교 대상이 아닌 메타(순번/작성일/버전 등)와 의미 불명 컬럼은 metadata 로 보냅니다.
+- 비교 대상이 아닌 메타(순번/작성일/버전 등)와 의미 불명 컬럼은 metadata_columns 에
+  그 컬럼의 열 문자만 나열합니다(값은 적지 마세요 — 코드가 원본 셀에서 채웁니다).
 - 값은 셀에 있는 그대로 옮깁니다(단위 변환·수식 해석 금지).
 - evidence_text 는 그 행에 실제로 있는 문구만 적습니다(지어내기 금지).
 - source 에는 row(행 번호)만 넣습니다. sheet/cell_range 는 코드가 채웁니다.
@@ -190,10 +202,9 @@ record(JSON)로 변환합니다.
 {
   "records": [
     {
-      "record_id": "row-<행번호>",
       "entity": {"category": "...", "subcategory": "...", "display_name": "..."},
       "attributes": [{"name": "<속성이름>", "value": <값|null>, "unit": "<단위>"}],
-      "metadata": [{"name": "<필드명>", "value": "<값>"}],
+      "metadata_columns": ["<열문자>"],
       "source": {"row": <행번호>},
       "evidence_text": "...",
       "confidence": <0~1 실수>

@@ -148,7 +148,7 @@ def test_fields_without_a_code_side_normalizer_stay_free_strings():
 #: **"LLM 이 반드시 지어내야 함"** 이 된다.
 _CODE_OWNED = {
     "fact": ("fact_id", "source", "search_text"),
-    "record": ("sheet", "cell_range"),
+    "record": ("sheet", "cell_range", "record_id", "metadata"),
     "schema": ("location",),
 }
 
@@ -188,6 +188,20 @@ def test_attributes_are_arrays_not_free_key_maps():
         attrs = schema_for(stage)["$defs"][holder]["properties"]["attributes"]
         assert attrs["type"] == "array"
         assert attrs["items"] == {"$ref": "#/$defs/WireAttribute"}
+
+
+def test_metadata_travels_as_column_names_not_values():
+    """``metadata`` 는 **값을 실어 나르지 않는다** — 열 이름만 온다.
+
+    값은 코드가 ``compact_raw`` 의 그 행 셀에서 그대로 주워 담는다. LLM 이 되풀이해 줄
+    이유가 없고(실측: 출력의 27.8%), strict 는 모든 속성을 required 로 만들어서 와이어에
+    남겨 두면 "안 쓰는데 반드시 생성함"이 된다. 반면 **어느 열이 메타인가는 판단**이라
+    이름은 계속 LLM 이 고른다 — ``column_schema`` 의 ``semantic_role`` 만으로는 갈리지
+    않는다(실측: 역할이 ``qualitative_spec`` 인 열을 LLM 이 메타로 보냈다).
+    """
+    props = schema_for("record")["$defs"]["WireRecord"]["properties"]
+    assert props["metadata_columns"]["type"] == "array"
+    assert props["metadata_columns"]["items"] == {"type": "string"}
 
 
 def test_cell_value_keeps_numbers_as_numbers():
