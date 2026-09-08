@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Mapping, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -62,3 +62,21 @@ class EmbeddingClient(Protocol):
         종류별 접두어가 필요한 모델을 위해 백엔드가 접두어를 달리 붙일 수 있다.
         접두어가 설정돼 있지 않으면 무시되어 기존 동작과 같다."""
         ...
+
+
+def apply_extra_body(payload: dict, extra: Optional[Mapping[str, Any]]) -> dict:
+    """설정의 ``llm.extra_body`` 를 요청 payload 에 얹는다. **코드가 정한 키는 안 덮는다.**
+
+    ``ollama``/``internal`` 이 함께 쓴다 — 세 줄이지만 두 파일에 복제하면 한쪽만 고치는
+    사고가 난다(``ratelimit.retry_after_of`` 가 명시적으로 경계한 형태). langchain 은
+    openai SDK 의 ``extra_body`` 인자가 같은 일을 해 주므로 이 함수를 쓰지 않는다.
+
+    ``setdefault`` 인 것이 계약이다: 사람이 넣은 값으로 ``model``·``messages``·``stream``
+    을 갈아치울 수 있으면 그건 손잡이가 아니라 사고다. 코드가 안 쓰는 이름만 통과한다.
+
+    비어 있으면 payload 를 **건드리지 않는다** — 기본값 계약이 "오늘과 바이트 단위로 같은
+    요청"이기 때문이다(``max_tokens: 0`` 과 같은 근거).
+    """
+    for key, value in (extra or {}).items():
+        payload.setdefault(key, value)
+    return payload

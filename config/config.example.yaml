@@ -30,6 +30,27 @@ llm:
   # langchain=bind(max_tokens=).
   max_tokens: 0
 
+  # 요청 본문에 그대로 얹을 임의 필드. 기본은 비움(= 오늘과 바이트 단위로 같은 요청).
+  #
+  # 존재 이유는 **추론(사고) 끄기**다. 실측에서 같은 코드가 gemma-4-31B-it 로는 통과하고
+  # GLM 계열에서만 출력 절단으로 죽었다 — 추론 모델의 completion_tokens 는 `사고 + 답`이라
+  # 사고가 출력 예산을 **먼저** 먹는다. 사고 토큰은 배치 크기에 선형이 아니라서
+  # fact.record_batch_rows 를 줄여도 안 풀린다.
+  #
+  # ⚠️ 사고를 끄는 파라미터 이름은 **배포마다 다르다.** 그래서 think: true/false 같은
+  # 손잡이를 만들지 않았다 — 이름을 하나로 정하면 그 이름을 안 쓰는 게이트웨이에서
+  # 조용히 무시된다. 사내 게이트웨이 문서에서 확인한 이름을 그대로 적을 것.
+  #
+  #   extra_body:
+  #     thinking: {type: disabled}                      # Zhipu(GLM) 규격
+  #     # chat_template_kwargs: {enable_thinking: false}  # vLLM/SGLang 배포
+  #
+  # 코드가 정한 키(model/messages/temperature/stream…)는 덮지 않는다.
+  # 세 백엔드 모두에 전달된다: ollama·internal=payload 최상위 병합 /
+  # langchain=bind(extra_body=) — openai SDK 가 같은 병합을 해 주므로 서버가 보는 모양은 같다.
+  # Ollama 는 규격 이름이 있으므로 아래 llm.ollama.think 를 쓰는 편이 낫다.
+  extra_body: {}
+
   max_retries: 3           # 일시 오류(연결/타임아웃/5xx) 재시도 횟수
   backoff_base: 2          # 지수 백오프 기준(2 → 2s,4s,8s,…)
   rate_limit_wait: 60      # 요청 한도(HTTP 429) 시 대기 초. 서버 Retry-After 가 있으면 그 값 우선

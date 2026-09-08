@@ -181,6 +181,40 @@ class LLMConfig:
     **백엔드 축**으로 난다. ``test_max_tokens_reaches_every_backend`` 가 셋을 한 테스트로
     묶어 붙잡는다.
     """
+    extra_body: dict[str, Any] = field(default_factory=dict)
+    """요청 본문에 그대로 얹을 임의 필드. 기본 ``{}`` = 아무것도 안 얹음.
+
+    **존재 이유는 추론(사고) 끄기다.** 실측에서 같은 코드가 ``gemma-4-31B-it`` 로는
+    통과하고 GLM 계열에서만 출력 절단으로 죽었다. 추론 모델의 ``completion_tokens`` 는
+    ``사고 + 답``이라 사고가 출력 예산을 **먼저** 먹기 때문이다(:mod:`.usage` 의
+    ``reasoning_tokens`` 가 그 내역을 보여 준다).
+
+    ⚠️ **``think: bool`` 같은 추상을 만들지 않은 것이 이 손잡이의 요점이다.** 사고를 끄는
+    파라미터 이름이 배포마다 다르다 — Zhipu 규격 ``thinking: {"type": "disabled"}``,
+    vLLM/SGLang ``chat_template_kwargs: {"enable_thinking": false}``, 그 외
+    ``reasoning_effort`` 등. 이름을 하나로 정하면 그 이름을 안 쓰는 게이트웨이에서 **조용히
+    무시**되고, 그것이 이 저장소에서 가장 나쁜 결과다. 모르는 것을 아는 척하지 않는다.
+
+    :attr:`OllamaConfig.think` 와 겹치지 않는다 — 그쪽은 Ollama 가 규격으로 정한 이름이
+    있어 손잡이가 성립하고, 이쪽은 그 이름을 **우리가 모르는** 경우다.
+
+    ⚠️ **세 백엔드 전부에 배선되어 있어야 한다**(:attr:`max_tokens` 와 같은 이유).
+    ollama/internal 은 payload 최상위에 병합하고 langchain 은 openai SDK 의 ``extra_body``
+    로 넘기지만 — 그 인자의 정의가 "이 dict 를 요청 본문에 병합하라"라 **서버가 보는 모양은
+    셋이 같다.** ``test_extra_body_reaches_every_backend`` 가 셋을 한 테스트로 묶는다.
+
+    코드가 이미 정한 키(``model``/``messages``/``temperature``…)는 **덮지 않는다**
+    (:func:`~contentcompare.llm.base.apply_extra_body`). 덮게 두면 설정 한 줄로 프롬프트가
+    바뀌거나 ``stream`` 이 켜져 응답 파싱이 깨지는데, 원인이 config 에 있다는 것을 아무도
+    못 본다.
+
+    예시 (config.yaml)::
+
+        llm:
+          extra_body:
+            thinking: {type: disabled}
+    """
+
     max_retries: int = 3
     """일시 오류(연결/타임아웃/5xx) 재시도 횟수."""
     backoff_base: float = 2.0

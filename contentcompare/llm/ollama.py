@@ -10,6 +10,7 @@ import time
 from typing import Any, Callable, Optional
 
 from ..config import LLMConfig
+from .base import apply_extra_body
 from .http import RetryPolicy, extract, post_json
 from .truncation import LENGTH, LengthLimitError, from_truncated
 from .usage import UNKNOWN, Usage, from_response
@@ -88,6 +89,9 @@ class OllamaBackend:
         }
         if self.config.ollama.think is not None:
             payload["think"] = self.config.ollama.think
+        # 위 ``think`` 를 이미 넣었으면 ``extra_body`` 가 덮지 않는다 — 구체적인 손잡이가
+        # 범용 통로를 이긴다(setdefault 계약).
+        apply_extra_body(payload, self.config.extra_body)
         data = self._post(url, payload)
         self.last_usage = from_response(data)
         content = extract(data, "message", "content", url=url)

@@ -120,3 +120,69 @@ def test_as_detail_without_duration_has_no_rate():
 def test_as_detail_no_output_tokens_has_no_rate():
     """출력 토큰이 없으면 속도도 없다 — 입력만으로 생성 속도를 말할 수 없다."""
     assert "tok_per_sec" not in Usage(input_tokens=10).as_detail(5000)
+
+
+# --------------------------------------------------------------------------- #
+# 추론(사고) 토큰 — 출력 토큰의 **내역**이지 별도 항목이 아니다
+# --------------------------------------------------------------------------- #
+def test_openai_reasoning_breakdown():
+    """추론 모델은 사고 토큰을 ``completion_tokens`` 에 **포함**해 주고, 내역만 한 겹
+    안(``completion_tokens_details``)에 담는다.
+
+    실측 배경: 같은 코드가 gemma(-it)에서는 통과하고 GLM 계열에서만 length 로 죽었다.
+    사고가 출력 예산을 먼저 먹기 때문인데, 이 내역이 없으면 타임라인의
+    ``output_tokens`` 만 보고는 "출력이 컸다"와 "사고가 컸다"를 가를 수 없다.
+    """
+    data = {
+        "choices": [{"message": {"content": ""}, "finish_reason": "length"}],
+        "usage": {
+            "prompt_tokens": 1200,
+            "completion_tokens": 32368,
+            "completion_tokens_details": {"reasoning_tokens": 20000},
+        },
+    }
+    got = from_response(data)
+    assert got.output_tokens == 32368     # 총량은 그대로 — 추론을 빼지 않는다
+    assert got.reasoning_tokens == 20000
+
+
+def test_langchain_reasoning_breakdown():
+    """langchain 은 같은 숫자를 ``output_token_details.reasoning`` 으로 부른다."""
+
+    class FakeMessage:
+        content = ""
+        usage_metadata = {
+            "input_tokens": 1200, "output_tokens": 32368,
+            "output_token_details": {"reasoning": 20000},
+        }
+
+    assert from_response(FakeMessage()).reasoning_tokens == 20000
+
+
+def test_reasoning_from_the_openai_exception_usage_object():
+    """``LengthFinishReasonError`` 가 들고 오는 ``CompletionUsage`` 는 **객체**다."""
+
+    class Details:
+        reasoning_tokens = 777
+
+    class CompletionUsage:
+        prompt_tokens = 10
+        completion_tokens = 900
+        completion_tokens_details = Details()
+
+    class Completion:
+        usage = CompletionUsage()
+
+    assert from_response(Completion()).reasoning_tokens == 777
+
+
+def test_reasoning_stays_out_of_the_detail_when_the_server_is_silent():
+    """미상 규약 — ``reasoning_tokens=0`` 이 줄에 찍히면 '사고를 안 했다'로 읽히는데
+    실제 뜻은 '서버가 안 알려줬다'라서 정반대다(``output_tokens`` 와 같은 이유)."""
+    assert "reasoning_tokens" not in Usage(input_tokens=10, output_tokens=100).as_detail()
+    assert Usage(10, 100, 60).as_detail()["reasoning_tokens"] == 60
+
+
+def test_reasoning_alone_does_not_make_usage_known():
+    """토큰 둘을 모르면 여전히 미상이다 — 내역만으로는 남길 줄이 없다."""
+    assert not Usage(reasoning_tokens=5).known

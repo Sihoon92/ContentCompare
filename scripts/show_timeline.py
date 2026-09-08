@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(_HERE))
 
 from contentcompare.config import AppConfig  # noqa: E402
 from contentcompare.timeline import (  # noqa: E402
+    console_safe,
     ERROR_STATUSES,
     RETRY,
     WAIT,
@@ -83,6 +84,25 @@ def _keep(event, args) -> bool:
     return True
 
 
+
+def safe_print(text: str = "") -> None:
+    """화면 인코딩이 **실제로 못 쓰는 문자만** 바꿔 출력한다.
+
+    ⚠️ 생 ``print`` 를 쓰면 안 된다. Windows PowerShell 5.1 기본이 cp949 인데 이 스크립트가
+    찍는 거의 모든 줄에 그 인코딩에 없는 문자가 있다 — ``format_line`` 의 ``✓``(U+2713)·
+    ``✗``(U+2717), ``_HINTS`` 7건 중 6건의 ``—``(U+2014). 그대로 찍으면
+    ``UnicodeEncodeError`` 로 **스크립트가 그 줄에서 죽는다.**
+
+    :func:`~contentcompare.timeline.console_safe` 는 진작 있었지만 실시간 콘솔만 거치고
+    있었다. 정작 **사람이 진단을 읽으러 오는 경로**가 빠져 있었던 셈이다.
+
+    ``sys.stdout`` 을 호출 시점에 읽는다 — 테스트가 스트림을 갈아끼울 수 있어야 한다
+    (``setup_console(stream=...)`` 주입구를 둔 것과 같은 이유다).
+    """
+    stream = sys.stdout
+    print(console_safe(text, getattr(stream, "encoding", None)), file=stream)
+
+
 def main(argv: list[str] | None = None) -> int:
     # 기존 스크립트 관례 — Windows 기본 콘솔(cp949)에서 기호 하나에 죽지 않게 한다.
     if hasattr(sys.stdout, "reconfigure"):
@@ -94,53 +114,53 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list or not runs:
         if not runs:
-            print(f"타임라인이 없습니다: {root}")
-            print("  logging.timeline 이 켜져 있는지, 실행을 한 번 했는지 확인하세요.")
+            safe_print(f"타임라인이 없습니다: {root}")
+            safe_print("  logging.timeline 이 켜져 있는지, 실행을 한 번 했는지 확인하세요.")
             return 1
-        print(f"타임라인 {len(runs)}건 ({root})")
+        safe_print(f"타임라인 {len(runs)}건 ({root})")
         for path in runs:
             events = load_timeline(path)
             failed = sum(1 for e in events if e.status in ERROR_STATUSES)
             when = f"{datetime.fromtimestamp(events[0].ts):%Y-%m-%d %H:%M}" if events else "-"
             mark = f"  ✗ 실패 {failed}건" if failed else ""
-            print(f"  {path.stem:<20} {len(events):>5}건  {when}{mark}")
+            safe_print(f"  {path.stem:<20} {len(events):>5}건  {when}{mark}")
         return 0
 
     path = _pick(root, args.run)
     if path is None:
-        print(f"실행을 찾지 못했습니다: {args.run!r} (--list 로 목록 확인)")
+        safe_print(f"실행을 찾지 못했습니다: {args.run!r} (--list 로 목록 확인)")
         return 1
 
     events = load_timeline(path)
     shown = [e for e in events if _keep(e, args)]
-    print(f"# {path}  ({len(shown)}/{len(events)}건)\n")
+    safe_print(f"# {path}  ({len(shown)}/{len(events)}건)\n")
     for event in shown:
-        print(format_line(event))
+        safe_print(format_line(event))
 
     if args.no_summary:
         return 0
 
     rows = stage_durations(events)
     if rows:
-        print("\n단계별 소요 (긴 순)")
+        safe_print("\n단계별 소요 (긴 순)")
         width = max(len(r["name"]) for r in rows)
         for row in rows:
             mark = "  ✗ 실패" if row["status"] in ERROR_STATUSES else ""
-            print(f"  {row['name']:<{width}}  "
+            safe_print(f"  {row['name']:<{width}}  "
                   f"{format_duration(row['duration_ms']):>8}{mark}")
 
     failures = [e for e in events if e.status in ERROR_STATUSES
                 and e.kind == "stage_end"]
     if failures:
-        print(f"\n실패한 단계 {len(failures)}건 — 가장 안쪽이 원인 지점입니다")
+        safe_print(f"\n실패한 단계 {len(failures)}건 — 가장 안쪽이 원인 지점입니다")
         for event in failures:
-            print(f"  {event.name}: {(event.detail or {}).get('error', event.status)}")
+            safe_print(f"  {event.name}: {(event.detail or {}).get('error', event.status)}")
 
     hints = diagnose(events)
     if hints:
-        print("\n다음에 볼 것")
+        safe_print("\n다음에 볼 것")
         for hint in hints:
-            print(f"  · {hint}")
+            safe_print(f"  · {hint}")
     return 0
 
 

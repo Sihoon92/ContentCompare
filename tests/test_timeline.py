@@ -349,3 +349,27 @@ def test_timeline_dir_defaults_to_artifacts(tmp_path):
     built.event("stage_start", "F1")
     built.close()
     assert list((tmp_path / "arts" / "_timeline").glob("*.jsonl"))
+
+
+def test_diagnose_separates_a_thinking_model_from_a_big_batch():
+    """잘렸는데 **사고 토큰이 있었다**면 조치가 다르다 — 배치를 줄여도 안 풀린다.
+
+    실측: 같은 코드가 ``gemma-4-31B-it`` 로는 통과하고 GLM 계열에서만 length 로 죽었다.
+    추론 모델의 ``completion_tokens`` 는 사고 + 답이라 사고가 출력 예산을 먼저 먹는데,
+    사고 토큰은 배치 크기에 선형이 아니라서 절반으로 갈라도 그대로 남는다.
+    """
+    events = _events(
+        ("llm_end", "F2 records", "length", 90_000,
+         {"output_tokens": 32368, "reasoning_tokens": 20000, "output_chars": 120}),
+    )
+    hints = tl.diagnose(events)
+    assert any("extra_body" in h for h in hints)
+
+
+def test_diagnose_stays_quiet_about_thinking_when_nothing_was_truncated():
+    """사고 토큰만 보고 떠들면 안 된다 — 통과한 실행에서는 조치가 없다."""
+    events = _events(
+        ("llm_end", "F2 records", "ok", 9_000,
+         {"output_tokens": 900, "reasoning_tokens": 400}),
+    )
+    assert tl.diagnose(events) == []

@@ -226,6 +226,11 @@ class LangChainBackend:
         # 0 이면 위 ``response_format`` 과 같은 이유로 키를 아예 뺀다.
         if self.config.max_tokens:
             bound["max_tokens"] = self.config.max_tokens
+        # openai SDK 의 ``extra_body`` 는 "이 dict 를 요청 본문에 병합하라"는 뜻이라,
+        # ollama/internal 이 payload 최상위에 직접 얹는 것과 **서버가 보는 모양이 같다.**
+        # 비어 있으면 키를 아예 안 넣는다(위 ``response_format``/``max_tokens`` 와 같은 근거).
+        if self.config.extra_body:
+            bound["extra_body"] = dict(self.config.extra_body)
         with self._proxy_ctx():
             resp = chat.bind(**bound).invoke(messages)
         self.last_usage = from_response(resp)

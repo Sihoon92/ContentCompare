@@ -438,6 +438,12 @@ _HINTS: tuple[tuple[str, str], ...] = (
      "(`fact.record_batch_rows` / `fact.fact_batch_blocks`). 자동 축소가 깊이 한도까지 "
      "내려가도 실패했다면 원인은 배치 크기가 아니라 **행/블록 하나가 크거나 모델이 같은 "
      "구조를 반복 생성한 것**입니다 — `input_tokens` 대비 `output_tokens` 비를 보세요."),
+    ("reasoning",
+     "잘린 호출이 **사고(reasoning) 토큰**을 썼습니다. 추론 모델의 completion 은 "
+     "`사고 + 답`이라 사고가 출력 예산을 먼저 먹습니다 — 사고 토큰은 배치 크기에 선형이 "
+     "아니라서 **배치를 줄여도 그대로 남습니다**. 사고를 끄세요: `llm.extra_body` 에 "
+     "게이트웨이가 정한 필드를 넣습니다(예: `thinking: {type: disabled}` / "
+     "`chat_template_kwargs: {enable_thinking: false}`). Ollama 면 `llm.ollama.think: false`."),
     ("rate_limit",
      "요청 한도에 걸렸습니다. `llm.max_calls_per_minute` 는 기본 0(꺼짐)입니다 — "
      "사내 한도가 분당 60회면 55 정도를 권합니다."),
@@ -465,6 +471,11 @@ def diagnose(events: Iterable[TimelineEvent]) -> list[str]:
         detail = event.detail or {}
         if event.status == "length":
             seen.add("length")
+            # 두 사실을 **AND 로 세기만** 한다("잘렸다" + "사고 토큰이 있었다"). 비율로
+            # 판단하지 않는 것은 이 함수의 선 긋기 그대로다 — 사고가 있었다는 사실만으로
+            # 조치가 갈린다(배치 축소로는 안 풀린다).
+            if detail.get("reasoning_tokens"):
+                seen.add("reasoning")
         if event.status == "timeout":
             seen.add("timeout")
         if event.status == "rate_limit":

@@ -56,6 +56,13 @@ _NESTED_KEYS = ("usage", "usage_metadata", "token_usage")
 #: 넘기지 말고 **응답 객체를 통째로** 넘겨야 한다.
 _ATTRS = ("usage_metadata", "response_metadata", "usage", "token_usage")
 
+#: 추론(사고) 토큰의 **내역**이 담기는 한 겹 안쪽 이름. 여기서도 백엔드가 갈린다 —
+#: OpenAI 호환은 ``completion_tokens_details``, langchain 은 ``output_token_details``.
+_REASONING_SCOPES = ("completion_tokens_details", "output_token_details")
+
+#: 그 안에서 볼 키. 이름까지 갈린다(``reasoning_tokens`` / ``reasoning``).
+_REASONING_KEYS = ("reasoning_tokens", "reasoning")
+
 
 @dataclass(frozen=True)
 class Usage:
@@ -63,10 +70,24 @@ class Usage:
 
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
+    """사고 토큰. ⚠️ :attr:`output_tokens` 에 **포함된 값의 내역**이지 별도 항목이 아니다.
+
+    추론 모델은 사고를 먼저 생성하고 남은 예산으로 답을 쓰므로, 길이 한도에 닿는 원인이
+    "출력이 컸다"인지 "사고가 컸다"인지가 **조치를 가른다**(배치 축소 vs 사고 끄기).
+    실측: 같은 코드가 gemma(-it)에서는 통과하고 GLM 계열에서만 절단됐다.
+
+    빼서 저장하지 않는 이유는 원칙 1(읽기만 한다)이다 — 서버가 준 총량을 우리가 가공하면
+    ``output_tokens`` 가 서버의 숫자가 아니게 되고, 그러면 로그와 대조가 안 된다.
+    """
 
     @property
     def known(self) -> bool:
-        """한쪽이라도 알면 참 — 있는 만큼은 남길 가치가 있다."""
+        """한쪽이라도 알면 참 — 있는 만큼은 남길 가치가 있다.
+
+        ⚠️ :attr:`reasoning_tokens` 는 여기 넣지 않는다. 내역만 알고 총량을 모르는 응답은
+        실재하지 않고, 넣으면 "토큰 둘 다 미상"인 줄이 남을 수 있다.
+        """
         return bool(self.input_tokens or self.output_tokens)
 
     def as_detail(self, duration_ms: int = 0) -> dict[str, Any]:
@@ -82,6 +103,8 @@ class Usage:
             detail["input_tokens"] = self.input_tokens
         if self.output_tokens:
             detail["output_tokens"] = self.output_tokens
+        if self.reasoning_tokens:
+            detail["reasoning_tokens"] = self.reasoning_tokens
         rate = self.rate(duration_ms)
         if rate:
             detail["tok_per_sec"] = rate
@@ -131,8 +154,26 @@ def _from_mapping(data: Mapping[str, Any]) -> Usage:
 
 
 def _from_scope(scope: Any) -> Usage:
-    """한 겹(dict 또는 객체)에서 토큰 둘을 꺼낸다."""
-    return Usage(_pick(scope, _INPUT_KEYS), _pick(scope, _OUTPUT_KEYS))
+    """한 겹(dict 또는 객체)에서 토큰 둘 + 사고 내역을 꺼낸다."""
+    return Usage(_pick(scope, _INPUT_KEYS), _pick(scope, _OUTPUT_KEYS),
+                 _reasoning_of(scope))
+
+
+def _reasoning_of(scope: Any) -> int:
+    """``usage`` 한 겹 **안쪽**의 사고 토큰. 없으면 0(미상).
+
+    :func:`_scopes` 로 훑지 않고 여기서 따로 여는 이유는, 총량을 찾은 **그 scope 의**
+    내역이어야 하기 때문이다 — 넓게 훑으면 다른 응답 조각의 ``reasoning`` 을 주워 와
+    "미상 = 서버가 안 줬다"는 이 모듈의 규약이 조용히 무너진다.
+    """
+    for name in _REASONING_SCOPES:
+        inner = scope.get(name) if isinstance(scope, Mapping) else _attr(scope, name)
+        if inner is None:
+            continue
+        found = _pick(inner, _REASONING_KEYS)
+        if found:
+            return found
+    return 0
 
 
 def _scopes(data: Mapping[str, Any], depth: int = 0) -> Iterator[Mapping[str, Any]]:
