@@ -174,6 +174,16 @@ def test_failed_substage_keeps_the_full_name():
     assert "자표준원문.xlsx" in text and "배치 2/4" in text
 
 
+def test_unknown_demotion_is_visible_as_a_failed_timeline_event():
+    """F5 운영 실패의 unknown 강등은 ``--errors``/UI 실패 필터에서 보여야 한다."""
+    event = tl.TimelineEvent(
+        ts=1.0, kind=tl.NOTE, name="F5 값 대조", status="unknown",
+        detail={"failure_reason": "output_truncated"},
+    )
+
+    assert event.failed is True
+
+
 # --------------------------------------------------------------------------- #
 # 싱글턴 · 안전망
 # --------------------------------------------------------------------------- #

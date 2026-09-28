@@ -215,18 +215,23 @@ class FactPipeline:
         result.compare_stats = {
             "comparisons": len(result.comparisons),
             "decided_by_llm": sum(1 for c in result.comparisons if c.decided_by == "llm"),
-            "llm_calls": comparator.llm_calls,
-            "llm_failures": comparator.llm_failures,
-            "llm_budget_exceeded": comparator.llm_budget_exceeded,
+            **comparator.stats(),
+            # comparator.llm_calls 는 성공적으로 판정 JSON 을 얻은 **비교 수**이고,
+            # 이 묶음의 calls 는 파싱·schema 제거 재시도까지 포함한 실제 생성 횟수다.
+            "llm": (
+                runner.stats() if runner is not None else {
+                    "calls": 0, "retries": 0,
+                    "parse_failures": 0, "structured_calls": 0,
+                }
+            ),
             "multi_candidate_comparisons": len(multi),
             "multi_candidate_overridden": sum(1 for c in multi if c.result_changed),
-            "quote_unverified": comparator.quote_unverified,
-            "dropped_findings": comparator.dropped_findings,
             "concept": dict(graph.stats) if graph is not None else {},
             # 게이트가 꺼져 있으면 키를 아예 넣지 않는다 — 0 으로 채우면
             # "게이트가 아무것도 안 잡았다"로 오독된다.
             **(gate_stats(result.comparisons) if self.fact.fast_path.enabled else {}),
         }
+        self._save_comparison_stats(ref_doc, result.compare_stats)
         self._save_comparison(ref_doc, result)
         # 지연 import — report 패키지가 fact 결과 모델을 참조하므로 모듈 최상단에서
         # 서로를 부르면 순환 import 가 된다.
@@ -309,6 +314,35 @@ class FactPipeline:
             "stats": result.compare_stats,
             "comparisons": [c.to_dict() for c in result.comparisons],
         })
+
+    def _save_comparison_stats(self, ref_doc: DocFacts, stats: dict) -> None:
+        """기준 문서 ``run_stats.json``에 이번 F5 계측을 병합한다.
+
+        F0~F4a finally가 먼저 저장한 문서 계측을 보존하고 ``comparison``만 교체한다.
+        손상된 기존 JSON을 빈 파일로 덮으면 원인 추적 자료를 잃으므로 그대로 둔다.
+        """
+        if not self.fact.save_artifacts:
+            return
+        store = ArtifactStore(
+            self.fact.artifacts_dir, ref_doc.doc_name,
+            enabled=True, cache=False,
+        )
+        try:
+            saved = store.load("run_stats")
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("[Fact] run_stats 비교 계측 병합 실패(기존 파일 보존): %s", exc)
+            return
+        if saved is None:
+            saved = {}
+        if not isinstance(saved, dict):
+            logger.warning("[Fact] run_stats 비교 계측 병합 실패(dict 아님, 기존 파일 보존)")
+            return
+        merged = dict(saved)
+        merged["comparison"] = dict(stats)
+        try:
+            store.save_atomic("run_stats", merged)
+        except OSError as exc:
+            logger.warning("[Fact] run_stats 비교 계측 저장 실패: %s", exc)
 
     @staticmethod
     def _stage_durations_for(doc_label: str) -> list[dict]:

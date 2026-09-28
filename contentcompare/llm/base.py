@@ -15,7 +15,7 @@ class LLMClient(Protocol):
 
     **선택적 확장 규약(덕 타이핑) — 프로토콜 서명에는 넣지 않는다.**
 
-    아래 넷은 *구현해도 되고 안 해도 되는* 확장이다. 서명(``complete -> str``)을 바꾸면
+    아래 확장은 *구현해도 되고 안 해도 되는* 규약이다. 서명(``complete -> str``)을 바꾸면
     ``comparison/``·``readers/`` 와 테스트의 가짜 chat 37개까지 파급되므로,
     ``handles_rate_limit`` 을 시작으로 이 저장소는 **속성으로 신호하고 호출부가
     ``getattr`` 로 물어보는** 방식을 세 번째 반복해서 쓰고 있다.
@@ -32,6 +32,10 @@ class LLMClient(Protocol):
         :meth:`~contentcompare.fact.llm_stage.LlmRunner.complete_json` 이 **호출마다** 읽고
         참일 때만 ``schema=`` 를 넘긴다. 선언하지 않은 객체(테스트용 가짜 chat 37개)에는
         추가 인자가 **절대 가지 않는다** — 서명 하나를 지키기 위한 장치의 전부가 이것이다.
+
+    ``supports_schema_removal_retry: bool`` (속성 또는 프로퍼티)
+        ``schema=None`` 재호출이 첫 요청의 JSON Schema 제약을 실제로 제거한다. F5가 출력
+        절단 뒤 동일 요청을 반복하지 않도록 읽는다. 선언하지 않으면 False다.
 
     ``complete(..., schema: dict | None = None)``
         ``supports_structured_output`` 이 참인 구현만 이 키워드를 받는다. 값은 **JSON

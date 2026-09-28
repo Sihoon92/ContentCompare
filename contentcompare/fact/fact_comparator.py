@@ -27,6 +27,10 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .. import timeline
+from ..llm.tracing import current_stage
+from ..llm.truncation import LengthLimitError
+from ..logging_setup import log_print
 from .fact_matcher import MatchCandidate
 from .fact_models import Fact
 from .fact_store import DocFacts
@@ -119,6 +123,8 @@ class FactComparison:
     decided_by: str = BY_CODE
     """``code`` | ``llm`` — LLM 이 실제로 얼마나 필요했는지의 계측."""
     reason: str = ""
+    failure_reason: str = ""
+    """운영 실패로 ``unknown`` 강등됐을 때의 기계 판독 코드."""
 
     # --- 판정 이력(Phase 1) — 2차 검사가 1차를 조용히 덮지 않게 하는 기반 --- #
     initial_result: str = ""
@@ -151,6 +157,7 @@ class FactComparison:
             "result_changed": self.result_changed,
             "safe_to_finalize": self.safe_to_finalize,
             "reason": self.reason,
+            "failure_reason": self.failure_reason,
             "reference": _side_dict(self.reference_fact),
             "target": _side_dict(self.target_fact),
             # 1:N 종합 판정의 내역. 후보가 1건이면 findings 도 1건이라 기존 소비자는
@@ -223,10 +230,31 @@ class FactComparator:
         파싱 실패는 그 항목 하나로 끝나지만, 예산 고갈은 **그 뒤 모든 항목**을 쓸어간다.
         한 숫자에 섞으면 "왜 갑자기 전부 보류인가"를 사후에 설명할 수 없고, 사용자는
         예산이 아니라 모델을 바꾸러 간다."""
+        self.llm_parse_failures = 0
+        self.llm_truncations = 0
+        """복구 성공분까지 포함한 출력 절단 예외 횟수."""
+        self.llm_schema_retries = 0
+        self.llm_schema_recoveries = 0
+        self.llm_output_truncated = 0
         self.dropped_findings = 0
         """후보 밖 ``fact_id`` 를 가리켜 버려진 finding 수 — 드롭은 결과에 안 남으므로
         여기서 세지 않으면 영영 보이지 않는다."""
         self.quote_unverified = 0
+
+    def stats(self) -> dict[str, int]:
+        """F5 판정 계측. 최종 실패와 복구 중 관측을 구분해 반환한다."""
+        return {
+            "llm_calls": self.llm_calls,
+            "llm_failures": self.llm_failures,
+            "llm_budget_exceeded": self.llm_budget_exceeded,
+            "llm_parse_failures": self.llm_parse_failures,
+            "llm_truncations": self.llm_truncations,
+            "llm_schema_retries": self.llm_schema_retries,
+            "llm_schema_recoveries": self.llm_schema_recoveries,
+            "llm_output_truncated": self.llm_output_truncated,
+            "dropped_findings": self.dropped_findings,
+            "quote_unverified": self.quote_unverified,
+        }
 
     # ------------------------------------------------------------------ #
     def compare(
@@ -389,19 +417,117 @@ class FactComparator:
         user = build_compare_user(
             ref, [c.fact for c in candidates], knowledge=self.knowledge
         )
+        compare_schema = schema_for("compare")
+        structured_before = self.runner.structured_calls
         try:
             parsed = self.runner.complete_json(COMPARE_SYSTEM, user,
-                                               schema=schema_for("compare"))
-            self.llm_calls += 1
-        except (LlmBudgetExceeded, ValueError) as e:
-            self.llm_failures += 1
-            if isinstance(e, LlmBudgetExceeded):
-                self.llm_budget_exceeded += 1
-            logger.warning("[Fact] 비교 LLM 실패(%s) → 보류: %s", type(e).__name__, ref.entity_name)
-            return self._fallback(
-                out, code_verdict, f"LLM 판정 실패({type(e).__name__})로 보류합니다.",
-                multi=multi,
+                                               schema=compare_schema)
+        except LengthLimitError:
+            self.llm_truncations += 1
+            schema_applied = (
+                bool(compare_schema)
+                and self.runner.structured_calls > structured_before
+                and bool(getattr(
+                    self.runner.chat, "supports_schema_removal_retry", False
+                ))
             )
+            if not schema_applied:
+                return self._mark_unknown(
+                    out, ref, candidates,
+                    failure_reason="output_truncated",
+                    retry_attempted=False,
+                    note=(
+                        "출력이 절단되었으며 제거할 JSON Schema 제약이 없어 "
+                        "재호출 없이 unknown으로 보류합니다."
+                    ),
+                )
+            if self.runner.calls >= self.runner.max_calls:
+                return self._mark_unknown(
+                    out, ref, candidates,
+                    failure_reason="budget_exceeded",
+                    retry_attempted=False,
+                    note=(
+                        "출력 절단 후 schema 제거 복구 중 실패했습니다. "
+                        "LLM 판정 호출 예산이 소진되어 unknown으로 보류합니다."
+                    ),
+                )
+
+            timeline.emit(
+                timeline.RETRY, current_stage(depth=1), status="length",
+                action="retry_without_schema", attempt=1, max=1,
+                reference_fact_id=ref.fact_id, target_doc=out.target_doc,
+                candidate_ids=[c.fact.fact_id for c in candidates],
+                runner_calls=self.runner.calls,
+                reason="출력 절단, JSON Schema 제거 후 재시도",
+            )
+            logger.warning("[Fact] 비교 출력 절단 → schema 제거 1회 재시도: %s",
+                           ref.entity_name)
+            calls_before_retry = self.runner.calls
+            try:
+                parsed = self.runner.complete_json(
+                    COMPARE_SYSTEM, user, schema=None, retries=0
+                )
+            except LengthLimitError:
+                self.llm_truncations += 1
+                return self._mark_unknown(
+                    out, ref, candidates,
+                    failure_reason="output_truncated",
+                    retry_attempted=True,
+                    note=(
+                        "schema 제거 재시도에서도 출력이 절단되어 "
+                        "unknown으로 보류합니다."
+                    ),
+                )
+            except LlmBudgetExceeded:
+                return self._mark_unknown(
+                    out, ref, candidates,
+                    failure_reason="budget_exceeded",
+                    retry_attempted=False,
+                    note=(
+                        "출력 절단 후 schema 제거 복구 중 실패했습니다. "
+                        "LLM 판정 호출 예산이 소진되어 unknown으로 보류합니다."
+                    ),
+                )
+            except ValueError:
+                return self._mark_unknown(
+                    out, ref, candidates,
+                    failure_reason="parse_failure",
+                    retry_attempted=True,
+                    note=(
+                        "출력 절단 후 schema 제거 복구 중 실패했습니다. "
+                        "LLM 판정 응답을 JSON으로 해석하지 못해 unknown으로 보류합니다."
+                    ),
+                )
+            finally:
+                if self.runner.calls > calls_before_retry:
+                    self.llm_schema_retries += 1
+            self.llm_schema_recoveries += 1
+            timeline.emit(
+                timeline.NOTE, current_stage(depth=1), status="ok",
+                action="recovered_without_schema",
+                reference_fact_id=ref.fact_id, target_doc=out.target_doc,
+                candidate_ids=[c.fact.fact_id for c in candidates],
+                runner_calls=self.runner.calls,
+                reason="JSON Schema 제거 재시도 성공",
+            )
+        except LlmBudgetExceeded:
+            return self._mark_unknown(
+                out, ref, candidates,
+                failure_reason="budget_exceeded",
+                retry_attempted=False,
+                note="LLM 판정 호출 예산이 소진되어 unknown으로 보류합니다.",
+            )
+        except ValueError:
+            return self._mark_unknown(
+                out, ref, candidates,
+                failure_reason="parse_failure",
+                retry_attempted=False,
+                note=(
+                    "LLM 판정 응답을 JSON으로 해석하지 못해 "
+                    "unknown으로 보류합니다."
+                ),
+            )
+        self.llm_calls += 1
 
         result = str(parsed.get("result") or "").strip().lower()
         if result not in _RESULTS:
@@ -445,6 +571,52 @@ class FactComparator:
         out.reason = reason or "(사유 없음)"
         if uncertain and result != UNKNOWN:
             out.reason += " (근거 신뢰도가 낮아 검토 대상입니다.)"
+        return out
+
+    def _mark_unknown(
+        self,
+        out: FactComparison,
+        ref: Fact,
+        candidates: list[MatchCandidate],
+        *,
+        failure_reason: str,
+        retry_attempted: bool,
+        note: str,
+    ) -> FactComparison:
+        """한 F5 운영 실패를 결과·로그·타임라인에 같은 원인으로 남긴다."""
+        self.llm_failures += 1
+        if failure_reason == "budget_exceeded":
+            self.llm_budget_exceeded += 1
+        elif failure_reason == "parse_failure":
+            self.llm_parse_failures += 1
+        elif failure_reason == "output_truncated":
+            self.llm_output_truncated += 1
+
+        out.result = UNKNOWN
+        out.decided_by = BY_CODE
+        out.mismatch_attributes = []
+        out.findings = []
+        # 운영 실패 시에도 사람이 당시 입력 전체를 재검토할 수 있어야 한다.
+        # 대표 후보(`target_fact`)는 기존 값을 유지하고, 직렬화되는 후보 목록에는
+        # LLM에 전달했던 모든 후보를 보존한다.
+        out.target_facts = [candidate.fact for candidate in candidates]
+        out.failure_reason = failure_reason
+        out.reason = note
+
+        candidate_ids = [c.fact.fact_id for c in candidates]
+        log_print(
+            f"[Fact] 비교 LLM 실패({failure_reason}) -> unknown: "
+            f"{ref.entity_name} ({ref.fact_id})",
+            level=logging.WARNING,
+            logger_name=__name__,
+        )
+        timeline.emit(
+            timeline.NOTE, current_stage(depth=1), status="unknown",
+            action="unknown", failure_reason=failure_reason,
+            reference_fact_id=ref.fact_id, target_doc=out.target_doc,
+            candidate_ids=candidate_ids, retry_attempted=retry_attempted,
+            runner_calls=self.runner.calls, reason=note,
+        )
         return out
 
     @staticmethod

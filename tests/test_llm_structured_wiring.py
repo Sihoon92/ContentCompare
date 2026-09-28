@@ -133,6 +133,33 @@ def test_full_stack_reports_false_for_a_legacy_fake():
     assert getattr(stack, "supports_structured_output", False) is False
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [("auto", True), ("json_schema", True), ("json_object", False), ("off", False)],
+)
+def test_schema_removal_retry_requires_an_actual_request_change(mode, expected):
+    """schema=None이 response_format을 실제로 제거하는 모드만 복구 호출을 허용한다."""
+    from contentcompare.config import LLMConfig
+    from contentcompare.llm.langchain_backend import LangChainBackend
+
+    config = LLMConfig(structured_output=mode)
+    backend = LangChainBackend(config, chat=object())
+    stack = _limited(_traced(backend))
+
+    assert getattr(stack, "supports_schema_removal_retry", False) is expected
+
+
+def test_schema_removal_retry_turns_off_after_server_rejects_schema():
+    """서버 거절로 구조화 출력이 강등되면 같은 요청을 복구 호출로 반복하지 않는다."""
+    from contentcompare.config import LLMConfig
+    from contentcompare.llm.langchain_backend import LangChainBackend
+
+    backend = LangChainBackend(LLMConfig(structured_output="auto"), chat=object())
+    backend._structured_off = True
+
+    assert backend.supports_schema_removal_retry is False
+
+
 # --------------------------------------------------------------------------- #
 # 플래그와 서명의 1:1 대응 — 어긋나면 위임이 플래그만 올려 주고 호출이 죽는다
 # --------------------------------------------------------------------------- #

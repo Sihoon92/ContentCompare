@@ -76,6 +76,31 @@ class ArtifactStore:
             )
         return p
 
+    def save_atomic(self, stage: str, data: Any) -> Optional[Path]:
+        """산출물을 같은 디렉터리의 임시 파일을 거쳐 원자적으로 교체한다.
+
+        실행 계측처럼 기존 파일 보존이 중요한 산출물에 사용한다. 임시 파일 쓰기나
+        교체가 실패하면 임시 파일만 정리하고 예외를 호출자에게 전달한다.
+        """
+        if not self.enabled:
+            return None
+        self.dir.mkdir(parents=True, exist_ok=True)
+        p = self.path(stage)
+        temp = p.with_suffix(p.suffix + ".tmp")
+        content = data if isinstance(data, str) else json.dumps(
+            data, ensure_ascii=False, indent=2
+        )
+        try:
+            temp.write_text(content, encoding="utf-8")
+            os.replace(temp, p)
+        except OSError:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        return p
+
     def load(self, stage: str) -> Optional[dict]:
         """저장된 JSON 산출물을 dict 로 로드한다. 없으면 ``None``."""
         p = self.path(stage)

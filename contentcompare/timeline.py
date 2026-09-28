@@ -52,7 +52,7 @@ NOTE = "note"
 #:
 #: ``length`` 는 **자동 복구(배치 축소)에 성공해도 실패로 남긴다.** 지우면 사람이
 #: ``fact.record_batch_rows`` 를 영영 안 고치고, 다음 문서에서 또 실패 1회를 낭비한다.
-ERROR_STATUSES = ("error", "timeout", "rate_limit", "length")
+ERROR_STATUSES = ("error", "timeout", "rate_limit", "length", "unknown")
 
 
 # --------------------------------------------------------------------------- #

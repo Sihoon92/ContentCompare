@@ -160,6 +160,7 @@ xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 �
 | `APITimeoutError` 가 계속 난다 | 원인이 둘이다. ①**요청 한도**를 게이트웨이가 429 대신 '응답을 붙들어' 알리는 경우 → `llm.timeout_wait: 60` (아래) ②**생성이 느린 것**(배치당 출력이 많음) → `fact.record_batch_rows`/`fact_batch_blocks` 를 줄이기. ⏱ 타임라인의 재시도 결과로 갈린다 — 대기 후 성공하면 ①, 계속 실패하면 ② |
 | 사내 LLM 연결 실패 | `unset_proxy`/`base_url`/API 키 env 확인, `log_proxy: true` 로 실제 프록시 확인 |
 | 타임아웃/간헐 실패 | **⏱ 타임라인 먼저 보기**(아래) — 어느 단계·몇 번째 배치·몇 번째 시도에서 났는지가 나옵니다. 배치당 출력량이 원인이면 `fact.record_batch_rows` 를 줄이는 쪽이 `timeout` 상향보다 확실합니다 |
+| F5 값 대조에서 출력 절단 | 첫 요청에 JSON Schema가 적용됐다면 schema를 제거해 **1회만** 다시 판정합니다. 또 잘리거나 파싱/예산 문제가 나면 해당 항목만 `unknown`으로 남기고 다음 항목과 리포트 생성을 계속합니다. `comparison_result.json`의 `failure_reason`과 기준 문서 `run_stats.json.comparison`을 확인하세요 |
 | 실행 중 화면이 조용하다 | 정상입니다 — 타임라인이 켜져 있으면 단계·재시도가 실시간으로 찍힙니다. `--quiet` 로 끌 수 있고, 꺼도 파일에는 남습니다 |
 | 화면에 더 자세히 보고 싶다 | `--verbose` 로 INFO 까지 보입니다. **프롬프트·LLM 원문·HTTP 페이로드(DEBUG)는 화면에 안 나옵니다** — 로그 파일에는 항상 남으니 그쪽을 보세요(`logs/contentcompare_<시각>.log`). 서드파티 저수준 로그까지 열려면 `CONTENTCOMPARE_LOG_NOISY=1` |
 | 임베딩 매번 느림 | `cache_dir` 설정 확인(파일 해시 기반 캐시 재사용) |
@@ -213,6 +214,22 @@ python scripts/show_timeline.py --list     # 남아 있는 실행 목록
 설정은 `logging.timeline`(기본 켬) / `logging.timeline_console` / `logging.timeline_dir`.
 프롬프트 원문은 담기지 않습니다(길이·회차·상태코드만) — 원문이 필요하면
 `llm.trace_local` 을 켜세요.
+
+#### F5 출력 절단을 확인할 때
+
+타임라인의 `retry_without_schema`는 실패한 F5 판정에서 JSON Schema를 제거하고 한 번 더
+호출했다는 뜻입니다. 복구되면 `recovered_without_schema`, 복구되지 않으면 해당 결과에
+다음 `failure_reason` 중 하나가 남습니다.
+
+- `output_truncated`: schema 제거 호출도 출력 한도에서 절단됨
+- `parse_failure`: 응답을 JSON 판정으로 해석하지 못함
+- `budget_exceeded`: 비교 단계 호출 예산이 소진됨
+
+`comparison_result.json.stats.llm_calls`는 유효한 판정 응답을 얻은 비교 수이고,
+`stats.llm.calls`는 파싱 및 schema 제거 재시도를 포함한 실제 생성 횟수입니다. 복구된
+절단도 `llm_truncations`에는 남지만 `llm_failures`에는 포함되지 않습니다. 토큰 한도를
+높이거나 temperature를 바꾸는 것은 이 복구의 일부가 아닙니다. 같은 항목에서 같은 토큰
+수로 반복 절단되면 `llm.trace_local`의 접힌 응답 원문으로 반복 생성인지 확인하세요.
 
 #### 호출당 토큰·소요 — 배치 크기를 정하는 근거
 

@@ -160,6 +160,18 @@ class LangChainBackend:
         """
         return self._mode != "off" and not self._structured_off
 
+    @property
+    def supports_schema_removal_retry(self) -> bool:
+        """``schema=None``이 실제 요청에서 JSON Schema를 제거하는가.
+
+        ``json_object``는 schema 인자와 무관하게 response_format을 보내므로, 그 모드에서
+        schema만 비운 재호출은 실패 요청을 그대로 반복한다.
+        """
+        return (
+            self.supports_structured_output
+            and self._mode in ("auto", "json_schema")
+        )
+
     # --- LLMClient -------------------------------------------------------- #
     def complete(self, system: str, user: str, *, temperature: float = 0.0,
                  schema: Optional[dict] = None) -> str:
