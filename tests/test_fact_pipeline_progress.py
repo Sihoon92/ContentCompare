@@ -137,3 +137,26 @@ def test_no_targets_skips_concept_unit(tmp_path, mem):
     assert {u.key: u.state for u in snap.units} == {
         "doc:0": prog.DONE, "concept": prog.SKIPPED}
     assert snap.fraction == 1.0
+
+
+def test_f5_steps_count_reference_facts(tmp_path, mem):
+    _pipe(tmp_path, extractor=_excel_or_ppt, chat=_ppt_chat()).run("기준.xlsx", ["발표.pptx"])
+    steps = [(e["done"], e["total"]) for e in _events(mem, "step", "compare:발표.pptx")]
+    assert steps == [(0, 1), (1, 1)]
+
+
+def test_concept_failure_closes_every_unit(tmp_path, mem, monkeypatch):
+    from contentcompare.fact import concept_builder
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("F7 폭발")
+
+    monkeypatch.setattr(concept_builder, "build_concept_graph", boom)
+    with pytest.raises(RuntimeError):
+        _pipe(tmp_path, extractor=_excel_or_ppt, chat=_ppt_chat()).run(
+            "기준.xlsx", ["발표.pptx"])
+    snap = prog.summarize(mem.events)
+    states = {u.key: (u.state, u.error) for u in snap.units}
+    assert states["concept"] == (prog.FAILED, "RuntimeError")
+    assert states["compare:발표.pptx"] == (prog.SKIPPED, "건너뜀")
+    assert snap.finished == snap.total and snap.fraction == 1.0

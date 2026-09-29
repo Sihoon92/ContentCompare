@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from .. import progress as prog
 from ..llm.truncation import LengthLimitError
 from ..logging_setup import log_print
 from .concept_assembler import assemble
@@ -225,6 +226,7 @@ def judge_pairs(
     split: dict[str, int] = {}
     size = max(1, batch_size)
     batches = [pairs[i:i + size] for i in range(0, len(pairs), size)]
+    prog.step(0, len(batches))
     for index, batch in enumerate(batches, start=1):
 
         def label(items: list, depth: int, _i: int = index) -> str:
@@ -243,6 +245,7 @@ def judge_pairs(
             label=label, split=split)
         edges.extend(batch_edges)
         exhausted += batch_exhausted
+        prog.step(index, len(batches))
     if stats is not None:
         stats.update(split)
     if split.get("batches_split"):

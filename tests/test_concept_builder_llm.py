@@ -309,3 +309,19 @@ def test_f7_split_reaches_graph_stats():
                                 runner=_TruncatingConceptRunner(limit=4),
                                 batch_size=4)
     assert graph.stats["batches_split"] == 1
+
+
+def test_f7_reports_batch_progress():
+    """F7 배치마다 진척을 알린다 — 분할이 일어나도 원래 배치 번호로만 센다."""
+    from contentcompare import progress as prog
+
+    mem = prog.MemoryProgress()
+    prog.set_reporter(mem)
+    try:
+        prog.unit_start("concept")
+        judge_pairs(_TruncatingConceptRunner(limit=99), _pairs(3), batch_size=1)
+    finally:
+        prog.reset_reporter()
+    steps = [(e["done"], e["total"]) for e in mem.events if e["ev"] == "step"]
+    assert steps == [(0, 3), (1, 3), (2, 3), (3, 3)]
+    assert all(e["key"] == "concept" for e in mem.events if e["ev"] == "step")

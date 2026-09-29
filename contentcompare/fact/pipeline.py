@@ -231,8 +231,11 @@ class FactPipeline:
             matcher = self._matcher_for(graph, ref_doc, target)
             # 후보가 없을 때의 사유는 매칭 전략이 안다(개념 경로 = '연결 없음').
             explain = getattr(matcher, "explain_missing", None)
-            with stage(f"F5 값 대조 · {target.doc_name}"):
-                for ref_fact in ref_doc.facts.facts:
+            ref_facts = ref_doc.facts.facts
+            with prog.unit(f"compare:{target.doc_name}"), \
+                    stage(f"F5 값 대조 · {target.doc_name}"):
+                prog.step(0, len(ref_facts))
+                for n, ref_fact in enumerate(ref_facts, start=1):
                     candidates = matcher.search(ref_fact)
                     probe = comparator.compare_code(
                         ref_fact,
@@ -254,6 +257,7 @@ class FactPipeline:
                     comparison.review_triggers = reasons
                     comparison.attribute_coverage = probe.attribute_coverage
                     result.comparisons.append(comparison)
+                    prog.step(n, len(ref_facts))
 
         # 1:N 계측 — ``multi_candidate_overridden`` 이 "1:1 축약이 만들던 오판 건수"다.
         # 0 이면 축약이 애초에 오판을 만들지 않았다는 뜻이므로 그 자체가 유효한 정보다.
@@ -306,7 +310,7 @@ class FactPipeline:
         )
         # 후보 쌍 진단은 **이번 실행의 값**이어야 하므로 캐시하지 않는다(run_stats 와 같다).
         pairs_out: Optional[dict] = {} if self.fact.save_candidate_pairs else None
-        with stage("F7 개념 판정"):
+        with prog.unit("concept"), stage("F7 개념 판정"):
             graph = build_concept_graph(
                 store,
                 embedder=self._embed_client(),
