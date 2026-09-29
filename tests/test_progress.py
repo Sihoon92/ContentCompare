@@ -256,3 +256,31 @@ def test_overflow_error_in_seq_is_skipped():
     snap = prog.summarize(events)
     assert snap.total == 1
     assert snap.units[0].state == prog.DONE
+
+
+def test_infinite_ts_becomes_finite():
+    """ts: Infinity 는 0.0 으로 취급되어 유효한 시각만 저장된다."""
+    events = [
+        {"seq": 1, "ts": 100.0, "ev": "plan", "units": [{"key": "a", "label": "A", "kind": "doc"}]},
+        {"seq": 2, "ts": float("inf"), "ev": "unit_start", "key": "a"},  # 무한대는 무시
+        {"seq": 3, "ts": 200.0, "ev": "unit_done", "key": "a"},
+    ]
+    snap = prog.summarize(events)
+    assert snap.started_ts == 100.0  # 첫 유효한 시각
+    assert snap.last_ts == 200.0     # 마지막 유효한 시각
+    # JSON 직렬화는 Infinity 없이 성공해야 한다
+    json.dumps(snap.to_dict())
+
+
+def test_nan_ts_becomes_finite():
+    """ts: NaN 는 0.0 으로 취급되어 유효한 시각만 저장된다."""
+    events = [
+        {"seq": 1, "ts": 100.0, "ev": "plan", "units": [{"key": "a", "label": "A", "kind": "doc"}]},
+        {"seq": 2, "ts": float("nan"), "ev": "unit_start", "key": "a"},  # NaN 는 무시
+        {"seq": 3, "ts": 200.0, "ev": "unit_done", "key": "a"},
+    ]
+    snap = prog.summarize(events)
+    assert snap.started_ts == 100.0
+    assert snap.last_ts == 200.0
+    # JSON 직렬화는 NaN 없이 성공해야 한다
+    json.dumps(snap.to_dict())

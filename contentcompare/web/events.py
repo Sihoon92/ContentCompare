@@ -48,7 +48,7 @@ def read_complete_lines(path: Path, offset: int, *,
 
 def format_sse(event: str, data: dict, event_id: str = "") -> str:
     head = f"id: {event_id}\n" if event_id else ""
-    return f"{head}event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"{head}event: {event}\ndata: {json.dumps(data, ensure_ascii=False, allow_nan=False)}\n\n"
 
 
 @dataclass
@@ -65,7 +65,11 @@ class Cursor:
     def parse(cls, value: Optional[str]) -> "Cursor":
         try:
             log, seq = str(value).split(".")
-            return cls(log=int(log), seq=int(seq))
+            log_int = int(log)
+            seq_int = int(seq)
+            if log_int < 0 or seq_int < 0:
+                return cls()
+            return cls(log=log_int, seq=seq_int)
         except (ValueError, AttributeError):
             return cls()
 

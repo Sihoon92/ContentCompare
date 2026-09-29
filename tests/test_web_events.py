@@ -102,3 +102,42 @@ def test_stream_for_a_deleted_job_ends(tmp_path):
     chunks = list(E.stream(lambda: None, tmp_path, E.Cursor(), stall_after_s=300,
                            sleep=lambda s: None))
     assert chunks == [E.format_sse("end", {"reason": "not_found"})]
+
+
+def test_cursor_rejects_negative_log():
+    """음수 오프셋은 seek() 실패를 막기 위해 거부한다."""
+    assert E.Cursor.parse("-5.0") == E.Cursor()
+    assert E.Cursor.parse("5.-1") == E.Cursor()
+
+
+def test_progress_with_infinite_ts_produces_valid_sse(tmp_path):
+    """progress.jsonl 의 ts: Infinity 도 유효한 JSON 을 만든다."""
+    import json as json_mod
+    
+    (tmp_path / "console.log").write_bytes(b"")
+    
+    # progress.jsonl 에 Infinity 를 담는다
+    progress_file = tmp_path / "progress.jsonl"
+    progress_file.write_text(
+        '{"seq": 1, "ts": Infinity, "ev": "plan", "units": [{"key": "a", "label": "A", "kind": "doc"}]}\n'
+        '{"seq": 2, "ts": 100.0, "ev": "unit_start", "key": "a"}\n',
+        encoding="utf-8"
+    )
+    
+    items, _ = E.collect(_job(), tmp_path, E.Cursor(), now=101.0, stall_after_s=300)
+    
+    # progress 이벤트가 있어야 한다
+    progress_items = [data for kind, data in items if kind == "progress"]
+    assert len(progress_items) > 0
+    
+    # 그 데이터를 SSE 로 포맷하면 JSON 파싱이 성공해야 한다
+    sse_text = E.format_sse("progress", progress_items[0])
+    data_line = sse_text.split("data: ", 1)[1].split("\n\n")[0]
+    
+    # Infinity 나 NaN 문자열이 없어야 한다
+    assert "Infinity" not in data_line
+    assert "NaN" not in data_line
+    
+    # JSON 파싱이 성공해야 한다
+    parsed = json_mod.loads(data_line)
+    assert parsed is not None

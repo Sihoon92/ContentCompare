@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -332,7 +333,7 @@ def _apply(ev: dict, snap: Snapshot, index: dict[str, UnitState], run: dict,
     kind = ev.get("ev")
     ts = float(ev.get("ts") or 0.0)
     seq = int(ev.get("seq") or 0)
-    if ts:
+    if ts and math.isfinite(ts):
         snap.started_ts = snap.started_ts or ts
         snap.last_ts = ts
     snap.last_seq = max(snap.last_seq, seq)
