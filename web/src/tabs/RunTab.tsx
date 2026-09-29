@@ -17,7 +17,9 @@ export default function RunTab() {
   const [notice, setNotice] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [openJob, setOpenJob] = useState<string | null>(null);
+  const [listError, setListError] = useState("");
   const folderInput = useRef<HTMLInputElement>(null);
+  const referenceInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // 폴더 선택은 표준 속성이 아니라 JSX 타입에 없다 — DOM 에 직접 붙인다.
@@ -26,16 +28,20 @@ export default function RunTab() {
 
   useEffect(() => {
     let alive = true;
-    const load = () => listJobs().then((r) => { if (alive) setJobs(r.jobs); }).catch(() => undefined);
+    const load = () => listJobs()
+      .then((r) => { if (alive) { setJobs(r.jobs); setListError(""); } })
+      .catch((e) => { if (alive) setListError(`작업 목록을 불러오지 못했습니다: ${errorText(e)}`); });
     load();
     const timer = window.setInterval(load, 3000);
     return () => { alive = false; window.clearInterval(timer); };
   }, []);
 
-  function pickReference(files: FileList | null) {
-    const file = files?.[0] ?? null;
+  function pickReference(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
     if (file && !isReferenceName(file.name)) {
       setError(`기준 문서는 Excel 이어야 합니다: ${file.name}`);
+      setReference(null);
+      e.target.value = "";
       return;
     }
     setError("");
@@ -79,7 +85,8 @@ export default function RunTab() {
       <p className="muted">rag=하이브리드 검색 후 LLM 종합 판정 / fact=문서를 fact 로 정규화한 뒤 개념 그래프로 짝을 찾아 코드가 값 대조</p>
 
       <h3>1) 기준 엑셀</h3>
-      <input type="file" accept=".xlsx,.xls,.xlsm" onChange={(e) => pickReference(e.target.files)} />
+      <input ref={referenceInput} type="file" accept=".xlsx,.xls,.xlsm" onChange={pickReference} />
+      {reference && <p className="muted">선택됨: {reference.name}</p>}
 
       <h3>2) 대상 문서들</h3>
       <div className="row">
@@ -109,6 +116,7 @@ export default function RunTab() {
       {error && <p className="error">{error}</p>}
       {notice && <p className="muted">{notice}</p>}
 
+      {listError && <p className="warn">{listError}</p>}
       <JobList title="내 최근 작업" jobs={mine} empty="아직 이 브라우저에서 실행한 작업이 없습니다." onOpen={setOpenJob} />
       <JobList title="대기열" jobs={active} empty="대기 중이거나 실행 중인 작업이 없습니다." onOpen={setOpenJob} />
 
