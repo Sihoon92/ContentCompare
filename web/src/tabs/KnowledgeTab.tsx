@@ -16,9 +16,12 @@ export default function KnowledgeTab() {
   const [merged, setMerged] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   // 목록 응답이 늦게 도착했을 때 사용자가 이미 다른 파일을 골랐는지 확인하려고 최신 pick 을 들고 있는다.
   const pickRef = useRef(pick);
   pickRef.current = pick;
+  // 저장 직후 pick 이 저장한 파일명으로 바뀌면(새 파일) 그 변경은 사용자가 고른 것이 아니므로 안내를 지우지 않는다.
+  const keepNoticeFor = useRef<string | null>(null);
 
   const loadList = useCallback(async () => {
     const l = await listKnowledge();
@@ -42,7 +45,8 @@ export default function KnowledgeTab() {
 
   useEffect(() => {
     setConflict(null);
-    setNotice("");
+    if (keepNoticeFor.current !== pick) setNotice("");
+    keepNoticeFor.current = null;
     if (pick === NEW) {
       setName("domain.md");
       setContent(list?.template ?? "");
@@ -65,20 +69,35 @@ export default function KnowledgeTab() {
   }, [pick]);
 
   async function save(mtime: number | null) {
+    if (saving) return;
+    const startPick = pickRef.current;
+    setSaving(true);
     setError("");
     setNotice("");
     try {
       const r = await saveKnowledge(name, content, mtime);
+      // 응답이 오기 전에 다른 파일로 옮겨 갔다면 그 파일의 상태를 건드리지 않는다.
+      if (pickRef.current !== startPick) return;
       setBaseMtime(r.mtime);
       setConflict(null);
       setNotice(`저장됨: ${r.name}`);
-      await loadList();
-      setPick(r.name);
       setMerged(null);
+      // 저장은 성공했으므로 목록 새로고침 실패는 저장 실패로 보고하지 않는다.
+      try {
+        await loadList();
+      } catch (e) {
+        if (pickRef.current === startPick) setError(`저장은 되었지만 파일 목록을 새로고침하지 못했습니다: ${errorText(e)}`);
+      }
+      if (pickRef.current !== startPick) return;
+      if (r.name !== startPick) keepNoticeFor.current = r.name;
+      setPick(r.name);
     } catch (e) {
+      if (pickRef.current !== startPick) return;
       const c = e instanceof ApiError && e.status === 409 ? knowledgeConflict(e.body) : null;
       if (c) setConflict(c);
       else setError(errorText(e));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -101,19 +120,19 @@ export default function KnowledgeTab() {
       {list && !list.enabled && <p className="warn">현재 설정에서 도메인 지식 주입이 꺼져 있습니다(config: knowledge.enabled).</p>}
 
       <div className="row">
-        <select value={pick} onChange={(e) => setPick(e.target.value)}>
+        <select value={pick} disabled={saving} onChange={(e) => setPick(e.target.value)}>
           <option value={NEW}>+ 새 파일 만들기</option>
           {list?.files.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
         </select>
         {pick === NEW && (
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="새 파일 이름(.md)" />
+          <input value={name} disabled={saving} onChange={(e) => setName(e.target.value)} placeholder="새 파일 이름(.md)" />
         )}
       </div>
 
       <textarea rows={18} value={content} onChange={(e) => setContent(e.target.value)} />
 
       <div className="row">
-        <button className="button primary" onClick={() => save(baseMtime)}>💾 저장</button>
+        <button className="button primary" disabled={saving} onClick={() => save(baseMtime)}>💾 저장</button>
         {notice && <span className="muted">{notice}</span>}
       </div>
       {error && <p className="error">{error}</p>}
@@ -123,7 +142,7 @@ export default function KnowledgeTab() {
           <p>{conflict.message}</p>
           <div className="row">
             <button className="button secondary" onClick={loadServerCopy}>서버에 저장된 내용 불러오기</button>
-            <button className="button danger" onClick={() => save(conflict.current.mtime)}>내 내용으로 덮어쓰기</button>
+            <button className="button danger" disabled={saving} onClick={() => save(conflict.current.mtime)}>내 내용으로 덮어쓰기</button>
           </div>
           <details>
             <summary>서버에 저장된 내용 보기</summary>
