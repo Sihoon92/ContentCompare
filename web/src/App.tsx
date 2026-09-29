@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from "react-router-dom";
 import Header from "./components/Header";
+import AdminPage from "./pages/AdminPage";
 import JobPage from "./pages/JobPage";
 import MainPage from "./pages/MainPage";
 
@@ -19,6 +20,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<MainPage />} />
         <Route path="/jobs/:id" element={<JobPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </>
