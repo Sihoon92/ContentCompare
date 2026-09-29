@@ -41,23 +41,23 @@ def run_job(job_dir: Path, settings: WebSettings, *,
     job_dir = Path(job_dir)
     job = Job.from_dict(json.loads((job_dir / "job.json").read_text(encoding="utf-8")))
 
-    config = build_app_config(settings)
-    # 산출물·추적·리포트를 작업 폴더로 돌린다 — 같은 이름 문서를 두 사람이 올려도 안 섞인다.
-    config.fact.artifacts_dir = str(job_dir / "artifacts")
-    config.llm.trace_dir = str(job_dir / "artifacts" / "_traces")
-    config.report.output_dir = str(job_dir)
-
-    setup_console(level=logging.INFO)
-    setup_logging(log_dir=str(job_dir), force_new=True)
-    apply_logger_overrides(config.logging.quiet_extra, config.logging.verbose_extra)
-    start_timeline(config, console=False, label="timeline")
-    prog.set_reporter(prog.JsonlProgress(job_dir / "progress.jsonl"))
-
-    reference = str(job_dir / "inputs" / job.reference)
-    targets = [str(job_dir / "inputs" / t) for t in job.targets]
-    log_print(f"작업 {job.id} 시작 · 엔진 {job.engine} · 대상 {len(targets)}개 · "
-              f"모델 {config.llm.chat_model}")
     try:
+        config = build_app_config(settings)
+        # 산출물·추적·리포트를 작업 폴더로 돌린다 — 같은 이름 문서를 두 사람이 올려도 안 섞인다.
+        config.fact.artifacts_dir = str(job_dir / "artifacts")
+        config.llm.trace_dir = str(job_dir / "artifacts" / "_traces")
+        config.report.output_dir = str(job_dir)
+
+        setup_console(level=logging.INFO)
+        setup_logging(log_dir=str(job_dir), force_new=True)
+        apply_logger_overrides(config.logging.quiet_extra, config.logging.verbose_extra)
+        start_timeline(config, console=False, label="timeline")
+        prog.set_reporter(prog.JsonlProgress(job_dir / "progress.jsonl"))
+
+        reference = str(job_dir / "inputs" / job.reference)
+        targets = [str(job_dir / "inputs" / t) for t in job.targets]
+        log_print(f"작업 {job.id} 시작 · 엔진 {job.engine} · 대상 {len(targets)}개 · "
+                  f"모델 {config.llm.chat_model}")
         pipeline = (factory or make_pipeline)(config, job.engine)
         tracer = get_tracer(config)
         with trace_run(tracer, f"contentcompare {job.engine} (web)",

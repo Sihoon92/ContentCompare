@@ -114,3 +114,15 @@ def test_rag_job_renders_markdown(tmp_path):
 
 def test_main_requires_exactly_one_argument():
     assert worker.main([]) == 2
+
+
+def test_setup_phase_exception_writes_error_json(tmp_path, monkeypatch):
+    """Setup failures (build_app_config, logging, etc.) must write error.json."""
+    job_dir = _job_dir(tmp_path)
+    def boom(*args, **kwargs):
+        raise FileNotFoundError("config/config.yaml")
+    monkeypatch.setattr(worker, "build_app_config", boom)
+    code = worker.run_job(job_dir, WebSettings())
+    assert code == 1
+    error = json.loads((job_dir / "error.json").read_text(encoding="utf-8"))["error"]
+    assert error == "FileNotFoundError: config/config.yaml"
