@@ -26,6 +26,7 @@ artifacts/
 # 웹 서버: 비밀값(.env)과 작업 폴더(업로드 원본·산출물)
 .env
 jobs/
+web/node_modules/
 
 # OS / IDE
 .DS_Store
