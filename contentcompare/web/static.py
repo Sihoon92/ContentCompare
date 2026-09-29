@@ -38,7 +38,10 @@ def mount_static(app: FastAPI, static_dir: Optional[Path] = None) -> None:
     def spa(path: str) -> FileResponse:
         if path.startswith("api/") or path == "api":
             raise HTTPException(404, "없는 API 입니다.")
-        candidate = (dist / path).resolve()
-        if path and candidate.is_file() and root in candidate.parents:
-            return FileResponse(candidate)
+        try:
+            candidate = (dist / path).resolve()
+            if path and candidate.is_file() and root in candidate.parents:
+                return FileResponse(candidate)
+        except (ValueError, OSError):  # NUL 바이트 등 경로로 쓸 수 없는 입력 — 500 대신 화면으로
+            pass
         return FileResponse(index)

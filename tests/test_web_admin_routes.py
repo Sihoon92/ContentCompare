@@ -131,3 +131,13 @@ def test_access_urls():
     urls = access_urls("0.0.0.0", 8123)
     assert urls[0] == "http://localhost:8123"
     assert all(u.endswith(":8123") for u in urls)
+
+
+def test_spa_survives_nul_byte_paths(tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<div id=root></div>", encoding="utf-8")
+    client, _ = _app(tmp_path, static_dir=dist)
+    for path in ("/a%00b", "/index.html%00"):
+        res = client.get(path)
+        assert res.status_code == 200 and res.text == "<div id=root></div>"
