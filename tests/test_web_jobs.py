@@ -68,3 +68,26 @@ def test_purge_expired_removes_only_old_finished_jobs(tmp_path):
     assert [j.id for j in store.list()] == [
         "20260901-000000-0002", "20260901-000000-0003", "20260901-000000-0004"]
     assert J.purge_expired(store, now=10 * day, days=0) == []
+
+
+def test_load_skips_non_dict_json(tmp_path):
+    """job.json이 배열이나 null이면 load()는 None을 반환하고 list()는 스킵한다."""
+    store = J.JobStore(tmp_path)
+    store.save(_job("20260929-140200-0001"))
+
+    # job.json을 배열로 바꾼다
+    array_job_dir = tmp_path / "20260929-140300-0002"
+    array_job_dir.mkdir(parents=True)
+    (array_job_dir / "job.json").write_text("[]", encoding="utf-8")
+
+    # job.json을 null로 바꾼다
+    null_job_dir = tmp_path / "20260929-140400-0003"
+    null_job_dir.mkdir(parents=True)
+    (null_job_dir / "job.json").write_text("null", encoding="utf-8")
+
+    # load()는 None을 반환한다
+    assert store.load("20260929-140300-0002") is None
+    assert store.load("20260929-140400-0003") is None
+
+    # list()는 유효한 것만 반환한다 (스킵하지 않고 crash하지 않음)
+    assert [j.id for j in store.list()] == ["20260929-140200-0001"]

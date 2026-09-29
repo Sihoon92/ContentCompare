@@ -97,7 +97,10 @@ class JobStore:
         if not path.is_file():
             return None
         try:
-            return Job.from_dict(json.loads(path.read_text(encoding="utf-8")))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return None
+            return Job.from_dict(data)
         except (OSError, ValueError, TypeError):
             return None
 
