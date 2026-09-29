@@ -19,7 +19,11 @@ def test_safe_relpath_normalizes(raw, expected):
     assert U.safe_relpath(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["", "   /", "../a.docx", "a/../../b.docx"])
+@pytest.mark.parametrize("raw", [
+    "", "   /", "../a.docx", "a/../../b.docx",
+    "x/a:b.docx", "a/C:/b.docx", "//?/C:/x.docx", "a/.. /b.docx",
+    "a/b.docx.", "a\x00b.docx", "CON.docx", "sub/nul.xlsx",
+])
 def test_safe_relpath_rejects(raw):
     with pytest.raises(U.UploadError):
         U.safe_relpath(raw)
@@ -49,6 +53,19 @@ def test_same_basename_is_rejected_case_insensitive():
         U.plan_upload("기준.xlsx", ["a/규격.docx", "b/규격.DOCX"])
     with pytest.raises(U.UploadError, match="기준.xlsx"):
         U.plan_upload("기준.xlsx", ["사본/기준.xlsx"])
+
+
+def test_resolve_under_normal_path(tmp_path):
+    base = tmp_path / "uploads"
+    result = U.resolve_under(base, "subfolder/doc.docx")
+    assert result.is_relative_to(base.resolve())
+    assert result.name == "doc.docx"
+
+
+def test_resolve_under_rejects_escape_attempts(tmp_path):
+    base = tmp_path / "uploads"
+    with pytest.raises(U.UploadError):
+        U.resolve_under(base, "../escape.docx")
 
 
 def test_save_stream_writes_and_counts(tmp_path):

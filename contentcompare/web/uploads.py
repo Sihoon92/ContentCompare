@@ -40,7 +40,43 @@ def safe_relpath(name: str) -> str:
         raise UploadError(f"파일 이름이 비어 있습니다: {name!r}")
     if any(p == ".." for p in parts):
         raise UploadError(f"경로에 '..' 를 쓸 수 없습니다: {name!r}")
+
+    # Windows 보안: 각 부분이 유효한지 검증
+    reserved_names = {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    }
+    invalid_chars = set("<>:\"|?*") | set(chr(i) for i in range(0x00, 0x20))
+
+    for part in parts:
+        # 유효하지 않은 문자 검사
+        if any(c in invalid_chars for c in part):
+            raise UploadError(f"파일 이름에 유효하지 않은 문자가 있습니다: {part!r}")
+        # 뒤에 공백이나 점이 오는 경우 거절
+        if part.endswith(" ") or part.endswith("."):
+            raise UploadError(f"파일 이름이 공백이나 점으로 끝날 수 없습니다: {part!r}")
+        # 예약된 기기 이름 검사 (확장자 앞 부분만)
+        stem = part.split(".")[0].upper()
+        if stem in reserved_names:
+            raise UploadError(f"Windows 예약 이름을 쓸 수 없습니다: {part!r}")
+
     return "/".join(parts)
+
+
+def resolve_under(base: Path, rel: str) -> Path:
+    """경로가 base 아래에 있는지 검증하고 절대 경로를 반환한다.
+
+    :param base: 기준 디렉토리
+    :param rel: 상대 경로 문자열 (posix 구분자, safe_relpath 를 거친 것이어야 함)
+    :raises UploadError: 경로가 base 를 벗어나면
+    :return: 절대 경로
+    """
+    # rel은 posix 문자열이므로 Path 생성 시 변환 필요 (Windows에서도 `/` 처리)
+    result = (base / rel).resolve()
+    if not result.is_relative_to(base.resolve()):
+        raise UploadError(f"경로가 업로드 디렉토리를 벗어났습니다: {rel}")
+    return result
 
 
 def _ext(rel: str) -> str:
