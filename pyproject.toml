@@ -39,6 +39,13 @@ onnx = [
     "tokenizers>=0.15",
     "numpy>=1.24",
 ]
+# 웹 서버(contentcompare.web). worker 프로세스는 이것 없이도 뜬다.
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "python-dotenv>=1.0",
+]
 # LLM 입출력 추적. 설정(llm.langfuse)이 비어 있으면 import 조차 하지 않으므로
 # 설치하지 않아도 동작에 영향이 없다.
 langfuse = [
