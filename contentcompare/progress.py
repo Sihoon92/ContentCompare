@@ -304,10 +304,10 @@ def summarize(events: Iterable[dict]) -> Snapshot:
     for ev in events:
         try:
             run, best = _apply(ev, snap, index, run, best)
-        except (TypeError, ValueError, AttributeError, KeyError):
+        except Exception:  # noqa: BLE001 — 모양이 틀린 이벤트가 API 를 500 으로 만들면 안 된다
             continue
     snap.fraction = best
-    if run:
+    if run and run.get("key") in index:
         snap.current = run["key"]
         snap.current_label = index[run["key"]].label
         snap.part_name = run["name"]
@@ -324,6 +324,10 @@ def _apply(ev: dict, snap: Snapshot, index: dict[str, UnitState], run: dict,
 
     예외가 나면 호출자가 그 이벤트만 버린다. 그래서 **상태를 바꾸기 전에 값을 모두 계산**한다
     (``unit_start`` 가 ``parts`` 변환에 실패했는데 상태만 RUNNING 이 되면 안 된다).
+
+    plan 이벤트의 경우, 새 units 와 index 를 **로컬 변수에 먼저 만들고** 개별 항목마다
+    try/except 로 malformed 항목을 건너뛴 다음, 모두 처리한 뒤에만 상태를 바꾼다.
+    이렇게 하지 않으면 malformed 항목이 index 를 부분 청소해서 stale run 을 남긴다.
     """
     kind = ev.get("ev")
     ts = float(ev.get("ts") or 0.0)
@@ -333,15 +337,23 @@ def _apply(ev: dict, snap: Snapshot, index: dict[str, UnitState], run: dict,
         snap.last_ts = ts
     snap.last_seq = max(snap.last_seq, seq)
     if kind == "plan":
-        snap.units = []
-        index.clear()
+        # 로컬 변수에 먼저 만든다 — 실패해도 상태는 안 바뀐다.
+        new_units: list[UnitState] = []
+        new_index: dict[str, UnitState] = {}
         for u in ev.get("units") or []:
-            key = str(u.get("key") or "")
-            if not key or key in index:
-                continue  # 겹치는 키는 첫 것만 센다
-            state = UnitState(key, str(u.get("label") or key), str(u.get("kind") or ""))
-            index[key] = state
-            snap.units.append(state)
+            try:
+                key = str(u.get("key") or "")
+                if not key or key in new_index:
+                    continue  # 겹치는 키는 첫 것만 센다
+                state = UnitState(key, str(u.get("label") or key), str(u.get("kind") or ""))
+                new_index[key] = state
+                new_units.append(state)
+            except Exception:  # noqa: BLE001 — 개별 항목의 malformed 은 그 항목만 버린다
+                continue
+        # 모두 성공했으면 상태를 바꾼다.
+        snap.units = new_units
+        index.clear()
+        index.update(new_index)
         return {}, 0.0
     key = str(ev.get("key") or "")
     state = index.get(key)

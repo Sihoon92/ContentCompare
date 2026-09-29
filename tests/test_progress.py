@@ -213,3 +213,46 @@ def test_malformed_events_are_skipped_not_raised():
     assert snap.total == 1
     assert snap.units[0].state == prog.DONE
     assert snap.fraction == 1.0
+
+
+def test_malformed_plan_does_not_leave_stale_run():
+    """plan 이 부분 적용되고 stale run 을 남기면 summarize 의 tail 에서 KeyError.
+
+    재현: plan[{"key":"a",...}] → unit_start a → plan["bad", {"key":"a",...}]
+    """
+    events = [
+        {"seq": 1, "ev": "plan", "units": [{"key": "a", "label": "A", "kind": "doc"}]},
+        {"seq": 2, "ev": "unit_start", "key": "a"},
+        {"seq": 3, "ev": "plan", "units": ["깨진", {"key": "a", "label": "A", "kind": "doc"}]},
+    ]
+    # 부분 적용이 없어야 하므로 단위 a 가 있어야 한다.
+    snap = prog.summarize(events)
+    assert snap.total == 1
+    assert snap.units[0].key == "a"
+
+
+def test_malformed_unit_in_plan_keeps_valid_ones_after():
+    """plan 의 malformed 항목이 그 뒤의 valid 항목을 삭제하면 안 된다."""
+    events = [
+        {"seq": 1, "ev": "plan", "units": [
+            {"key": "a", "label": "A", "kind": "doc"},
+            "깨진 항목",  # 이것이 예외를 내도
+            {"key": "b", "label": "B", "kind": "doc"},  # 이것은 살아남아야 한다
+        ]},
+    ]
+    snap = prog.summarize(events)
+    assert snap.total == 2
+    assert [u.key for u in snap.units] == ["a", "b"]
+
+
+def test_overflow_error_in_seq_is_skipped():
+    """OverflowError (int(inf) 같은) 를 명시적으로 타잡지 않으면 누락된다."""
+    events = [
+        {"seq": 1, "ev": "plan", "units": [{"key": "a", "label": "A", "kind": "doc"}]},
+        {"seq": float("inf"), "ev": "unit_start", "key": "a"},  # OverflowError: int(inf)
+        {"seq": 2, "ev": "unit_done", "key": "a"},
+    ]
+    # 예외가 날 수 있으므로 try 없이는 죽는다. 이제는 안 죽어야 한다.
+    snap = prog.summarize(events)
+    assert snap.total == 1
+    assert snap.units[0].state == prog.DONE
