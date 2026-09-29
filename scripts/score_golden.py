@@ -68,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 기본 콘솔은 cp949 라 '—' 하나에 전체가 죽는다. 혼동행렬만 찍고 죽으면
+    # 이 스크립트의 요점인 원인 분포·recall 판별을 못 본다. why_findings.py 와 같은 처리다.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     args = build_parser().parse_args(argv)
 
     snap = load_run(args.artifacts, args.run)

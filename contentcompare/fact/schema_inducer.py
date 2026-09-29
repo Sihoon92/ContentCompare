@@ -17,6 +17,7 @@ from .artifacts import ArtifactStore
 from .llm_stage import LlmRunner, fingerprint_for
 from .prompts import SCHEMA_SYSTEM, SCHEMA_VERSION, build_schema_user
 from .schema_models import ColumnSchema, DocumentProfile, TableProfile
+from .schemas import schema_for
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,9 @@ def induce_schema(
     cs_holder: dict[str, ColumnSchema] = {}
 
     def compute_table_profile() -> dict:
-        obj = runner.complete_json(SCHEMA_SYSTEM, build_schema_user(sheet, profile.to_dict()))
+        obj = runner.complete_json(SCHEMA_SYSTEM,
+                                   build_schema_user(sheet, profile.to_dict()),
+                                   schema=schema_for("schema"))
         tp = TableProfile.from_llm(obj.get("table_profile", {}), location=location)
         cs = ColumnSchema.from_llm(obj.get("column_schema", {}), location=location)
         cs_holder["cs"] = cs

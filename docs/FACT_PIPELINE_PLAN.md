@@ -242,6 +242,26 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
 - **`unknown` 판정 조건**: 후보 fact 는 찾았으나 attributes 키가 겹치지 않음 · 단위가 등가 사전에 없는 조합 · 매칭 스코어가 경계값 · fact `confidence` 낮음(F4a `low_confidence` 태깅 포함). 현행 RAG 경로의 판단보류 원칙(`comparison/prompts.py` 의 `unknown`: 확신이 없으면 보류하고 이유를 설명)을 fact 경로에서도 1급 상태로 유지한다.
 - **양측 evidence 인용 필수**: 모든 결과는 기준/대상 fact 의 `evidence_text`+`source` 를 나란히 실어, 사람이 원문 대조로 검수(할루시네이션 확인)할 수 있게 한다 — RAG 경로의 evidence 인용 원칙 승계. fact 는 양쪽 모두 F3 에서 코드 검증된 source 를 갖고 있으므로 RAG 보다 검수 속성이 강화된다.
 
+### 6.3 F5 판정 LLM 출력 절단 복구
+
+F5는 기준 fact 하나씩 순차 처리하므로 출력이 잘린 호출 하나가 전체 실행을 중단시키면 안
+된다. `LengthLimitError`가 발생하면 첫 요청에 실제 JSON Schema가 적용된 경우에만 같은
+fact·후보·프롬프트로 **schema를 제거해 1회** 재호출한다. 모델, temperature, 출력 토큰
+상한, 추론 설정은 같이 바꾸지 않는다. `json_object`/`off`처럼 schema 제거가 실제 요청을
+바꾸지 않는 모드에서는 동일 요청을 반복하지 않는다. 다음 fact는 다시 정상 schema를 쓴다.
+
+재호출도 절단되거나 JSON 파싱에 실패하거나 호출 예산이 끝나면 해당 비교를 `unknown`으로
+강등하고 다음 fact를 계속 처리한다. 실패 코드는 각각 `output_truncated`, `parse_failure`,
+`budget_exceeded`이며 `comparison_result.json`의 각 결과 `failure_reason`과 통계에 남는다.
+절단 후 추가 생성은 최대 1회이고 기존 `max_llm_calls_per_compare` 예산을 소비한다. 잘린
+본문을 억지로 파싱해 판정에 쓰지 않는다.
+
+비교 통계에서 `llm_calls`는 유효한 판정 JSON을 얻은 비교 건수이고,
+`llm.calls`는 파싱 재시도와 schema 제거 재시도를 포함한 실제 생성 횟수다.
+`llm_truncations`는 복구 성공분을 포함한 절단 예외 수, `llm_failures`는 최종 unknown 강등
+건수다. 같은 통계를 `comparison_result.json.stats`와 기준 문서
+`run_stats.json.comparison`에 기록한다.
+
 ---
 
 ## 7. 중간 산출물 (반드시 저장)
@@ -257,7 +277,7 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
 | `facts.json` | Fact Extractor | 비교 단위 |
 | `validation_report.json` | Validator(F4a) | 검사별 pass/fail |
 | `comparison_result.json` | Comparator(F5) | 최종 비교(양측 evidence 포함) |
-| `run_stats.json` | 파이프라인 | 문서별 계측(호출/드롭/커버리지) |
+| `run_stats.json` | 파이프라인 | 문서별 계측(호출/드롭/커버리지) + 기준 문서의 `comparison` F5 계측 |
 
 저장 위치 제안: `artifacts/<문서명>/<단계>.json` (설정으로 on/off).
 
@@ -312,6 +332,7 @@ fact의 `entity_name`/`search_text`로 후보 fact를 찾는다. 검색어 확�
 - **Phase F5 — Fact Store + Matcher + Comparator** ✅ **완료(2026-08-03)** → `comparison_result.json`.
   **하이브리드 판정**: 코드가 값·단위를 결정적으로 대조하고 애매한 것만 LLM 에 위임(실측 위임률 30%).
   검색은 exact → 임베딩(임계 `match_min_score`) — spike 실측대로 BM25 는 폴백으로만 둔다.
+  출력 절단은 JSON Schema 제거 1회 재호출 후 해당 항목 `unknown`으로 격리한다(§6.3).
 - **Phase F6 — Report + 벤치마크 하니스** ✅ **완료(2026-08-03)** —
   `report/fact_report.py`(양측 원문+좌표 인용) + `scripts/compare_engines.py`(§1.1.1 실측).
 - **Phase F7 — 개념 그래프** ✅ **완료(2026-08-04)** ([상세 설계: `FACT_F7_DESIGN.md`](FACT_F7_DESIGN.md))

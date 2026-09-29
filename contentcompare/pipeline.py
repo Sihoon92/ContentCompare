@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable, Optional
 
+from . import progress as prog
 from .comparison import Comparator
 from .config import AppConfig
 from .knowledge import load_knowledge
@@ -48,9 +50,15 @@ class ComparePipeline:
         *,
         progress: Optional[ProgressFn] = None,
     ) -> list[CompareResult]:
+        # 진행률 단계 N = 준비 1 + 판정 1 (설계 §7.1). ``progress`` 콜백과는 별개다.
+        prog.plan([
+            prog.Unit("rag:prepare", "문서 읽기·인덱싱", prog.RAG_PREPARE),
+            prog.Unit("rag:judge", "기준 항목 판정", prog.RAG_JUDGE),
+        ])
         try:
             return self._run(reference_path, target_paths, progress=progress)
         finally:
+            prog.finish_remaining("건너뜀")
             # 오류/정상 종료 어느 경우든, 열린 채 남은 Office 문서를 완전히 종료한다.
             # (각 리더가 자체 finally 로 닫지만, 예기치 못한 경로를 대비한 안전망.)
             close_all_office()
@@ -62,52 +70,62 @@ class ComparePipeline:
         *,
         progress: Optional[ProgressFn] = None,
     ) -> list[CompareResult]:
-        # 1) 문서 읽기
-        reference_items = self._read(reference_path)
-        logger.info("기준 항목 %d개 추출: %s", len(reference_items), reference_path)
+        docs = [reference_path, *target_paths]
+        # 준비 단위의 하위 단계 = 문서마다 1 + 인덱싱 1.
+        with prog.unit("rag:prepare", parts=len(docs) + 1):
+            # 1) 문서 읽기
+            prog.part(1, os.path.basename(reference_path))
+            reference_items = self._read(reference_path)
+            logger.info("기준 항목 %d개 추출: %s", len(reference_items), reference_path)
 
-        target_items: list[DocItem] = []
-        for path in target_paths:
-            items = self._read(path)
-            logger.info("대상 항목 %d개 추출: %s", len(items), path)
-            target_items.extend(items)
+            target_items: list[DocItem] = []
+            for n, path in enumerate(target_paths, start=2):
+                prog.part(n, os.path.basename(path))
+                items = self._read(path)
+                logger.info("대상 항목 %d개 추출: %s", len(items), path)
+                target_items.extend(items)
 
-        # 2) 하이브리드 인덱스 구축 (청킹 후, 임베딩 캐시 적용)
-        sim = self.config.similarity
-        chunks = chunk_items(target_items, sim.chunk_chars)
-        embedder = CachedEmbedder(
-            self.embedder, sim.cache_dir, model_name=self.config.llm.embed_model
-        )
-        index = HybridIndex(
-            embedder,
-            fusion=sim.fusion,
-            rrf_k=sim.rrf_k,
-            mmr_lambda=sim.mmr_lambda,
-            per_doc_cap=sim.per_doc_cap,
-            min_score=sim.min_score,
-        )
-        index.add(chunks)
-        logger.info("하이브리드 인덱스 구축 완료: 벡터 %d개", len(index))
+            # 2) 하이브리드 인덱스 구축 (청킹 후, 임베딩 캐시 적용)
+            prog.part(len(docs) + 1, "인덱싱")
+            sim = self.config.similarity
+            chunks = chunk_items(target_items, sim.chunk_chars)
+            embedder = CachedEmbedder(
+                self.embedder, sim.cache_dir, model_name=self.config.llm.embed_model
+            )
+            index = HybridIndex(
+                embedder,
+                fusion=sim.fusion,
+                rrf_k=sim.rrf_k,
+                mmr_lambda=sim.mmr_lambda,
+                per_doc_cap=sim.per_doc_cap,
+                min_score=sim.min_score,
+            )
+            index.add(chunks)
+            logger.info("하이브리드 인덱스 구축 완료: 벡터 %d개", len(index))
 
         # 3~4) 기준 항목 순차 비교
         results: list[CompareResult] = []
         total = len(reference_items)
-        for i, ref in enumerate(reference_items, start=1):
-            if ref.is_empty():
-                continue
-            candidates = index.search(
-                ref.text,
-                recall_k=sim.recall_k,
-                top_k=sim.top_k,
-            )
-            # 엑셀 hybrid/field: 필드를 가진 RecordItem 이면 필드별 판정.
-            if isinstance(ref, RecordItem) and ref.fields:
-                result: CompareResult = self.comparator.compare_record(ref, candidates)
-            else:
-                result = self.comparator.compare(ref, candidates)
-            results.append(result)
-            if progress:
-                progress(i, total, result)
+        with prog.unit("rag:judge"):
+            prog.step(0, total)
+            for i, ref in enumerate(reference_items, start=1):
+                if ref.is_empty():
+                    prog.step(i, total)  # 빈 항목도 센다 — 안 세면 막대가 끝에 못 닿는다
+                    continue
+                candidates = index.search(
+                    ref.text,
+                    recall_k=sim.recall_k,
+                    top_k=sim.top_k,
+                )
+                # 엑셀 hybrid/field: 필드를 가진 RecordItem 이면 필드별 판정.
+                if isinstance(ref, RecordItem) and ref.fields:
+                    result: CompareResult = self.comparator.compare_record(ref, candidates)
+                else:
+                    result = self.comparator.compare(ref, candidates)
+                results.append(result)
+                if progress:
+                    progress(i, total, result)
+                prog.step(i, total)
         return results
 
     # ------------------------------------------------------------------ #

@@ -25,6 +25,14 @@ ui = [
 langchain = [
     "langchain-openai>=0.1",
     "httpx>=0.27",
+    # 구조화 출력(llm.structured_output)의 와이어 스키마를 만든다. langchain-openai 가
+    # 어차피 끌고 오지만 **명시한다** — 전이 의존성에 기대면 langchain 이 pydantic 을
+    # 떼는 날 이 기능이 조용히 꺼지고(schemas.schema_for 가 None 을 돌려주므로 예외조차
+    # 안 난다) 아무도 눈치채지 못한다.
+    "pydantic>=2.7",
+    # llm.internal.verify_ssl: true 일 때 OS 인증서 저장소로 사내 CA 를 신뢰한다
+    # (contentcompare/llm/tls.py). 없으면 certifi 로 돌아 사내 게이트웨이에서 실패한다.
+    "truststore>=0.9",
 ]
 fastembed = [
     "fastembed>=0.3",
@@ -33,6 +41,15 @@ onnx = [
     "onnxruntime>=1.17",
     "tokenizers>=0.15",
     "numpy>=1.24",
+]
+# 웹 서버(contentcompare.web). worker 프로세스는 이것 없이도 뜬다.
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "python-dotenv>=1.0",
+    # worker 가 사내 LLM 에 붙는다 — langchain extra 와 같은 이유(llm/tls.py).
+    "truststore>=0.9",
 ]
 # LLM 입출력 추적. 설정(llm.langfuse)이 비어 있으면 import 조차 하지 않으므로
 # 설치하지 않아도 동작에 영향이 없다.

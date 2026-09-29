@@ -155,3 +155,202 @@ def test_build_record_user_includes_columns_rows_and_carry():
     assert "entity_name" in user        # 열 스키마 요약 포함
     assert "행 2" in user               # 데이터 행 포함
     assert "기본사양" in user           # carry 분류 포함
+
+
+# --------------------------------------------------------------------------- #
+# 출력 절단 → 배치 자동 축소 (run_batch)
+#
+# 실측 배경: F2 배치가 completion_tokens=32368 에서 죽었는데, 재시도가 원리적으로
+# 무력했다 — 넛지가 "짧게"가 아니라 "JSON 만"이고 temperature=0 이라 같은 30행을
+# 다시 보내면 같은 지점에서 잘린다. 유일한 조치는 **입력을 줄이는 것**이다.
+# --------------------------------------------------------------------------- #
+class _TruncatingChat(_RecChat):
+    """프롬프트에 실린 행이 ``limit`` 개 이상이면 출력이 잘린 것처럼 군다.
+
+    행 수는 ``build_record_user`` 가 실제로 찍는 ``행 <번호>:`` 를 세어 얻는다 —
+    가짜가 진짜 프롬프트 계약에 기대게 해서, 그 계약이 깨지면 테스트도 깨지게 한다.
+    (``"행 "`` 부분일치로 세면 머리말의 ``[행 의미]`` 까지 걸려 하나가 더 세어진다.)
+    """
+
+    def __init__(self, responses, *, limit: int) -> None:
+        super().__init__(responses)
+        self.limit = limit
+        self.row_counts: list[int] = []
+
+    def complete(self, system, user, *, temperature=0.0):
+        import re
+
+        from contentcompare.llm.truncation import LengthLimitError
+
+        rows = len(re.findall(r"^행 \d+:", user, re.M))
+        self.row_counts.append(rows)
+        if rows >= self.limit:
+            self.calls += 1
+            self.user_prompts.append(user)
+            raise LengthLimitError(
+                "잘렸습니다", output='{"records": [', output_chars=32000,
+                backend="fake",
+            )
+        return super().complete(system, user, temperature=temperature)
+
+
+def test_length_limit_splits_the_batch_and_recovers():
+    """3행 배치가 잘리면 1행 + 2행으로 갈라 **순서대로** 다시 부른다."""
+    chat = _TruncatingChat([
+        json.dumps({"records": [_rec(2, "충전환경온도", "기본사양")]}),
+        json.dumps({"records": [_rec(3, "방전환경온도"), _rec(4, "저장온도")]}),
+    ], limit=3)
+
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=3)
+
+    assert chat.calls == 3                      # 실패 1 + 조각 2
+    assert chat.row_counts == [3, 1, 2]         # 3 → [1, 2] 로 갈렸다
+    # 행 순서가 보존된다 — 조각을 뒤에서부터 부르거나 병합 순서가 틀리면 여기서 깨진다.
+    assert [r.record_id for r in rs.records] == ["row-2", "row-3", "row-4"]
+
+
+def test_carry_survives_a_split():
+    """**이 파일에서 가장 중요한 테스트.**
+
+    carry(상위 분류)는 그 조각을 파싱한 뒤 갱신되어 **다음 조각의 프롬프트**로 들어간다.
+    "두 조각을 다 부르고 병합"하는 설계였다면 뒤 조각이 앞 조각의 분류를 못 받아
+    **조용히 틀린 분류**가 나온다 — 실패보다 나쁘다.
+    """
+    chat = _TruncatingChat([
+        json.dumps({"records": [_rec(2, "충전환경온도", "기본사양")]}),
+        json.dumps({"records": [_rec(3, "방전환경온도"), _rec(4, "저장온도")]}),
+    ], limit=3)
+
+    normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=3)
+
+    # user_prompts = [잘린 3행, 조각1(1행), 조각2(2행)]
+    #
+    # ⚠️ ``"기본사양" in prompt`` 로 보면 안 된다 — 그 낱말은 행 D열 **데이터**에도 있어서
+    # carry 가 통째로 안 붙어도 통과한다. carry **줄** 자체를 확인해야 한다.
+    assert "[직전까지 확정된 분류] category=기본사양" in chat.user_prompts[2]
+    # 첫 조각은 아직 아무 분류도 확정하지 못했다.
+    assert "[직전까지 확정된 분류]" not in chat.user_prompts[1]
+
+
+def test_split_stops_at_one_row_with_a_different_message():
+    """1행까지 줄여도 잘리면 원인이 배치 크기가 아니다 — 조치가 달라 문구를 바꾼다."""
+    from contentcompare.llm.truncation import LengthLimitError
+
+    chat = _TruncatingChat([], limit=1)  # 무엇을 주든 잘린다
+    with pytest.raises(LengthLimitError, match="배치 크기 문제가 아닙니다"):
+        normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat, max_calls=99), batch_rows=3)
+    # 3 → [1,2] → 2 는 다시 [1,1]. 무한 분할이 아니라 유한하게 끝난다.
+    assert chat.calls <= 6
+
+
+def test_split_preserves_the_truncated_evidence():
+    """더 못 쪼갤 때도 증거(잘린 원문·토큰)를 잃지 않는다."""
+    from contentcompare.llm.truncation import LengthLimitError
+
+    chat = _TruncatingChat([], limit=1)
+    with pytest.raises(LengthLimitError) as caught:
+        normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat, max_calls=99), batch_rows=3)
+    assert caught.value.output == '{"records": ['
+    assert caught.value.output_chars == 32000
+
+
+def test_budget_exceeded_is_not_split():
+    """예산이 떨어지면 그대로 올라간다 — 더 쪼개면 같은 예외를 더 빨리 만날 뿐이다.
+
+    분할이 만드는 호출은 새 예산을 두지 않고 ``max_llm_calls_per_doc`` 에 그대로 잡힌다.
+    따로 세면 그 설정값이 거짓말을 하게 된다.
+
+    호출 순서: 3행(실패, 1회) → 조각 1행(성공, 2회) → 조각 2행에서 예산 소진.
+    """
+    from contentcompare.fact.llm_stage import LlmBudgetExceeded
+
+    chat = _TruncatingChat([
+        json.dumps({"records": [_rec(2, "충전환경온도", "기본사양")]}),
+    ], limit=3)
+    with pytest.raises(LlmBudgetExceeded):
+        normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat, max_calls=2), batch_rows=3)
+
+
+def test_split_is_measured_because_a_cache_hit_would_hide_it():
+    """자동 복구가 조용히 성공하면 사람이 설정을 안 고친다. 계측이 유일한 증거다."""
+    chat = _TruncatingChat([
+        json.dumps({"records": [_rec(2, "충전환경온도", "기본사양")]}),
+        json.dumps({"records": [_rec(3, "방전환경온도"), _rec(4, "저장온도")]}),
+    ], limit=3)
+    stats: dict = {}
+
+    normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=3, stats=stats)
+
+    assert stats["batches_split"] == 1
+    assert stats["max_split_depth"] == 1
+    assert stats["min_items_used"] == 1
+    # 시나리오 판별용 — 출력 크기는 컬럼 수에 선형이다.
+    assert stats["columns"] == 3 and stats["batch_rows"] == 3
+
+
+def test_no_split_leaves_the_measurement_keys_out():
+    """분할이 없었으면 0 을 남기지 않고 키 자체를 뺀다(usage.py 의 미상 규약과 같다)."""
+    chat = _RecChat([json.dumps({"records": [_rec(2, "충전환경온도", "기본사양"),
+                                             _rec(3, "방전환경온도"), _rec(4, "저장온도")]})])
+    stats: dict = {}
+    normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30, stats=stats)
+    assert "batches_split" not in stats and "max_split_depth" not in stats
+
+
+# --------------------------------------------------------------------------- #
+# metadata 는 코드가 셀에서 복원한다 (record-v4)
+# --------------------------------------------------------------------------- #
+def _wire_rec(row, name, cat="", attrs=None, meta_cols=None):
+    """record-v4 와이어 모양 — ``record_id`` 없음, metadata 는 **열 이름만**."""
+    return {
+        "source": {"row": row},
+        "entity": {"category": cat, "display_name": name},
+        "attributes": attrs or {},
+        "metadata_columns": meta_cols or [],
+        "evidence_text": name, "confidence": 0.9,
+    }
+
+
+def test_metadata_values_come_from_the_cells_not_the_llm():
+    """LLM 은 어느 열이 메타인지만 고르고, 값은 코드가 그 행에서 그대로 주워 담는다.
+
+    값까지 LLM 에게 받으면 출력의 27.8%(실측)를 아무도 안 읽을 데이터를 생성하는 데 쓴다 —
+    ``Fact`` 에 ``metadata`` 필드가 없어 ``records.json`` 에서 죽는다.
+    """
+    chat = _RecChat([json.dumps({"records": [
+        _wire_rec(2, "충전환경온도", "기본사양", meta_cols=["D", "F"]),
+    ]})])
+
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+
+    # 행2 = {"D": "기본사양", "E": "충전환경온도", "F": -5}
+    assert rs.records[0].metadata == {"D": "기본사양", "F": -5}
+
+
+def test_metadata_columns_the_row_does_not_have_are_dropped():
+    """없는 열을 지어내면 버린다 — 값을 코드가 채우므로 대체할 값 자체가 없다."""
+    chat = _RecChat([json.dumps({"records": [
+        _wire_rec(3, "방전환경온도", meta_cols=["F", "Z"]),   # 행3 에 Z 열은 없다
+    ]})])
+
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+
+    assert rs.records[0].metadata == {"F": -10}
+
+
+def test_record_id_is_generated_by_code_when_the_wire_omits_it():
+    """``record_id`` 도 와이어에서 뺐다 — ``row`` 하나면 코드가 만든다(폴백이 주 경로)."""
+    chat = _RecChat([json.dumps({"records": [
+        _wire_rec(2, "충전환경온도", "기본사양"), _wire_rec(3, "방전환경온도"),
+    ]})])
+
+    rs = normalize_records(_COMPACT, _TP, _CS, LlmRunner(chat), batch_rows=30)
+
+    assert [r.record_id for r in rs.records] == ["row-2", "row-3"]
+
+
+def test_prompt_asks_for_column_names_only():
+    """스키마와 프롬프트가 갈리면 안 된다 — ``structured_output: off`` 면 프롬프트만 남는다."""
+    from contentcompare.fact.prompts import RECORD_SYSTEM
+
+    assert "metadata_columns" in RECORD_SYSTEM

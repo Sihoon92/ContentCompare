@@ -25,6 +25,24 @@ SEC = "sk-lf-secret-value"
 
 
 @pytest.fixture(autouse=True)
+def _isolate_ssl_env():
+    """``apply_ssl_env`` 는 ``os.environ`` 을 **직접** 고친다 — 테스트 뒤 되돌린다.
+
+    복원하지 않으면 ``SSL_CERT_FILE`` 이 이미 지워진 tmp_path 인증서를 가리킨 채
+    남아, 이후 TLS 를 건드리는 모든 테스트가 ``[X509] PEM lib`` 로 죽는다(실측:
+    타임라인의 httpx 클라이언트 테스트가 이 유출로 실패했다). 프로덕션에서는 프로세스
+    수명 동안 유지되는 것이 의도된 동작이므로 코드가 아니라 테스트에서 격리한다.
+    """
+    saved = {k: os.environ.get(k) for k in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE")}
+    yield
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+@pytest.fixture(autouse=True)
 def _isolate_tracer_cache():
     """``get_tracer`` 는 프로세스당 하나를 캐시한다 — 테스트 간에 새지 않게 비운다."""
     from contentcompare.llm.tracing import reset_tracer
@@ -138,7 +156,9 @@ class _FakeTracer:
 
 def _active_config() -> AppConfig:
     return AppConfig.from_dict({
-        "llm": {"backend": "ollama", "chat_model": "gemma4:12b",
+        # rate_limit_wait 0 — 이 파일의 주제는 추적이라 한도 래퍼를 끈다
+        # (켜면 RateLimitedChat 이 바깥에 붙어 "무엇으로 감쌌나"가 가려진다).
+        "llm": {"backend": "ollama", "chat_model": "gemma4:12b", "rate_limit_wait": 0,
                 "langfuse": {"host": HOST, "public_key": PUB, "secret_key": SEC}}
     })
 
@@ -614,16 +634,24 @@ def test_health_never_prints_the_secret():
 
 
 def test_build_clients_returns_the_same_object_when_inactive(monkeypatch):
-    """미설정이면 래핑조차 하지 않는다 — 기존 사용자에게 변화 0.
+    """관측을 전부 끄면 래핑조차 하지 않는다 — 그 설정의 사용자에게 변화 0.
 
     ``is`` 비교여야 의미가 있다. 동등한 새 객체를 돌려주는 것으로는
     "동작이 그대로"를 보장하지 못한다.
+
+    ⚠️ **기본값이 켜진 배선이 둘**이라 여기서 함께 꺼야 한다: ``logging.timeline``
+    (추적과 같은 래퍼를 쓴다)과 ``rate_limit_wait``(429 대기 — 429 를 스스로 처리하지
+    않는 백엔드면 ``RateLimitedChat`` 이 바깥에 붙는다). 주입한 가짜는 그 선언이
+    없으므로 ``backend: ollama`` 여도 붙는다.
     """
     from contentcompare.llm import factory
 
     sentinel = _FakeChat()
     monkeypatch.setattr(factory, "_make", lambda *_a, **_k: sentinel)
-    config = AppConfig.from_dict({"llm": {"backend": "ollama"}})
+    config = AppConfig.from_dict(
+        {"llm": {"backend": "ollama", "rate_limit_wait": 0},
+         "logging": {"timeline": False}}
+    )
     chat, embed = factory.build_clients(config)
     assert chat is sentinel
 

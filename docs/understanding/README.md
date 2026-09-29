@@ -49,6 +49,8 @@
   근거 검문소가 '이름이 같다'를 값으로 증명시키는 구조적 오류와 3단계 해법. <sub>설계 · 2026-08-06</sub>
 - [언어가 다르면 왜 비교가 무너지는가](2026-08-06-explanation-cross-language-recall-bottleneck.html)  
   교차언어 recall 경로 해부 — 반전은 임베딩이 범인이 아니었다는 것. <sub>심화 · 2026-08-06</sub>
+- [검색 문자열은 원문이 아니다](2026-08-18-explanation-search-text-embedding.html)  
+  재조립된 search_text 가 숫자를 잃는 자리, 그리고 그것을 재다 뒤집힌 세 가지. <sub>사건 · 2026-08-18</sub>
 - [영어로 쓴 문서는 왜 비교가 안 됐을까](2026-08-05-explanation-english-document-fix.html)  
   영어 대상 문서에서 매칭이 0이 된 사건 — 범인은 언어가 아니라 검문소였다. <sub>사건 · 2026-08-05</sub>
 

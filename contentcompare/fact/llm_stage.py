@@ -6,6 +6,20 @@ fact 파이프라인의 모든 LLM 단계(Profiler/Schema/...)가 공유한다.
 - :func:`fingerprint_for`: 입력 지문(캐시 무효화 판단용).
 - :class:`LlmRunner`: chat 클라이언트 래퍼. 파싱 실패 1회 재시도 + **문서당 호출 예산**
   (결정 #2)을 강제한다. 단계 함수는 :meth:`LlmRunner.complete_json` 만 호출한다.
+- :func:`run_batch`: 배치 실행 + **출력 절단 시 자동 축소**. F2/F3/F7 이 공유한다.
+
+**재시도가 세 종류**라는 것이 이 모듈의 요점이다. 원인이 달라서 조치도 다르다:
+
+===================  ==================================  ==============================
+층                   무엇이 실패했나                     조치
+===================  ==================================  ==============================
+전송(:mod:`..llm.http`)  응답이 오지 않았다              백오프 후 재전송
+파싱(:meth:`~LlmRunner.complete_json`)  모양이 틀렸다   프롬프트·모델
+절단(:func:`run_batch`)  응답이 잘렸다                   **배치 축소**
+===================  ==================================  ==============================
+
+앞 둘은 같은 입력을 다시 보내지만 절단은 **입력을 줄여야** 한다 — ``temperature=0`` 이라
+같은 입력의 재전송은 확실히 같은 지점에서 잘린다. 셋을 한 자리에 뭉치면 그 차이가 사라진다.
 """
 
 from __future__ import annotations
@@ -14,13 +28,95 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+
+from .. import timeline
+from ..llm.tracing import current_stage
+from ..llm.truncation import LengthLimitError
 
 logger = logging.getLogger(__name__)
 
 
 class LlmBudgetExceeded(RuntimeError):
     """문서당 LLM 호출 예산을 초과했을 때."""
+
+
+def run_batch(
+    items: list,
+    call: Callable[[list, str], None],
+    *,
+    name: Callable[[list, int], str],
+    min_items: int = 1,
+    max_depth: int = 3,
+    stats: Optional[dict] = None,
+    _depth: int = 0,
+) -> None:
+    """``items`` 를 ``call`` 에 넘기고, **출력이 잘리면 반으로 갈라 순서대로** 다시 부른다.
+
+    F2(``record_normalizer``)와 F3(``fact_extractor``)에 글자 그대로 같은 배치 루프가 있어
+    복구를 각자 넣으면 한쪽만 고치는 사고가 난다(``ratelimit.retry_after_of`` 가 명시적으로
+    경계한 형태). 그래서 **쪼개고·이름 붙이고·세는 기계**만 여기 모으고, 결과 병합·carry·
+    ``batch_ids`` 검증 같은 도메인 지식은 호출부에 남긴다.
+
+    ``call(items, label)``
+        호출부의 클로저. 프롬프트 빌드·LLM 호출·**후처리까지** 한 덩어리로 한다.
+        반환값을 쓰지 않는 것이 핵심 제약이다 — 아래 참고.
+    ``name(items, depth)``
+        ``substage`` 라벨을 만든다. ``depth == 0`` 이면 **오늘과 한 글자도 같은** 이름을
+        돌려주도록 호출부가 책임진다(분할이 없으면 타임라인이 오늘과 동일해야 한다).
+
+    ⚠️ **"두 조각을 다 부르고 결과를 병합"하는 설계는 틀렸다.** F2 의 carry-over
+    (category/subcategory)는 그 배치를 **파싱한 뒤** 갱신되어 **다음 배치 프롬프트**로
+    들어간다. 배치 3 이 3a/3b 로 갈리면 3b 는 3a 가 갱신한 carry 를 받아야 하는데, 병합형
+    설계에서는 3b 가 배치 2 의 carry 를 받아 **조용히 틀린 분류**가 된다 — 실패보다 나쁘다.
+    그래서 ``call`` 이 후처리까지 맡고 이 함수는 **한 번에 하나씩 순서대로** 부른다.
+    순서만 보장하면 carry 는 자동으로 옳다.
+
+    ⚠️ **:class:`LengthLimitError` 만 잡는다.** :class:`LlmBudgetExceeded` 나 파싱 실패는
+    그대로 올라간다 — 예산이 떨어졌는데 더 쪼개면 같은 예외를 더 빨리 다시 만날 뿐이다.
+
+    하한 둘로 무한 분할을 막는다. ``min_items`` 까지 줄여도 잘리면 원인이 배치 크기가
+    아니므로(항목 하나가 크거나 모델이 반복 생성 중이거나) **조치가 다른 메시지**로 바꿔
+    올린다. ``max_depth`` 는 30행 기준 30→15→7/8→3/4, 최악 15회다 — 안 두면 배치 하나가
+    ``max_llm_calls_per_doc`` 의 12% 를 태울 수 있다.
+
+    분할 호출은 ``complete_json`` 이 호출 직전에 예산을 검사하므로 **새 예산 없이**
+    ``max_llm_calls_per_doc`` 에 자동으로 잡힌다. 성격이 일반 호출과 같기 때문이며, 따로
+    세면 그 설정값이 거짓말을 하게 된다.
+    """
+    label = name(items, _depth)
+    try:
+        call(items, label)
+    except LengthLimitError as exc:
+        if len(items) <= min_items or _depth >= max_depth:
+            raise LengthLimitError(
+                f"{label}: 더 줄일 수 없는데도 출력이 잘립니다"
+                f"(항목 {len(items)}개, 분할 깊이 {_depth}). 배치 크기 문제가 아닙니다. "
+                "항목 하나가 크거나 모델이 같은 구조를 반복 생성하고 있습니다. "
+                "타임라인의 input_tokens 대비 output_tokens 비를 보세요.",
+                output=exc.output, output_chars=exc.output_chars,
+                usage=exc.usage, backend=exc.backend,
+            ) from exc
+        mid = len(items) // 2
+        if stats is not None:
+            stats["batches_split"] = stats.get("batches_split", 0) + 1
+            stats["max_split_depth"] = max(stats.get("max_split_depth", 0), _depth + 1)
+        # 전송 재시도·파싱 재시도와 **원인이 달라** 갈라 남긴다. 조치도 다르다
+        # (그 둘은 프롬프트·모델 쪽, 이쪽은 배치 크기).
+        timeline.emit(
+            timeline.RETRY, label, status="length",
+            reason="출력 길이 한도, 배치 축소", items=len(items),
+            split_into=[mid, len(items) - mid], depth=_depth + 1,
+        )
+        logger.warning("[Fact] %s 출력 절단 → %d+%d 로 분할(깊이 %d)",
+                       label, mid, len(items) - mid, _depth + 1)
+        for part in (items[:mid], items[mid:]):
+            run_batch(part, call, name=name, min_items=min_items,
+                      max_depth=max_depth, stats=stats, _depth=_depth + 1)
+        return
+    if stats is not None:
+        used = stats.get("min_items_used")
+        stats["min_items_used"] = len(items) if used is None else min(used, len(items))
 
 
 def parse_json_object(raw: str) -> Optional[dict]:
@@ -71,24 +167,67 @@ class LlmRunner:
         self.calls = 0
         self.retries = 0  # 파싱 실패로 다시 호출한 횟수(계측 — F3.5)
         self.parse_failures = 0  # JSON 파싱에 실패한 응답 수(재시도 성공분 포함)
+        self.structured_calls = 0  # 스키마를 실제로 실어 보낸 호출 수
 
     def stats(self) -> dict[str, int]:
         """계측값 — 문서별 ``run_stats.json`` 에 실린다(F3.5).
 
         ``parse_failures`` 가 크면 모델/프롬프트의 JSON 준수도가 낮다는 뜻이고,
         이 분포가 F4b(Repair Loop) 설계의 입력이 된다.
+
+        ``structured_calls`` 가 ``calls`` 보다 **적으면** 중간에 구조화 출력이 꺼진 것이다
+        (서버가 스키마를 거절해 백엔드가 강등했거나, pydantic 이 없거나, 그 단계에 와이어
+        모델이 없거나). 강등은 화면에 한 번만 알리므로 로그를 놓쳤을 때 여기가 증거다.
         """
         return {
             "calls": self.calls,
             "retries": self.retries,
             "parse_failures": self.parse_failures,
+            "structured_calls": self.structured_calls,
         }
 
-    def complete_json(self, system: str, user: str, *, retries: int = 1) -> dict:
+    def _call_kwargs(self, schema: Optional[dict]) -> dict[str, Any]:
+        """``chat.complete`` 에 넘길 키워드. **조건이 안 맞으면 스키마 키를 아예 뺀다.**
+
+        이 함수의 존재 이유가 곧 이 기능의 가장 큰 제약이다: 테스트의 가짜 chat 36개와
+        ``scripts/compare_engines.py`` 가 전부 ``def complete(self, system, user, *,
+        temperature=0.0)`` 이고 ``**kwargs`` 를 받는 것이 **하나도 없다.** 무조건 넘기면
+        37개가 ``TypeError`` 로 동시에 깨진다. 그래서 넘길지 말지를 **받는 쪽이 스스로 밝힌
+        능력**으로 정한다 — ``handles_rate_limit``/``last_usage`` 와 같은 규약이고,
+        :class:`~contentcompare.llm.base.LLMClient` 독스트링이 계약서다.
+
+        ⚠️ **플래그는 매 호출 읽는다.** ``__init__`` 으로 올리지 말 것 — 서버가 스키마를
+        거절하면 백엔드가 이 실행 동안 자기를 강등하는데
+        (:meth:`~contentcompare.llm.langchain_backend.LangChainBackend._disable_structured`),
+        캐시해 두면 그 강등이 반영되지 않아 남은 수백 회가 전부 같은 400 에 부딪힌다.
+        한 번의 ``getattr`` 은 그 위험을 살 만큼 비싸지 않다.
+
+        래퍼(``RateLimitedChat``/``TracedChat``)에는 이 속성이 없지만 둘 다 ``__getattr__``
+        로 안쪽에 위임하므로 값은 실제 백엔드에서 온다 — **위임이 제약이 아니라 장치로
+        쓰이는 자리다**(메서드였다면 추적을 우회했을 그 위임이다).
+        """
+        kwargs: dict[str, Any] = {"temperature": self.temperature}
+        if schema and getattr(self.chat, "supports_structured_output", False):
+            kwargs["schema"] = schema
+            self.structured_calls += 1
+        return kwargs
+
+    def complete_json(self, system: str, user: str, *, retries: int = 1,
+                      schema: Optional[dict] = None) -> dict:
         """system/user 프롬프트로 chat 을 호출해 JSON dict 를 얻는다.
 
         파싱 실패 시 교정 지시를 덧붙여 ``retries`` 회 재시도. 예산 초과 시
         :class:`LlmBudgetExceeded`, 끝내 파싱 실패면 :class:`ValueError`.
+
+        ``schema``(JSON Schema dict, 보통
+        :func:`~contentcompare.fact.schemas.schema_for` 가 만든 것)를 주면 **백엔드가
+        그것을 이해한다고 스스로 밝힌 경우에만** 서버에 모양을 강제한다(:meth:`_call_kwargs`).
+        주지 않거나 백엔드가 지원을 선언하지 않으면 오늘과 **완전히 같은 호출**이 나간다.
+
+        ⚠️ ``schema`` 는 **파싱을 대체하지 않는다.** strict 가 걸려도 ``parse_json_object``
+        와 재시도는 그대로 돈다 — 폴백 경로(ollama·json_object·강등 후)에서는 여전히 모양이
+        틀릴 수 있고, ``parse_failures`` 는 F4b(Repair Loop) 설계의 입력이라 계속 모아야
+        한다. 오히려 **그 숫자가 0 으로 떨어지는 것이 이 기능의 성과 지표다.**
         """
         last_raw: Optional[str] = None
         for attempt in range(retries + 1):
@@ -100,11 +239,19 @@ class LlmRunner:
             if attempt > 0:
                 self.retries += 1
             prompt = user if attempt == 0 else user + _RETRY_NUDGE
-            raw = self.chat.complete(system, prompt, temperature=self.temperature)
+            raw = self.chat.complete(system, prompt, **self._call_kwargs(schema))
             obj = parse_json_object(raw)
             if obj is not None:
                 return obj
             last_raw = raw
             self.parse_failures += 1
             logger.warning("JSON 파싱 실패(attempt %d): %r", attempt + 1, raw)
+            # 전송 재시도(:mod:`contentcompare.llm.http`)와 **원인이 다르다** —
+            # 이쪽은 응답이 왔는데 모양이 틀린 것이라 조치가 프롬프트·모델 쪽이다.
+            # 타임라인에서 갈리지 않으면 둘을 같은 문제로 오해한다.
+            timeline.emit(
+                timeline.RETRY, current_stage(depth=1), status="error",
+                attempt=attempt + 1, max=retries + 1, reason="JSON 파싱 실패",
+                output_chars=len(raw or ""),
+            )
         raise ValueError(f"LLM JSON 파싱 실패(재시도 {retries}회): {last_raw!r}")

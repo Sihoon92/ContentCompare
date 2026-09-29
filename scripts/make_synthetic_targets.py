@@ -49,8 +49,10 @@ REF: dict[str, dict] = {
                      "attrs": {"lower_limit": 21, "target_value": 25, "upper_limit": 29}},
     "평가환경습도": {"row": 16, "cells": "E16:H16",
                      "attrs": {"lower_limit": 33, "target_value": 43, "upper_limit": 53}},
+    # f0ad3fe 가 기준 엑셀을 실제 문서대로 고쳤다(-5/25/55). PPT 쪽 값은 그대로 두므로
+    # 어긋나는 속성이 상한 하나에서 중심치·상한 둘로 늘어난다.
     "충전환경온도": {"row": 17, "cells": "E17:H17",
-                     "attrs": {"lower_limit": -5, "target_value": 35, "upper_limit": 85}},
+                     "attrs": {"lower_limit": -5, "target_value": 25, "upper_limit": 55}},
     "방전환경온도": {"row": 18, "cells": "E18:H18",
                      "attrs": {"lower_limit": -30, "target_value": 30, "upper_limit": 90}},
     "평가환경온도": {"row": 19, "cells": "E19:H19",
@@ -130,7 +132,8 @@ PPT_CASES: list[dict] = [
      "expected": "match", "reason": "정성 규격 문구 일치"},
     # slide 2 — 환경 조건 표
     {"entity": "충전환경온도", "where": "s2", "row": ["충전환경온도", "-5", "35", "80", "℃"],
-     "expected": "mismatch", "bad": ["upper_limit"], "reason": "기준 상한 85 vs 대상 80"},
+     "expected": "mismatch", "bad": ["target_value", "upper_limit"],
+     "reason": "기준 중심 25 vs 대상 35, 기준 상한 55 vs 대상 80"},
     {"entity": "방전환경온도", "where": "s2", "row": ["방전환경온도", "-30", "30", "90", "℃"],
      "expected": "match", "reason": "-30/30/90 일치"},
     {"entity": "평가환경온도", "where": "s2", "row": ["평가환경온도", "21", "24", "28", "℃"],
@@ -164,6 +167,21 @@ PPT_CASES: list[dict] = [
 # --------------------------------------------------------------------------- #
 # 문서 생성
 # --------------------------------------------------------------------------- #
+# c27932e 가 **docx 에 직접 손으로 넣은** 4구간 문단. 생성기가 이걸 몰라서, 이 스크립트를
+# 한 번만 돌려도 문단이 통째로 사라졌다(실측). 별도 단락이 아니라 **한 문단 안의 <w:br/>** 인
+# 것이 요점이다 — 그 형태 자체가 F5 1:N 판정과 Word 블록 경계의 회귀 케이스다.
+#
+# 값(0.7C·1.2C)은 손으로 넣던 때 그대로 둔다. 이건 **대상** 문서이고, 기준 엑셀과 어긋나는
+# 지점을 만드는 것이 목적이다. 기준 쪽은 f0ad3fe 가 실제 문서대로 고쳤다.
+CHARGE_TEMP_LINES = [
+    "충전 온도 범위:",
+    "-5~5\u2103, 0.1C(4.55V)",
+    "5~12\u2103, 0.3C(4.55V)",
+    "12~15\u2103, 0.7C(4.55V)",
+    "15~45\u2103, 1.2C(4.20V)",
+]
+
+
 def build_word(path: str) -> None:
     """문단 + 표가 섞인 Word 대상 문서. raw/word_raw.py 의 두 블록 경로를 모두 태운다."""
     from docx import Document
@@ -176,6 +194,13 @@ def build_word(path: str) -> None:
     for case in WORD_CASES:
         if case["where"] == "para":
             doc.add_paragraph(case["text"])
+
+    # 한 문단 안에서 <w:br/> 로만 줄을 나눈다 (c27932e 회귀 케이스 — 위 주석 참고)
+    p = doc.add_paragraph()
+    run = p.add_run(CHARGE_TEMP_LINES[0])
+    for line in CHARGE_TEMP_LINES[1:]:
+        run.add_break()
+        run.add_text(line)
 
     doc.add_heading("2. 주요 사양 표", level=2)
     table_cases = [c for c in WORD_CASES if c["where"] == "table"]
