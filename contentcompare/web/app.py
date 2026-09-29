@@ -25,7 +25,7 @@ from .. import progress as prog
 from ..config import AppConfig
 from ..llm.health import check_llm
 from .admin import AdminAuth
-from .events import Cursor, stream
+from .events import Cursor, astream
 from .jobs import ENGINES, Job, JobStore, new_job_id, purge_expired
 from .launcher import default_office_guard, process_launcher
 from .scheduler import JobScheduler
@@ -180,13 +180,16 @@ def _register_job_routes(app: FastAPI, state: AppState) -> None:
         except UploadError as exc:
             raise HTTPException(400, str(exc)) from None
 
-        job_id = new_job_id()
-        while store.dir(job_id).exists():  # 같은 초·같은 난수 — 남의 폴더를 덮지 않는다
+        while True:  # 폴더를 만들어 id 를 선점한다 — exists() 확인 후 만들면 병렬 요청끼리 경쟁한다
             job_id = new_job_id()
+            try:
+                store.dir(job_id).mkdir(parents=True)
+                break
+            except FileExistsError:
+                continue
         job_dir = store.dir(job_id)
         by_name = {safe_relpath(n): f for n, f in zip(names, targets)}
         try:
-            job_dir.mkdir(parents=True)
             save_stream(reference.file,
                         resolve_under(job_dir / "inputs" / "reference", plan.reference),
                         settings.max_upload_bytes)
@@ -237,7 +240,7 @@ def _register_job_routes(app: FastAPI, state: AppState) -> None:
     def job_events(job_id: str, request: Request) -> StreamingResponse:
         _job_or_404(state, job_id)
         cursor = Cursor.parse(request.headers.get("last-event-id"))
-        gen = stream(lambda: store.load(job_id), store.dir(job_id), cursor,
+        gen = astream(lambda: store.load(job_id), store.dir(job_id), cursor,
                      stall_after_s=settings.stall_warn_min * 60)
         return StreamingResponse(gen, media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache",

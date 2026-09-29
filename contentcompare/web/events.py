@@ -13,12 +13,16 @@ worker 는 서버와 파일로만 말한다(설계 §4.1). 여기서 ``console.l
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Iterator, Optional
+from typing import AsyncIterator, Callable, Iterator, Optional
+
+import anyio
+import anyio.to_thread
 
 from .. import progress as prog
 from .jobs import RUNNING, Job
@@ -102,6 +106,29 @@ def collect(job: Job, job_dir: Path, cursor: Cursor, *, now: float,
     return out, cur
 
 
+def _round(load_job: Callable[[], Optional[Job]], job_dir: Path, cursor: Cursor, quiet: float, *,
+           now: float, stall_after_s: float, poll_s: float,
+           heartbeat_s: float) -> tuple[list[str], Cursor, float, bool]:
+    """한 바퀴 — 보낼 SSE 조각, 갱신된 커서·조용한 시간, 종료 여부. ``stream``/``astream`` 공용."""
+    job = load_job()
+    if job is None:
+        return [format_sse("end", {"reason": "not_found"})], cursor, quiet, True
+    items, cursor = collect(job, job_dir, cursor, now=now, stall_after_s=stall_after_s)
+    chunks = [format_sse(event, data, cursor.to_id()) for event, data in items]
+    if job.is_final and not any(event == "log" for event, _ in items):
+        # 끝난 뒤에도 남은 로그 줄이 없어질 때까지 한 바퀴 더 돈다.
+        chunks.append(format_sse("end", {"state": job.state}, cursor.to_id()))
+        return chunks, cursor, quiet, True
+    if items:
+        quiet = 0.0
+    else:
+        quiet += poll_s
+        if quiet >= heartbeat_s:
+            chunks.append(": keepalive\n\n")  # 프록시가 조용한 연결을 끊지 않게
+            quiet = 0.0
+    return chunks, cursor, quiet, False
+
+
 def stream(load_job: Callable[[], Optional[Job]], job_dir: Path, cursor: Cursor, *,
            stall_after_s: float, poll_s: float = 0.5,
            sleep: Callable[[float], None] = time.sleep,
@@ -109,22 +136,33 @@ def stream(load_job: Callable[[], Optional[Job]], job_dir: Path, cursor: Cursor,
            heartbeat_s: float = 15.0) -> Iterator[str]:
     quiet = 0.0
     while True:
-        job = load_job()
-        if job is None:
-            yield format_sse("end", {"reason": "not_found"})
+        chunks, cursor, quiet, stop = _round(
+            load_job, job_dir, cursor, quiet, now=clock(), stall_after_s=stall_after_s,
+            poll_s=poll_s, heartbeat_s=heartbeat_s)
+        yield from chunks
+        if stop:
             return
-        items, cursor = collect(job, job_dir, cursor, now=clock(), stall_after_s=stall_after_s)
-        for event, data in items:
-            yield format_sse(event, data, cursor.to_id())
-        if job.is_final and not any(event == "log" for event, _ in items):
-            # 끝난 뒤에도 남은 로그 줄이 없어질 때까지 한 바퀴 더 돈다.
-            yield format_sse("end", {"state": job.state}, cursor.to_id())
-            return
-        if items:
-            quiet = 0.0
-        else:
-            quiet += poll_s
-            if quiet >= heartbeat_s:
-                yield ": keepalive\n\n"  # 프록시가 조용한 연결을 끊지 않게
-                quiet = 0.0
         sleep(poll_s)
+
+
+async def astream(load_job: Callable[[], Optional[Job]], job_dir: Path, cursor: Cursor, *,
+                  stall_after_s: float, poll_s: float = 0.5,
+                  clock: Callable[[], float] = time.time,
+                  heartbeat_s: float = 15.0) -> AsyncIterator[str]:
+    """``stream`` 의 비동기판 — 대기는 ``anyio.sleep`` 이라 연결이 스레드를 붙들지 않는다.
+
+    sync 제너레이터를 StreamingResponse 에 주면 Starlette 이 스레드풀에서 ``next()`` 를 돌리는데,
+    그 안에서 잠들면 열린 연결마다 스레드 하나를 점유해 (기본 40개) 다른 sync 라우트가 굶는다.
+    파일·JSON 읽기 한 바퀴만 스레드에서 돌리고 기다림은 이벤트 루프에서 한다.
+    """
+    quiet = 0.0
+    while True:
+        chunks, cursor, quiet, stop = await anyio.to_thread.run_sync(
+            functools.partial(
+                _round, load_job, job_dir, cursor, quiet, now=clock(),
+                stall_after_s=stall_after_s, poll_s=poll_s, heartbeat_s=heartbeat_s))
+        for chunk in chunks:
+            yield chunk
+        if stop:
+            return
+        await anyio.sleep(poll_s)

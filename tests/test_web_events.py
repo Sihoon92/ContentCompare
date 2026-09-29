@@ -141,3 +141,22 @@ def test_progress_with_infinite_ts_produces_valid_sse(tmp_path):
     # JSON 파싱이 성공해야 한다
     parsed = json_mod.loads(data_line)
     assert parsed is not None
+
+
+def test_astream_matches_the_sync_stream_for_a_finished_job(tmp_path):
+    import anyio
+
+    (tmp_path / "console.log").write_bytes("끝\n".encode("utf-8"))
+    job = _job(state=FAILED)
+    job.error = "ValueError: x"
+
+    async def collect_all():
+        return [c async for c in E.astream(lambda: job, tmp_path, E.Cursor(),
+                                           stall_after_s=300, clock=lambda: 200.0)]
+
+    chunks = anyio.run(collect_all)
+    events = [c.split("\n")[1] for c in chunks if c.startswith("id:")]
+    assert events == ["event: log", "event: progress", "event: status", "event: end"]
+    sync = list(E.stream(lambda: job, tmp_path, E.Cursor(), stall_after_s=300,
+                         sleep=lambda s: None, clock=lambda: 200.0))
+    assert chunks == sync

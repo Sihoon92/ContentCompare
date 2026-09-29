@@ -225,3 +225,16 @@ def test_upload_paths_are_built_with_resolve_under(tmp_path, monkeypatch):
     res = _submit(TestClient(app))
     assert res.status_code == 400 and res.json()["detail"] == "경계 밖"
     assert store.list() == []
+
+
+def test_colliding_id_never_touches_the_existing_folder(tmp_path, monkeypatch):
+    app, store = _app(tmp_path)
+    keep = store.dir("20260929-140211-aaaa") / "inputs" / "reference" / "keep.txt"
+    keep.parent.mkdir(parents=True)
+    keep.write_bytes(b"first user")
+    ids = iter(["20260929-140211-aaaa", "20260929-140211-bbbb"])
+    monkeypatch.setattr(web_app, "new_job_id", lambda: next(ids))
+    res = _submit(TestClient(app))
+    assert res.status_code == 200, res.text
+    assert res.json()["job"]["id"] == "20260929-140211-bbbb"
+    assert keep.read_bytes() == b"first user"
