@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -94,3 +95,39 @@ def test_office_guard_survives_missing_tasklist():
     guard = L.WindowsOfficeGuard(run=run)
     assert guard.snapshot() == set()
     assert guard.cleanup(set()) == []
+
+
+class _StuckProc:
+    """taskkill 도 wait 도 안 끝나는 프로세스."""
+
+    pid = 4321
+
+    def __init__(self):
+        self.killed = 0
+
+    def poll(self):
+        return None
+
+    def kill(self):
+        self.killed += 1
+
+    def wait(self, timeout=None):
+        raise subprocess.TimeoutExpired("worker", timeout)
+
+
+def test_terminate_never_hangs_or_raises_on_a_stuck_worker(tmp_path, monkeypatch):
+    calls = []
+
+    def hung_taskkill(args, **kw):
+        calls.append(kw.get("timeout"))
+        raise subprocess.TimeoutExpired(args, kw.get("timeout"))
+
+    monkeypatch.setattr(L.subprocess, "run", hung_taskkill)
+    proc = _StuckProc()
+    log = open(tmp_path / "console.log", "ab")
+    handle = L.ProcessHandle(proc, log)
+    handle.terminate()                             # 예외 없이 돌아온다
+    assert log.closed
+    assert proc.killed >= 1
+    if os.name == "nt":
+        assert calls == [30]                       # taskkill 에 상한이 있다

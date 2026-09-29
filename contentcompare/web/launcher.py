@@ -48,17 +48,25 @@ class ProcessHandle:
         return code
 
     def terminate(self) -> None:
+        """프로세스 트리를 끝낸다. **멈추거나 예외를 올리지 않는다** — 취소·서버 종료가 여기서 막히면 안 된다."""
         if self.proc.poll() is None:
             if os.name == "nt":
-                subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
-                               capture_output=True)
+                try:
+                    subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                                   capture_output=True, timeout=30)
+                except subprocess.TimeoutExpired:
+                    logger.warning("taskkill 이 응답하지 않아 직접 종료합니다: PID %s", self.proc.pid)
+                    self.proc.kill()
             else:
                 self.proc.kill()
             try:
                 self.proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-                self.proc.wait(timeout=5)
+                try:
+                    self.proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    logger.warning("worker 가 종료되지 않았습니다: PID %s", self.proc.pid)
         self._close()
 
     def _close(self) -> None:

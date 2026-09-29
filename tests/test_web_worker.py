@@ -67,17 +67,23 @@ def test_fact_job_writes_result_report_and_progress(tmp_path):
 
 def test_worker_points_artifacts_into_the_job_folder(tmp_path):
     job_dir = _job_dir(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    # config.yaml 이 timeline_dir 을 정해 둬도 타임라인은 작업 폴더로 간다(설계 §5.3-2).
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(f"logging:\n  timeline_dir: '{elsewhere.as_posix()}'\n", encoding="utf-8")
     seen = {}
 
     def factory(config, engine):
         seen["artifacts"] = config.fact.artifacts_dir
         seen["report"] = config.report.output_dir
+        seen["timeline"] = timeline.timeline_dir(config)
         seen["engine"] = engine
         return _FakeFact()
 
-    worker.run_job(job_dir, WebSettings(), factory=factory)
+    worker.run_job(job_dir, WebSettings(config_path=str(cfg)), factory=factory)
     assert seen == {"artifacts": str(job_dir / "artifacts"), "report": str(job_dir),
-                    "engine": "fact"}
+                    "timeline": str(job_dir / "artifacts" / "_timeline"), "engine": "fact"}
+    assert not elsewhere.exists()
 
 
 def test_fact_without_report_is_a_failure(tmp_path):

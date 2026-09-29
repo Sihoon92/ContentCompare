@@ -46,6 +46,7 @@ def run_job(job_dir: Path, settings: WebSettings, *,
         # 산출물·추적·리포트를 작업 폴더로 돌린다 — 같은 이름 문서를 두 사람이 올려도 안 섞인다.
         config.fact.artifacts_dir = str(job_dir / "artifacts")
         config.llm.trace_dir = str(job_dir / "artifacts" / "_traces")
+        config.logging.timeline_dir = ""  # 비우면 <artifacts>/_timeline — config.yaml 값보다 우선
         config.report.output_dir = str(job_dir)
 
         setup_console(level=logging.INFO)

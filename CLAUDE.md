@@ -249,4 +249,8 @@ CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [-
 - 파일을 여는 조회 API 는 **목록 함수가 돌려준 ID 만** 연다(ID 를 경로로 조립하지 않는다). 작업 ID 는 정규식으로만 받는다.
 - 업로드는 **같은 이름 문서를 거절한다** — `artifacts/<문서명>/` 이 겹쳐 결과가 조용히 섞인다. 폴더 업로드의 하위 경로는 `target_paths` 폼 필드로 받는다(multipart `filename` 은 대체값).
 - 작업은 자동 종료하지 않는다(SDK 재시도까지 합치면 호출 하나가 최악 8분). 멈춤은 SSE `stall` 경고만. 서버 재시작 시 실행 중이던 작업은 `interrupted` 이고 다시 돌리지 않는다(LLM 비용).
+- ⚠️ **종료 대기 상한은 5초다**(`__main__.UVICORN_OPTIONS` 의 `timeout_graceful_shutdown`). uvicorn 기본(None)은 열린 연결을 영원히 기다리는데 SSE 는 작업이 끝나야 닫혀서, 창 하나만 열려 있어도 Ctrl+C 가 안 끝났다. 사람이 두 번 누르면 lifespan 종료를 건너뛰어 worker(별도 프로세스 그룹)가 살아남고 재시작 뒤 다음 작업과 **동시에** 돈다. `tests/test_web_shutdown.py` 가 실제 서버로 고정한다.
+- **그래도 서버가 강제로 죽으면**(작업 관리자·크래시) 작업 시작 때 남긴 `jobs/<ID>/runner.json`(worker PID·생성 시각·시작 전 Office 목록)으로 `recover()` 가 살아남은 worker 트리를 끝내고 Office 를 정리한다. **PID 가 재사용되므로 생성 시각까지 맞을 때만** 죽인다(`process_probe.py`, ctypes — psutil 을 들이지 않는다). 확신이 없으면 Office 도 건드리지 않는다.
+- **jobs 폴더당 서버 하나**(`<jobs>/.server.lock`, `instance_lock.py`). uvicorn 은 lifespan 시작을 **포트를 잡기 전에** 돌아서, 같은 폴더로 두 번 띄우면 두 번째가 포트 충돌로 죽기 전에 첫 서버의 실행 중 작업을 `interrupted` 로 덮어썼다. 잠금은 `recover()` 보다 먼저 잡고, worker 를 끝낸 뒤에 놓는다.
+- **진행 스냅샷은 파일이 바뀔 때만 다시 계산한다**(`events.snapshot_for`, `(경로, 크기, mtime_ns)` 키, 최근 64개). F5 는 기준 fact 마다 한 줄이라 `progress.jsonl` 이 수천 줄인데, 구독자·조회마다 0.5초에 한 번 전체를 다시 읽으면 한 프로세스(GIL) 안에서 사람 수만큼 곱해진다. 돌려준 객체는 공유되므로 고치지 말 것.
 - 테스트: FastAPI 를 쓰는 파일은 `pytest.importorskip("fastapi")` — `.venv` 에는 없어서 건너뛴다. worker 통합 테스트는 `CC_PIPELINE_FACTORY=web_fake_factory:make` 로 가짜 파이프라인을 주입해 실제 서브프로세스를 띄운다.

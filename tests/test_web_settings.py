@@ -75,3 +75,13 @@ def test_public_summary_never_contains_the_api_key(tmp_path):
 def test_upload_limit_in_bytes(tmp_path):
     settings = ws.load_settings(str(tmp_path / "x"), environ={"CC_MAX_UPLOAD_MB": "3"})
     assert settings.max_upload_bytes == 3 * 1024 * 1024
+
+
+def test_env_example_copied_verbatim_does_not_override_llm_settings():
+    """예시를 그대로 .env 로 복사해도 config.yaml 의 LLM 연결을 조용히 덮어쓰지 않는다."""
+    pytest.importorskip("dotenv")
+    from pathlib import Path
+
+    example = Path(__file__).resolve().parent.parent / ".env.example"
+    env = ws.read_env(str(example), environ={})
+    assert "CC_LLM_BACKEND" not in env and "CC_LLM_BASE_URL" not in env
