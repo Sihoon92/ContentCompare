@@ -27,6 +27,7 @@ from ..llm.health import check_llm
 from .admin import AdminAuth
 from .admin_routes import build_admin_router
 from .events import Cursor, astream
+from .instance_lock import acquire_instance_lock
 from .jobs import ENGINES, Job, JobStore, new_job_id, purge_expired
 from .launcher import default_office_guard, process_launcher
 from .scheduler import JobScheduler
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 CLIENT_COOKIE = "cc_client"
 ADMIN_COOKIE = "cc_admin"
 _CLIENT_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+LOCK_FILE = ".server.lock"
 
 
 class LlmChecker:
@@ -131,14 +133,22 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        if background:
+        if not background:
+            yield
+            return
+        # recover() 보다 먼저 — 같은 jobs 폴더의 다른 서버가 돌리는 작업을 덮어쓰지 않게.
+        lock = acquire_instance_lock(store.root / LOCK_FILE)
+        try:
             recovered = scheduler.recover()
             if recovered:
                 logger.warning("재시작으로 중단 처리한 작업: %s", recovered)
             scheduler.start()
-        yield
-        if background:
-            scheduler.stop()
+            yield
+        finally:
+            try:
+                scheduler.stop()
+            finally:
+                lock.release()  # worker 를 끝낸 뒤에 놓는다 — 다음 서버가 그 작업을 보기 전에
 
     app = FastAPI(title="ContentCompare", lifespan=lifespan)
     app.state.cc = state
