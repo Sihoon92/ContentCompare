@@ -3,6 +3,7 @@ import RunTab from "./RunTab";
 import ReportTab from "./ReportTab";
 import MicroTab from "./MicroTab";
 import TimelineTab from "./TimelineTab";
+import KnowledgeTab from "./KnowledgeTab";
 
 export interface TabDef {
   key: string;
@@ -16,4 +17,5 @@ export const TABS: TabDef[] = [
   { key: "report", title: "📄 리포트 보기", Component: ReportTab },
   { key: "micro", title: "🔬 파이프라인 현미경", Component: MicroTab },
   { key: "timeline", title: "⏱ 타임라인", Component: TimelineTab },
+  { key: "knowledge", title: "📚 도메인 지식", Component: KnowledgeTab },
 ];
