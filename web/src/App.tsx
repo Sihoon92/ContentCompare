@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from "react-router-dom";
 import Header from "./components/Header";
+import JobPage from "./pages/JobPage";
 import MainPage from "./pages/MainPage";
 
 function NotFound() {
@@ -17,6 +18,7 @@ export default function App() {
       <Header />
       <Routes>
         <Route path="/" element={<MainPage />} />
+        <Route path="/jobs/:id" element={<JobPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </>
