@@ -6,7 +6,7 @@ fact 파이프라인의 모든 LLM 단계(Profiler/Schema/...)가 공유한다.
 - :func:`fingerprint_for`: 입력 지문(캐시 무효화 판단용).
 - :class:`LlmRunner`: chat 클라이언트 래퍼. 파싱 실패 1회 재시도 + **문서당 호출 예산**
   (결정 #2)을 강제한다. 단계 함수는 :meth:`LlmRunner.complete_json` 만 호출한다.
-- :func:`run_batch`: 배치 실행 + **출력 절단 시 자동 축소**. F2/F3 가 공유한다.
+- :func:`run_batch`: 배치 실행 + **출력 절단 시 자동 축소**. F2/F3/F7 이 공유한다.
 
 **재시도가 세 종류**라는 것이 이 모듈의 요점이다. 원인이 달라서 조치도 다르다:
 

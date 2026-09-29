@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
+from ..llm.truncation import LengthLimitError
+from ..logging_setup import log_print
 from .concept_assembler import assemble
 from .concept_models import (
     BY_CODE,
@@ -28,7 +30,7 @@ from .concept_models import (
 from .fact_matcher import EXACT, RANKED_OUT_EXTRA, FactMatcher, norm_name
 from .fact_models import Fact
 from .fact_store import FactStore
-from .llm_stage import LlmBudgetExceeded
+from .llm_stage import LlmBudgetExceeded, run_batch
 from .ontology import Ontology
 from .prompts import CONCEPT_SYSTEM, build_concept_user
 from .schemas import schema_for
@@ -204,6 +206,7 @@ def judge_pairs(
     purpose: str = "",
     ontology_summary: str = "",
     batch_size: int = 20,
+    stats: Optional[dict] = None,
 ) -> tuple[list[ConceptEdge], int]:
     """남은 후보 쌍을 배치로 LLM 에 넘겨 관계를 받는다.
 
@@ -212,15 +215,46 @@ def judge_pairs(
 
     반환은 ``(엣지, 예산 소진으로 판정 못 한 쌍 수)``. 예산 초과는 조용히 전 항목
     ``missing`` 으로 귀결되므로 **호출자가 드러낼 수 있게** 별도로 센다.
+
+    출력이 잘리면 :func:`~contentcompare.fact.llm_stage.run_batch` 가 배치를 반으로
+    갈라 다시 부른다(F2·F3 와 같은 기계). ``stats`` 를 주면 분할 계측이 담긴다 —
+    분할은 캐시 지문에 안 들어가므로 **계측이 유일한 증거**다.
     """
     edges: list[ConceptEdge] = []
     exhausted = 0
-    for start in range(0, len(pairs), max(1, batch_size)):
-        batch = pairs[start : start + max(1, batch_size)]
+    split: dict[str, int] = {}
+    size = max(1, batch_size)
+    batches = [pairs[i:i + size] for i in range(0, len(pairs), size)]
+    for index, batch in enumerate(batches, start=1):
+
+        def label(items: list, depth: int, _i: int = index) -> str:
+            """분할 조각을 구별하는 이름. **깊이 0 은 오늘과 한 글자도 같다.**
+
+            F7 은 ``substage`` 를 열지 않으므로 이 이름은 분할이 일어났을 때만
+            (재시도 이벤트·오류 메시지에) 쓰인다 — 분할이 없으면 타임라인 무변경이다.
+            """
+            base = f"배치 {_i}/{len(batches)}"
+            if depth == 0 or not items:
+                return base
+            return f"{base} {len(items)}쌍({items[0].left.fact_id})"
+
         batch_edges, batch_exhausted = _judge_batch(
-            runner, batch, knowledge, purpose, ontology_summary)
+            runner, batch, knowledge, purpose, ontology_summary,
+            label=label, split=split)
         edges.extend(batch_edges)
         exhausted += batch_exhausted
+    if stats is not None:
+        stats.update(split)
+    if split.get("batches_split"):
+        # F2 와 같은 이유로 복구했어도 화면에 한 번 말한다 — 조용히 성공하면 사람이
+        # concept_batch_pairs 를 영영 안 고친다.
+        # ⚠️ 이모지·em-dash 를 쓰지 말 것(``log_print`` 는 생 ``print`` 라 cp949 에서
+        # 그 줄이 통째로 사라진다).
+        log_print(
+            f"[Concept] 주의: 출력 절단으로 배치를 {split['batches_split']}회 쪼개 "
+            f"복구했습니다(최소 {split.get('min_items_used')}쌍까지). "
+            f"fact.concept_batch_pairs({batch_size})가 큽니다."
+        )
     return edges, exhausted
 
 
@@ -230,24 +264,62 @@ def _judge_batch(
     knowledge: str,
     purpose: str,
     ontology_summary: str,
+    *,
+    label: Callable[[list, int], str],
+    split: Optional[dict] = None,
 ) -> tuple[list[ConceptEdge], int]:
     by_ids: dict[tuple[str, str], CandidatePair] = {
         (p.left.fact_id, p.right.fact_id): p for p in batch
     }
-    # 프롬프트 조립은 try 밖에서 한다 — 조립 버그가 'LLM 판정 실패'로 위장되면
-    # 전 항목 missing 이 되면서 원인 추적이 불가능해진다.
-    user = build_concept_user(batch, knowledge=knowledge, purpose=purpose,
-                              ontology_summary=ontology_summary)
+    decided: dict[tuple[str, str], ConceptEdge] = {}
+
+    def call(items: list[CandidatePair], name: str) -> None:
+        """LLM 호출 + 응답 디코딩을 한 덩어리로. 결과는 ``decided`` 에 쌓인다.
+
+        F2 의 ``call`` 이 carry-over 갱신까지 맡는 자리와 같은 구조인데, 쌍끼리
+        독립이라(carry 가 없다) 이쪽이 더 단순하다.
+        """
+        # 프롬프트 조립은 try 밖에서 한다 — 조립 버그가 'LLM 판정 실패'로 위장되면
+        # 전 항목 missing 이 되면서 원인 추적이 불가능해진다.
+        user = build_concept_user(items, knowledge=knowledge, purpose=purpose,
+                                  ontology_summary=ontology_summary)
+        try:
+            obj = runner.complete_json(CONCEPT_SYSTEM, user,
+                                       schema=schema_for("concept"))
+        except LengthLimitError:
+            if len(items) > 1:
+                raise  # run_batch 가 반으로 가른다
+            # 더 못 쪼갠다. **그 한 쌍만** 보류하고 정상 반환해서 형제 조각을 살린다 —
+            # 여기서 올리면 뒤 조각이 통째로 중단되어 오늘과 다를 게 없어진다.
+            pair = items[0]
+            decided[(pair.left.fact_id, pair.right.fact_id)] = _unknown_edge(
+                pair, "출력 절단으로 판정하지 못했습니다")
+            return
+        _decode_pairs(obj, by_ids, decided)
+
+    # 미판정 쌍에 붙일 사유. 예외를 잡으면 그 종류로 바뀐다.
+    reason = "LLM 응답에 이 쌍이 없었습니다"
+    exhausted = 0
     try:
-        obj = runner.complete_json(CONCEPT_SYSTEM, user,
-                                   schema=schema_for("concept"))
+        run_batch(batch, call, name=label, stats=split)
     except Exception as e:  # noqa: BLE001 — 배치 격리(LlmBudgetExceeded·파싱실패·네트워크)
         logger.warning("[Concept] 배치 판정 실패(%s) → 보류: %s", type(e).__name__, e)
-        exhausted = len(batch) if isinstance(e, LlmBudgetExceeded) else 0
-        return ([_unknown_edge(p, f"LLM 판정 실패({type(e).__name__})") for p in batch],
-                exhausted)
+        reason = f"LLM 판정 실패({type(e).__name__})"
+        if isinstance(e, LlmBudgetExceeded):
+            # 이미 판정된 쌍은 예산 탓이 아니다 — 분할 뒤에는 둘이 갈린다.
+            exhausted = sum(1 for k in by_ids if k not in decided)
+    return ([
+        decided.get((p.left.fact_id, p.right.fact_id)) or _unknown_edge(p, reason)
+        for p in batch
+    ], exhausted)
 
-    decided: dict[tuple[str, str], ConceptEdge] = {}
+
+def _decode_pairs(
+    obj: dict,
+    by_ids: dict[tuple[str, str], CandidatePair],
+    decided: dict[tuple[str, str], ConceptEdge],
+) -> None:
+    """LLM 응답 → ``decided``. 후보에 없는 id 는 무시하고, 모르는 관계는 unknown."""
     for item in (obj.get("pairs") or []):
         if not isinstance(item, dict):
             continue
@@ -267,11 +339,6 @@ def _judge_batch(
             reason=str(item.get("reason") or ""),
             decided_by=BY_LLM, recall_score=pair.score,
         )
-    return ([
-        decided.get((p.left.fact_id, p.right.fact_id))
-        or _unknown_edge(p, "LLM 응답에 이 쌍이 없었습니다")
-        for p in batch
-    ], 0)
 
 
 def _unknown_edge(pair: CandidatePair, reason: str,
@@ -321,10 +388,12 @@ def build_concept_graph(
 
     llm_edges: list[ConceptEdge] = []
     budget_exhausted = 0
+    split: dict[str, int] = {}
     if remaining and runner is not None:
         llm_edges, budget_exhausted = judge_pairs(
             runner, remaining, knowledge=knowledge, purpose=purpose,
             ontology_summary=ontology.summary(), batch_size=batch_size,
+            stats=split,
         )
     elif remaining:
         llm_edges = [_unknown_edge(p, "LLM 을 쓰지 않아 판정하지 않음", BY_NONE)
@@ -347,6 +416,9 @@ def build_concept_graph(
         # 예산 소진으로 판정하지 못한 쌍. 0 보다 크면 리포트가 경고를 띄운다 —
         # 그대로 두면 "전부 대상에 없음"으로만 보이고 원인이 로그에만 남는다.
         "budget_exhausted_pairs": budget_exhausted,
+        # 출력 절단으로 배치를 쪼갠 계측(F2 와 같은 키 이름). 분할이 없으면 키 자체가
+        # 없다 — 0 으로 채우면 "쪼갤 일이 없었다"와 "안 세었다"가 구별되지 않는다.
+        **split,
     })
     if budget_exhausted:
         logger.warning("[Concept] 예산 소진으로 %d 쌍을 판정하지 못했습니다 "
