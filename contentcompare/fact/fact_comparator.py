@@ -605,10 +605,16 @@ class FactComparator:
 
         candidate_ids = [c.fact.fact_id for c in candidates]
         log_print(
-            f"[Fact] 비교 LLM 실패({failure_reason}) -> unknown: "
-            f"{ref.entity_name} ({ref.fact_id})",
+            "[F5 unknown 강등] "
+            f"failure_reason={failure_reason} | "
+            f"reference_fact_id={ref.fact_id} | "
+            f"reference={ref.entity_name} | "
+            f"target_doc={out.target_doc} | "
+            f"candidate_ids={','.join(candidate_ids) or '-'} | "
+            "다음 항목 계속",
             level=logging.WARNING,
             logger_name=__name__,
+            flush=True,
         )
         timeline.emit(
             timeline.NOTE, current_stage(depth=1), status="unknown",

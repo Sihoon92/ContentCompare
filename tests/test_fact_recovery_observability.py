@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,39 @@ def test_unknown_failure_uses_the_same_reason_in_result_log_and_timeline(
         + stats["llm_parse_failures"]
         + stats["llm_output_truncated"]
     )
+
+
+class _BufferedScreen:
+    """flush 전에는 사용자에게 보이지 않는 리다이렉트 터미널을 흉내 낸다."""
+
+    encoding = "utf-8"
+
+    def __init__(self):
+        self.pending = ""
+        self.visible = ""
+
+    def write(self, text):
+        self.pending += text
+        return len(text)
+
+    def flush(self):
+        self.visible += self.pending
+        self.pending = ""
+
+
+def test_unknown_demotion_is_flushed_to_terminal_with_review_identifiers(monkeypatch):
+    """강등 순간에 원인과 재검토 식별자가 버퍼 밖으로 즉시 나와야 한다."""
+    screen = _BufferedScreen()
+    monkeypatch.setattr(sys, "stdout", screen)
+    monkeypatch.setattr(comparator_module.timeline, "emit", lambda *args, **kwargs: None)
+
+    _one_comparison(_SequenceChat([]), max_calls=0)
+
+    assert "F5 unknown 강등" in screen.visible
+    assert "failure_reason=budget_exceeded" in screen.visible
+    assert "reference_fact_id=ref-1" in screen.visible
+    assert "target_doc=대상.pptx" in screen.visible
+    assert "candidate_ids=target-1" in screen.visible
 
 
 class _CallTwelveTruncates(_SequenceChat):
