@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 const WARN = /(ERROR|WARNING|실패|주의|⚠)/;
 
-export default function LogPanel({ lines }: { lines: string[] }) {
+function LogPanel({ lines }: { lines: string[] }) {
   const [follow, setFollow] = useState(true);
   const box = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -25,3 +25,6 @@ export default function LogPanel({ lines }: { lines: string[] }) {
     </div>
   );
 }
+
+// lines 만 바뀔 때 다시 그린다(경과 시간 타이머 등 부모의 다른 갱신에는 반응하지 않는다).
+export default memo(LogPanel);

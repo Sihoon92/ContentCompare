@@ -15,13 +15,16 @@ export default function JobView({ jobId }: { jobId: string }) {
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => Date.now() / 1000);
 
-  const state = (stream.status.state || job?.state || "") as JobState | "";
+  // 스트림이 영영 끊겼는데(연결 거절 등) 폴링한 작업이 이미 끝났다면 폴링 값이 옳다.
+  const state = (job && isFinal(job.state) ? job.state : stream.status.state || job?.state || "") as JobState | "";
   const final = isFinal(state);
 
+  // 끝난 뒤에는 경과 시간이 finished 로 고정되므로 매초 다시 그릴 이유가 없다.
   useEffect(() => {
+    if (final) return;
     const timer = window.setInterval(() => setNow(Date.now() / 1000), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [final]);
 
   // 요청자·순번·'내 작업' 여부는 SSE 에 없으므로 따로 가져오고, 끝나기 전에는 순번 때문에 몇 초마다 다시 본다.
   useEffect(() => {
