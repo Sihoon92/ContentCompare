@@ -42,7 +42,12 @@ if not exist ".env" (
 )
 
 set "PORT=8000"
-for /f "tokens=1,* delims==" %%a in ('findstr /b /c:"CC_PORT=" .env 2^>nul') do set "PORT=%%b"
+for /f "tokens=2 delims==" %%a in ('findstr /b /c:"CC_PORT=" .env 2^>nul') do set "PORT=%%a"
+rem  CC_PORT 값 정리: 따옴표·공백을 지우고, 숫자만이 아니면(주석·빈 값 등) 8000 으로 되돌린다.
+set "PORT=%PORT:"=%"
+set "PORT=%PORT: =%"
+if not defined PORT set "PORT=8000"
+for /f "delims=0123456789" %%x in ("%PORT%") do set "PORT=8000"
 
 if /i "%MODE%"=="dev" goto :dev
 
@@ -63,6 +68,12 @@ if not defined CC_NO_BROWSER (
     start "" /min powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process 'http://localhost:%PORT%'"
 )
 "%PY%" -m contentcompare.web
+set "RC=%errorlevel%"
+if not "%RC%"=="0" (
+    echo.
+    echo 서버가 종료 코드 %RC% 로 끝났습니다. 위 메시지를 확인하세요.
+    goto :fail
+)
 goto :ok
 
 :dev
@@ -74,6 +85,11 @@ if errorlevel 1 (
 if not exist "web\node_modules" (
     pushd web
     call npm ci
+    if errorlevel 1 (
+        popd
+        echo [ERROR] npm ci 실패.
+        goto :fail
+    )
     popd
 )
 echo 개발 모드: API http://localhost:8000 / 화면 http://localhost:5173
@@ -92,5 +108,5 @@ exit /b 0
 echo.
 echo 실행을 중단했습니다.
 if not defined CC_NO_PAUSE pause
-endlocal
-exit /b 1
+if not defined RC set "RC=1"
+endlocal & exit /b %RC%

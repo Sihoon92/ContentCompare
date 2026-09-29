@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -30,4 +31,5 @@ def test_dev_app_reads_env_file_and_passes_it_down(tmp_path, monkeypatch):
 
     assert web_main.dev_app() == "APP"
     assert seen["settings"].jobs_dir == str(tmp_path / "jobs")
+    assert seen["logs_dir"] == Path(seen["settings"].logs_dir)
     assert os.environ[web_main.DOTENV_ENV] == str(env_file.resolve())
