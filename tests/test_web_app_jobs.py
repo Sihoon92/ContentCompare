@@ -238,3 +238,19 @@ def test_colliding_id_never_touches_the_existing_folder(tmp_path, monkeypatch):
     assert res.status_code == 200, res.text
     assert res.json()["job"]["id"] == "20260929-140211-bbbb"
     assert keep.read_bytes() == b"first user"
+
+
+def test_job_detail_reuses_the_progress_snapshot(tmp_path, monkeypatch):
+    from contentcompare import progress as prog
+
+    app, store = _app(tmp_path)
+    client = TestClient(app)
+    job_id = _submit(client).json()["job"]["id"]
+    (store.dir(job_id) / "progress.jsonl").write_bytes(
+        b'{"ev": "note", "seq": 3, "ts": 10.0}\n')
+    calls = []
+    real = prog.load_events
+    monkeypatch.setattr(prog, "load_events", lambda path: calls.append(path) or real(path))
+    assert client.get(f"/api/jobs/{job_id}").json()["progress"]["last_seq"] == 3
+    assert client.get(f"/api/jobs/{job_id}").json()["progress"]["last_seq"] == 3
+    assert len(calls) == 1

@@ -160,3 +160,64 @@ def test_astream_matches_the_sync_stream_for_a_finished_job(tmp_path):
     sync = list(E.stream(lambda: job, tmp_path, E.Cursor(), stall_after_s=300,
                          sleep=lambda s: None, clock=lambda: 200.0))
     assert chunks == sync
+
+
+# --------------------------------------------------------------------------- #
+# 진행 스냅샷 캐시 — 구독자·요청마다 progress.jsonl 전체를 다시 읽지 않는다(설계 §6 #10)
+def _count_loads(monkeypatch):
+    calls = []
+    real = E.prog.load_events
+
+    def counting(path):
+        calls.append(path)
+        return real(path)
+
+    monkeypatch.setattr(E.prog, "load_events", counting)
+    return calls
+
+
+def _append_event(path, seq):
+    with open(path, "ab") as f:
+        f.write(json.dumps({"ev": "note", "seq": seq, "ts": 100.0 + seq}).encode("utf-8") + b"\n")
+
+
+def test_snapshot_is_parsed_once_until_the_file_changes(tmp_path, monkeypatch):
+    calls = _count_loads(monkeypatch)
+    path = tmp_path / "progress.jsonl"
+    _append_event(path, 1)
+    assert E.snapshot_for(path).last_seq == 1
+    assert E.snapshot_for(path).last_seq == 1
+    assert len(calls) == 1
+    _append_event(path, 2)
+    assert E.snapshot_for(path).last_seq == 2
+    assert len(calls) == 2
+
+
+def test_collect_uses_the_snapshot_cache(tmp_path, monkeypatch):
+    calls = _count_loads(monkeypatch)
+    _append_event(tmp_path / "progress.jsonl", 1)
+    _, cur = E.collect(_job(), tmp_path, E.Cursor(), now=101.0, stall_after_s=60)
+    E.collect(_job(), tmp_path, cur, now=101.5, stall_after_s=60)
+    assert len(calls) == 1
+
+
+def test_missing_progress_is_empty_and_not_cached(tmp_path, monkeypatch):
+    path = tmp_path / "progress.jsonl"
+    assert E.snapshot_for(path).last_seq == 0
+    _append_event(path, 5)
+    assert E.snapshot_for(path).last_seq == 5
+
+
+def test_snapshot_cache_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.setattr(E, "_MAX_SNAPSHOTS", 2)
+    paths = []
+    for i in range(3):
+        p = tmp_path / f"p{i}.jsonl"
+        _append_event(p, i + 1)
+        E.snapshot_for(p)
+        paths.append(p)
+    calls = _count_loads(monkeypatch)
+    E.snapshot_for(paths[2])                       # 최근 것은 남아 있다
+    assert len(calls) == 0
+    E.snapshot_for(paths[0])                       # 가장 오래된 것은 밀려났다
+    assert len(calls) == 1

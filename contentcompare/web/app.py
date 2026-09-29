@@ -21,12 +21,11 @@ from typing import Any, Callable, Optional
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import progress as prog
 from ..config import AppConfig
 from ..llm.health import check_llm
 from .admin import AdminAuth
 from .admin_routes import build_admin_router
-from .events import Cursor, astream
+from .events import Cursor, astream, snapshot_for
 from .instance_lock import acquire_instance_lock
 from .jobs import ENGINES, Job, JobStore, new_job_id, purge_expired
 from .launcher import default_office_guard, process_launcher
@@ -241,7 +240,7 @@ def _register_job_routes(app: FastAPI, state: AppState) -> None:
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, cid: str = Depends(client_id)) -> dict:
         job = _job_or_404(state, job_id)
-        snap = prog.summarize(prog.load_events(store.dir(job_id) / "progress.jsonl"))
+        snap = snapshot_for(store.dir(job_id) / "progress.jsonl")
         return {**job_view(job, cid, scheduler.positions()), "progress": snap.to_dict()}
 
     @app.post("/api/jobs/{job_id}/cancel")

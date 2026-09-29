@@ -9,6 +9,9 @@ worker 는 서버와 파일로만 말한다(설계 §4.1). 여기서 ``console.l
   ``Last-Event-ID`` 로 다시 붙으면 본 줄을 또 보내지 않는다.
 - **멈춤은 상태가 바뀔 때만 알린다**(설계 §6 #7). 활동 = 진행 이벤트·로그 파일 갱신·시작 시각
   중 가장 최근. 자동 종료는 하지 않는다.
+- **진행 스냅샷은 파일이 바뀔 때만 다시 계산한다**(설계 §6 #10, :func:`snapshot_for`). F5 는 기준
+  fact 마다 한 줄을 써서 ``progress.jsonl`` 이 수천 줄이 되는데, 구독자마다 0.5초에 한 번씩 전체를
+  다시 읽으면 한 프로세스(GIL) 안에서 사람 수만큼 곱해진다.
 """
 
 from __future__ import annotations
@@ -16,7 +19,9 @@ from __future__ import annotations
 import functools
 import json
 import os
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import AsyncIterator, Callable, Iterator, Optional
@@ -48,6 +53,35 @@ def read_complete_lines(path: Path, offset: int, *,
         return [data.decode("utf-8", errors="replace")], offset + len(data)
     chunk = data[:end + 1]
     return chunk.decode("utf-8", errors="replace").splitlines(), offset + len(chunk)
+
+
+_MAX_SNAPSHOTS = 64
+_snapshots: "OrderedDict[tuple, prog.Snapshot]" = OrderedDict()
+_snapshots_lock = threading.Lock()
+
+
+def snapshot_for(path: Path) -> prog.Snapshot:
+    """``progress.jsonl`` → 진행 상태. ``(경로, 크기, 수정 시각)`` 이 같으면 계산한 것을 돌려준다.
+
+    돌려준 객체는 여러 요청이 **공유**한다 — 읽기만 할 것. 파일이 없으면 빈 상태(캐시하지 않음).
+    최근 :data:`_MAX_SNAPSHOTS` 개만 들고 있는다.
+    """
+    try:
+        path = Path(path).resolve()
+        st = path.stat()
+    except OSError:
+        return prog.Snapshot()
+    key = (str(path), st.st_size, st.st_mtime_ns)
+    with _snapshots_lock:  # 안에서 계산한다 — 같은 변화를 구독자 수만큼 동시에 파싱하지 않게
+        snap = _snapshots.get(key)
+        if snap is not None:
+            _snapshots.move_to_end(key)
+            return snap
+        snap = prog.summarize(prog.load_events(path))
+        _snapshots[key] = snap
+        while len(_snapshots) > _MAX_SNAPSHOTS:
+            _snapshots.popitem(last=False)
+        return snap
 
 
 def format_sse(event: str, data: dict, event_id: str = "") -> str:
@@ -86,7 +120,7 @@ def collect(job: Job, job_dir: Path, cursor: Cursor, *, now: float,
     lines, cur.log = read_complete_lines(log_path, cursor.log)
     if lines:
         out.append(("log", {"lines": lines}))
-    snap = prog.summarize(prog.load_events(job_dir / "progress.jsonl"))
+    snap = snapshot_for(job_dir / "progress.jsonl")
     if snap.last_seq != cursor.seq or not cursor.state:
         cur.seq = snap.last_seq
         out.append(("progress", snap.to_dict()))
