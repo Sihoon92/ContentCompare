@@ -289,18 +289,18 @@ unit(key: str, parts: int = 1)                      # unit_start … unit_done �
 | 메서드·경로 | 용도 |
 |---|---|
 | `POST /api/llm/check` | 연결 테스트(30초 재사용, 동시 1회) |
-| `POST /api/jobs` | multipart: `engine`, `requester`, `reference`, `targets[]`(상대 경로 포함) → 작업 ID |
+| `POST /api/jobs` | multipart: `engine`, `requester`, `reference`, `targets[]`(상대 경로 포함), 선택 `reference_path`·`target_paths[]`(폴더 경로 보존) → 작업 ID |
 | `GET /api/jobs` | 대기열 + 최근 작업(`mine` 표시) |
 | `GET /api/jobs/{id}` | 상태·진행 스냅샷 |
 | `POST /api/jobs/{id}/cancel` | 취소(요청자·관리자) |
 | `GET /api/jobs/{id}/events` | SSE: `status`·`progress`·`log`·`stall` 이벤트 |
 | `GET /api/jobs/{id}/result` | 화면 표시용 결과 JSON |
-| `GET /api/reports`, `GET /api/reports/{ref}` | 리포트 목록·본문 |
-| `GET /api/micro/runs`, `GET /api/micro/{run}/options`, `GET /api/micro/{run}/html` | 현미경 선택지·렌더 |
-| `GET /api/timelines`, `GET /api/timelines/{run}/html` | 타임라인 목록·렌더 |
+| `GET /api/reports`, `GET /api/reports/content?id=` | 리포트 목록·본문 |
+| `GET /api/micro/runs`, `GET /api/micro/options?run=`, `GET /api/micro/html?run=&mode=…` | 현미경 선택지·렌더 |
+| `GET /api/timelines`, `GET /api/timelines/html?run=&errors_only=` | 타임라인 목록·렌더 |
 | `GET/PUT /api/knowledge/files/{name}`, `GET /api/knowledge/merged` | 도메인 지식 |
-| `POST /api/admin/login`, `POST /api/admin/logout` | 관리자 세션 |
-| `GET /api/admin/logs`, `GET /api/admin/logs/{source}` | 로그 목록·조회(레벨·검색·꼬리 N줄·이어 읽기) |
+| `GET /api/admin/status`, `POST /api/admin/login`, `POST /api/admin/logout` | 관리자 세션 |
+| `GET /api/admin/logs`, `GET /api/admin/logs/read?source=`, `GET /api/admin/logs/download?source=` | 로그 목록·조회(레벨·검색·꼬리 N줄·이어 읽기)·다운로드 |
 | `GET /api/admin/jobs`, `POST .../cancel`, `DELETE /api/admin/jobs/{id}` | 작업 관리 |
 
 경로 인자로 파일을 고르는 API 는 **허용된 루트 안인지** 검사한다(`jobs/`, `reports/`,

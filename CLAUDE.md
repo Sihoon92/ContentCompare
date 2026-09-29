@@ -176,6 +176,7 @@ CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [-
 ### 진입점
 
 - **CLI** `cli.py`(`contentcompare` 스크립트): `--check` 연결점검 / `--reference`+`--targets` 비교.
+- **웹 서버** `python -m contentcompare.web`(FastAPI, `contentcompare/web/`): 여러 명이 브라우저로 접속해 업로드 → 대기열(한 번에 1건) → 별도 worker 프로세스 실행. 설계 `docs/superpowers/specs/2026-09-29-web-frontend-design.md`. 설정은 `.env`(견본 `.env.example`).
 - **Streamlit** `app/streamlit_app.py`: 사이드바=설정(백엔드/모델/검색 파라미터), 4탭=비교 실행(엔진 `rag|fact` 선택) / 리포트 보기 / **🔬 파이프라인 현미경** / 도메인 지식. COM 은 데스크톱 세션이 필요하므로 **사용자 PC localhost** 전용. 입력은 업로드보다 **로컬 경로 직접 지정**을 권장(COM 은 실제 파일 경로 필요; 사내 보안/DRM 친화적).
 
 **UI 3층 분리** — `ui/runner.py` 의 "streamlit 없이 단위테스트 가능" 원칙을 시각화까지 확장했다. **HTML 문자열 생성까지가 순수 함수**이고 Streamlit 은 그것을 iframe 에 넣기만 한다:
@@ -237,3 +238,15 @@ CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [-
 웹 실행 창의 % 를 만드는 모듈이다. `timeline.py` 와 **역할이 다르다** — 타임라인은 사람이 읽는 진단 기록이라 배치 번호가 `"배치 3/7"` **문자열 안에만** 있고 F5·F7 반복에는 이벤트가 없다. 진행률을 이름 파싱에 기대면 이름 형식만 바꿔도 조용히 깨지므로 따로 뒀다.
 
 **쓰는 쪽은 사실만, 계산은 읽는 쪽이.** 파이프라인은 `prog.plan`/`unit_start`/`part`/`step`/`unit_done` 만 부르고, 비율과 단조 보장은 `summarize(events)` 가 한다. 단계 N 은 `plan` 으로 **시작 시 확정하고 바꾸지 않는다**(fact: 문서 × (1+T) + F7 1 + F5 × T / rag: 준비 1 + 판정 1). ⚠️ 두 파이프라인의 `run()` 에 `progress` 라는 **매개변수**가 이미 있어서 모듈은 `prog` 로 가져온다. 기본 보고기는 `NullProgress` 라 CLI·테스트는 무영향이고, 웹 worker 가 `JsonlProgress` 를 설치한다. 실행 끝 `finally` 의 `finish_remaining()` 을 지우지 말 것 — 실패한 대상의 F5 단위처럼 영영 시작 안 되는 단위가 막대를 100% 아래에 묶어 둔다.
+
+### 웹 서버 (`contentcompare/web/`)
+
+**작업 1건 = worker 프로세스 1개, 서버와는 파일로만.** `jobs/<ID>/` 에 `job.json`(상태 원본)·`inputs/`·`artifacts/`·`console.log`(화면 로그, INFO)·`contentcompare_*.log`(DEBUG, 관리자 전용)·`progress.jsonl`·`result.json`·`error.json`·`report.md` 가 남는다. 프로세스 전역 상태(타임라인·로그·`disable_proxy()`·Office COM)를 작업 단위로 가두는 유일한 방법이라 **스레드로 바꾸지 말 것.**
+
+- ⚠️ **동시 실행은 1건이고 uvicorn worker 도 1개다.** PowerPoint COM 은 `DispatchEx` 로도 PC 전체에 하나뿐이라 한 작업의 `Quit` 이 남의 PPT 를 닫고, `RateLimiter` 는 프로세스 안에만 있어 병렬이면 429 가 겹친다. 스케줄러가 서버 프로세스 안에 있으므로 uvicorn worker 를 늘리면 스케줄러도 늘어난다.
+- **Windows 서비스로 등록하지 말 것** — Office 자동화는 로그인된 데스크톱 세션이 필요하다.
+- **API 키를 작업 폴더에 남기지 않는다.** worker 가 `.env` 를 스스로 읽고, `job.json` 에는 `public_llm_summary()` 만 남는다. `.env` 키 → 설정 필드 매핑은 `settings.ENV_MAP` 한 곳이고 테스트가 경로 존재를 고정한다.
+- 파일을 여는 조회 API 는 **목록 함수가 돌려준 ID 만** 연다(ID 를 경로로 조립하지 않는다). 작업 ID 는 정규식으로만 받는다.
+- 업로드는 **같은 이름 문서를 거절한다** — `artifacts/<문서명>/` 이 겹쳐 결과가 조용히 섞인다. 폴더 업로드의 하위 경로는 `target_paths` 폼 필드로 받는다(multipart `filename` 은 대체값).
+- 작업은 자동 종료하지 않는다(SDK 재시도까지 합치면 호출 하나가 최악 8분). 멈춤은 SSE `stall` 경고만. 서버 재시작 시 실행 중이던 작업은 `interrupted` 이고 다시 돌리지 않는다(LLM 비용).
+- 테스트: FastAPI 를 쓰는 파일은 `pytest.importorskip("fastapi")` — `.venv` 에는 없어서 건너뛴다. worker 통합 테스트는 `CC_PIPELINE_FACTORY=web_fake_factory:make` 로 가짜 파이프라인을 주입해 실제 서브프로세스를 띄운다.

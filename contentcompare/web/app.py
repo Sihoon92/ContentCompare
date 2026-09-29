@@ -25,11 +25,13 @@ from .. import progress as prog
 from ..config import AppConfig
 from ..llm.health import check_llm
 from .admin import AdminAuth
+from .admin_routes import build_admin_router
 from .events import Cursor, astream
 from .jobs import ENGINES, Job, JobStore, new_job_id, purge_expired
 from .launcher import default_office_guard, process_launcher
 from .scheduler import JobScheduler
 from .settings import WebSettings, build_app_config, public_llm_summary
+from .static import mount_static
 from .uploads import UploadError, plan_upload, resolve_under, safe_relpath, save_stream
 from .views import build_views_router
 
@@ -142,6 +144,9 @@ def create_app(
     app.state.cc = state
     _register_job_routes(app, state)
     app.include_router(build_views_router(state))
+    app.include_router(build_admin_router(state, admin_cookie=ADMIN_COOKIE))
+    # 정적 화면은 반드시 마지막 — 모든 경로를 잡는 라우트라 앞에 두면 API 를 가린다.
+    mount_static(app, static_dir)
     return app
 
 
