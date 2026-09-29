@@ -195,3 +195,21 @@ def test_to_dict_is_json_serializable():
                                 "state": "running", "error": ""}
     assert data["current"] == {"key": "a", "label": "문서A", "part_name": "F1 profile",
                                "part_index": 2, "parts": 2, "step_done": 0, "step_total": 0}
+
+
+def test_malformed_events_are_skipped_not_raised():
+    """파싱은 됐지만 모양이 틀린 이벤트 하나가 화면 전체(서버 API)를 죽이면 안 된다."""
+    events = [
+        {"seq": 1, "ev": "plan",
+         "units": [{"key": "a", "label": "A", "kind": "doc"}, "깨진항목"]},
+        {"seq": 2, "ev": "unit_start", "key": "a", "parts": "abc"},
+        {"seq": "x", "ev": "step", "key": "a", "done": 1, "total": 2},
+        {"seq": 3, "ts": "abc", "ev": "unit_start", "key": "a"},
+        "문자열 이벤트",
+        {"seq": 4, "ev": "unit_start", "key": "a"},
+        {"seq": 5, "ev": "unit_done", "key": "a"},
+    ]
+    snap = prog.summarize(events)
+    assert snap.total == 1
+    assert snap.units[0].state == prog.DONE
+    assert snap.fraction == 1.0

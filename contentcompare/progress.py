@@ -293,52 +293,19 @@ def summarize(events: Iterable[dict]) -> Snapshot:
 
     배치가 출력 절단으로 쪼개져 다시 세거나 하위 단계가 넘어가며 배치 수가 초기화되어도
     화면의 막대가 뒤로 가지 않게 하는 곳이 여기 한 군데다.
+
+    **모양이 틀린 이벤트는 건너뛴다.** 우리 쓰기 코드는 그런 값을 만들지 않지만, 웹 서버가
+    이 함수를 매 요청 부르므로 손상된 줄 하나가 API 를 500 으로 만들면 안 된다.
     """
     snap = Snapshot()
     index: dict[str, UnitState] = {}
     run: dict = {}
     best = 0.0
     for ev in events:
-        kind = ev.get("ev")
-        ts = float(ev.get("ts") or 0.0)
-        if ts:
-            snap.started_ts = snap.started_ts or ts
-            snap.last_ts = ts
-        snap.last_seq = max(snap.last_seq, int(ev.get("seq") or 0))
-        if kind == "plan":
-            snap.units, index, run, best = [], {}, {}, 0.0
-            for u in ev.get("units") or []:
-                key = str(u.get("key") or "")
-                if not key or key in index:
-                    continue  # 겹치는 키(같은 basename 대상)는 첫 것만 센다
-                state = UnitState(key, str(u.get("label") or key), str(u.get("kind") or ""))
-                index[key] = state
-                snap.units.append(state)
+        try:
+            run, best = _apply(ev, snap, index, run, best)
+        except (TypeError, ValueError, AttributeError, KeyError):
             continue
-        key = str(ev.get("key") or "")
-        state = index.get(key)
-        if kind == "unit_start" and state is not None and state.state not in FINISHED:
-            state.state = RUNNING
-            run = {"key": key, "parts": max(1, int(ev.get("parts") or 1)),
-                   "index": 0, "name": "", "done": 0, "total": 0}
-        elif kind == "part" and key and run.get("key") == key:
-            run.update(index=int(ev.get("index") or 0), name=str(ev.get("name") or ""),
-                       done=0, total=0)
-        elif kind == "step" and key and run.get("key") == key:
-            run.update(done=int(ev.get("done") or 0), total=int(ev.get("total") or 0))
-        elif kind == "unit_done" and state is not None and state.state not in FINISHED:
-            state.state = DONE if ev.get("ok", True) else FAILED
-            state.error = str(ev.get("error") or "")
-            if run.get("key") == key:
-                run = {}
-        elif kind == "finish_remaining":
-            for u in snap.units:
-                if u.state == RUNNING:
-                    u.state, u.error = FAILED, u.error or "중단"
-                elif u.state == PENDING:
-                    u.state, u.error = SKIPPED, str(ev.get("error") or "")
-            run = {}
-        best = max(best, _fraction(snap.units, run))
     snap.fraction = best
     if run:
         snap.current = run["key"]
@@ -349,3 +316,55 @@ def summarize(events: Iterable[dict]) -> Snapshot:
         snap.step_done = run["done"]
         snap.step_total = run["total"]
     return snap
+
+
+def _apply(ev: dict, snap: Snapshot, index: dict[str, UnitState], run: dict,
+           best: float) -> tuple[dict, float]:
+    """이벤트 하나를 반영하고 ``(진행 중 단위, 최댓값)`` 을 돌려준다.
+
+    예외가 나면 호출자가 그 이벤트만 버린다. 그래서 **상태를 바꾸기 전에 값을 모두 계산**한다
+    (``unit_start`` 가 ``parts`` 변환에 실패했는데 상태만 RUNNING 이 되면 안 된다).
+    """
+    kind = ev.get("ev")
+    ts = float(ev.get("ts") or 0.0)
+    seq = int(ev.get("seq") or 0)
+    if ts:
+        snap.started_ts = snap.started_ts or ts
+        snap.last_ts = ts
+    snap.last_seq = max(snap.last_seq, seq)
+    if kind == "plan":
+        snap.units = []
+        index.clear()
+        for u in ev.get("units") or []:
+            key = str(u.get("key") or "")
+            if not key or key in index:
+                continue  # 겹치는 키는 첫 것만 센다
+            state = UnitState(key, str(u.get("label") or key), str(u.get("kind") or ""))
+            index[key] = state
+            snap.units.append(state)
+        return {}, 0.0
+    key = str(ev.get("key") or "")
+    state = index.get(key)
+    if kind == "unit_start" and state is not None and state.state not in FINISHED:
+        new_run = {"key": key, "parts": max(1, int(ev.get("parts") or 1)),
+                   "index": 0, "name": "", "done": 0, "total": 0}
+        state.state = RUNNING
+        run = new_run
+    elif kind == "part" and key and run.get("key") == key:
+        run = {**run, "index": int(ev.get("index") or 0),
+               "name": str(ev.get("name") or ""), "done": 0, "total": 0}
+    elif kind == "step" and key and run.get("key") == key:
+        run = {**run, "done": int(ev.get("done") or 0), "total": int(ev.get("total") or 0)}
+    elif kind == "unit_done" and state is not None and state.state not in FINISHED:
+        state.state = DONE if ev.get("ok", True) else FAILED
+        state.error = str(ev.get("error") or "")
+        if run.get("key") == key:
+            run = {}
+    elif kind == "finish_remaining":
+        for u in snap.units:
+            if u.state == RUNNING:
+                u.state, u.error = FAILED, u.error or "중단"
+            elif u.state == PENDING:
+                u.state, u.error = SKIPPED, str(ev.get("error") or "")
+        run = {}
+    return run, max(best, _fraction(snap.units, run))
