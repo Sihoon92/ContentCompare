@@ -197,3 +197,57 @@ def test_background_thread_runs_jobs_and_housekeeping(tmp_path):
         sched.stop()
     assert store.load(a.id).state == J.SUCCEEDED
     assert swept
+
+
+def test_cancel_tolerates_handle_terminate_exception(tmp_path):
+    """handle.terminate() 예외 후에도 cancel()은 성공하고 job은 CANCELLED·_running은 None."""
+    store, launcher, _, sched = _setup(tmp_path)
+    a, b = _submit(sched, 1), _submit(sched, 2)
+    sched.tick()
+
+    class _FailingHandle(_Handle):
+        def terminate(self):
+            self.code = -1
+            raise OSError("프로세스 종료 실패")
+
+    # _running의 handle을 교체
+    job_id, _, before = sched._running
+    sched._running = (job_id, _FailingHandle(), before)
+    assert sched.cancel(a.id)
+    assert store.load(a.id).state == J.CANCELLED
+    sched.tick()
+    assert store.load(b.id).state == J.RUNNING
+
+
+def test_stop_tolerates_office_cleanup_exception(tmp_path):
+    """office.cleanup() 예외 후에도 stop()은 job을 INTERRUPTED로 표시."""
+    store, launcher, _, sched = _setup(tmp_path)
+    a = _submit(sched, 1)
+    sched.tick()
+
+    class _FailingOffice(_Office):
+        def cleanup(self, before):
+            raise RuntimeError("Office 정리 실패")
+
+    sched.office = _FailingOffice()
+    sched.stop()
+    job = store.load(a.id)
+    assert job.state == J.INTERRUPTED
+
+
+def test_failure_with_office_cleanup_exception_marks_failed(tmp_path):
+    """실패한 job에서 office.cleanup() 예외가 나도 job은 FAILED 상태로 정착."""
+    store, launcher, _, sched = _setup(tmp_path)
+    a, b = _submit(sched, 1), _submit(sched, 2)
+    sched.tick()
+    launcher.handles[a.id].code = 1  # 실패
+
+    class _FailingOffice(_Office):
+        def cleanup(self, before):
+            raise RuntimeError("Office 정리 실패")
+
+    sched.office = _FailingOffice()
+    sched.tick()
+    assert store.load(a.id).state == J.FAILED
+    sched.tick()
+    assert store.load(b.id).state == J.RUNNING

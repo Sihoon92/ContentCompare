@@ -117,10 +117,18 @@ class JobScheduler:
                 return True
             if self._running and self._running[0] == job_id:
                 _, handle, before = self._running
-                self._running = None
-                handle.terminate()
-                self.office.cleanup(before)
-                self._close(job, CANCELLED, "사용자가 취소했습니다.")
+                try:
+                    try:
+                        handle.terminate()
+                    except Exception:  # noqa: BLE001
+                        logger.exception("작업 종료 중 오류(계속 진행): %s", job_id)
+                    try:
+                        self.office.cleanup(before)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Office 정리 중 오류(계속 진행): %s", job_id)
+                    self._close(job, CANCELLED, "사용자가 취소했습니다.")
+                finally:
+                    self._running = None
                 return True
             return False
 
@@ -132,7 +140,17 @@ class JobScheduler:
                 if code is None:
                     return
                 self._running = None
-                self._finalize(job_id, code, before)
+                try:
+                    self._finalize(job_id, code, before)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("작업 마무리 중 오류(계속 진행): %s", job_id)
+                    # job 을 반드시 FAILED 로 표시하되, 마무리 실패도 기록
+                    job = self.store.load(job_id)
+                    if job is not None:
+                        try:
+                            self._close(job, FAILED, f"작업 마무리 중 오류: {type(exc).__name__}: {exc}")
+                        except Exception:  # noqa: BLE001
+                            logger.exception("job 상태 저장 실패: %s", job_id)
             waiting = self.queued()
             if not waiting:
                 return
@@ -167,12 +185,20 @@ class JobScheduler:
         with self._lock:
             if self._running:
                 job_id, handle, before = self._running
-                self._running = None
-                handle.terminate()
-                self.office.cleanup(before)
-                job = self.store.load(job_id)
-                if job is not None:
-                    self._close(job, INTERRUPTED, "서버가 종료되어 중단되었습니다.")
+                try:
+                    try:
+                        handle.terminate()
+                    except Exception:  # noqa: BLE001
+                        logger.exception("작업 종료 중 오류(계속 진행): %s", job_id)
+                    try:
+                        self.office.cleanup(before)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Office 정리 중 오류(계속 진행): %s", job_id)
+                    job = self.store.load(job_id)
+                    if job is not None:
+                        self._close(job, INTERRUPTED, "서버가 종료되어 중단되었습니다.")
+                finally:
+                    self._running = None
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -196,7 +222,10 @@ class JobScheduler:
             logger.info("작업 완료: %s", job_id)
             return
         # 비정상 종료면 Office 가 남았을 수 있다(정상 종료는 파이프라인이 finally 에서 닫는다).
-        self.office.cleanup(before)
+        try:
+            self.office.cleanup(before)
+        except Exception:  # noqa: BLE001
+            logger.exception("Office 정리 중 오류(계속 진행): %s", job_id)
         error = _read_error(self.store.dir(job_id)) or f"worker 종료코드 {code}"
         self._close(job, FAILED, error)
         logger.warning("작업 실패: %s — %s", job_id, error)
