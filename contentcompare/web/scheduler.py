@@ -6,20 +6,31 @@
 
 상태의 원본은 디스크(``job.json``)다. 여기서 들고 있는 것은 "지금 도는 프로세스 핸들" 하나뿐이다.
 :meth:`tick` 은 한 번의 결정적 스케줄링 단계라 테스트가 스레드 없이 부를 수 있다.
+
+작업을 띄우면 ``runner.json``(worker PID·생성 시각·시작 전 Office 목록)도 디스크에 남긴다.
+서버가 lifespan 종료 없이 죽으면(강제 종료·Ctrl+C 두 번) 메모리의 핸들과 Office 목록이 사라지는데,
+재시작의 :meth:`recover` 가 이 파일로 살아남은 worker 를 끝내고 Office 를 정리한다 — 안 그러면
+다음 작업이 남은 worker 와 **동시에** 돌고, 남은 PowerPoint(PC 전체에 하나)에 붙는다.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
 from .jobs import CANCELLED, FAILED, INTERRUPTED, QUEUED, RUNNING, SUCCEEDED, Job, JobStore
+from .process_probe import default_process_probe
 
 logger = logging.getLogger(__name__)
+
+RUNNER_FILE = "runner.json"
+CREATION_TOLERANCE_S = 1.0
+"""기록한 생성 시각과 이만큼 안에서 같아야 같은 프로세스로 본다(다르면 재사용된 PID)."""
 
 
 class Handle(Protocol):
@@ -33,6 +44,11 @@ Launcher = Callable[[Job, Path], Handle]
 class OfficeGuard(Protocol):
     def snapshot(self) -> set[int]: ...
     def cleanup(self, before: set[int]) -> list[int]: ...
+
+
+class ProcessProbe(Protocol):
+    def creation_time(self, pid: int) -> Optional[float]: ...
+    def kill_tree(self, pid: int) -> None: ...
 
 
 class NullOfficeGuard:
@@ -56,6 +72,7 @@ class JobScheduler:
         poll_interval: float = 0.5,
         housekeeping: Optional[Callable[[], object]] = None,
         housekeeping_interval: float = 3600.0,
+        probe: Optional[ProcessProbe] = None,
     ) -> None:
         self.store = store
         self.launcher = launcher
@@ -64,6 +81,7 @@ class JobScheduler:
         self.poll_interval = poll_interval
         self.housekeeping = housekeeping
         self.housekeeping_interval = housekeeping_interval
+        self.probe = probe or default_process_probe()
         self._lock = threading.RLock()
         self._running: Optional[tuple[str, Handle, set[int]]] = None
         self._thread: Optional[threading.Thread] = None
@@ -88,11 +106,15 @@ class JobScheduler:
 
     # ------------------------------------------------------------------ #
     def recover(self) -> list[str]:
-        """서버 재시작 직후: 실행 중이던 작업은 ``interrupted``. **다시 돌리지 않는다** — LLM 비용."""
+        """서버 재시작 직후: 실행 중이던 작업은 ``interrupted``. **다시 돌리지 않는다** — LLM 비용.
+
+        그 전에 ``runner.json`` 의 worker 가 아직 살아 있으면 끝내고 Office 를 정리한다.
+        """
         changed = []
         with self._lock:
             for job in self.store.list():
                 if job.state == RUNNING:
+                    self._reap_leftover(job.id)
                     job.state = INTERRUPTED
                     job.error = job.error or "서버가 재시작되어 중단되었습니다."
                     job.finished_ts = self.clock()
@@ -166,6 +188,7 @@ class JobScheduler:
                 self._close(job, FAILED, f"작업을 시작하지 못했습니다: {type(exc).__name__}: {exc}")
                 return
             self._running = (job.id, handle, before)
+            self._write_runner(job.id, handle, before)
             logger.info("작업 시작: %s (%s)", job.id, job.engine)
 
     # ------------------------------------------------------------------ #
@@ -229,6 +252,55 @@ class JobScheduler:
         error = _read_error(self.store.dir(job_id)) or f"worker 종료코드 {code}"
         self._close(job, FAILED, error)
         logger.warning("작업 실패: %s — %s", job_id, error)
+
+    def _write_runner(self, job_id: str, handle: Handle, before: set[int]) -> None:
+        """``runner.json`` — 서버가 죽은 뒤 :meth:`_reap_leftover` 가 읽는다. 실패해도 작업은 계속."""
+        pid = getattr(handle, "pid", None)
+        if not isinstance(pid, int):
+            return
+        try:
+            created = self.probe.creation_time(pid)
+            d = self.store.dir(job_id)
+            tmp = d / (RUNNER_FILE + ".tmp")
+            tmp.write_text(json.dumps({"pid": pid, "created": created, "before": sorted(before)}),
+                           encoding="utf-8")
+            os.replace(tmp, d / RUNNER_FILE)
+        except Exception:  # noqa: BLE001
+            logger.exception("runner.json 기록 실패(계속 진행): %s", job_id)
+
+    def _reap_leftover(self, job_id: str) -> None:
+        """강제 종료된 서버가 남긴 worker 를 끝내고 Office 를 정리한다. 모든 단계가 실패해도 계속.
+
+        같은 프로세스라는 확신(생성 시각 일치)이 없으면 **아무것도 하지 않는다** — 재사용된 PID 를
+        죽이는 것이 남은 worker 보다 나쁘다. 그때는 Office 도 건드리지 않는다(누구 것인지 모른다).
+        """
+        try:
+            runner = json.loads((self.store.dir(job_id) / RUNNER_FILE).read_text(encoding="utf-8"))
+            pid, recorded = runner["pid"], runner.get("created")
+            before = {int(p) for p in runner.get("before") or []}
+        except FileNotFoundError:
+            return
+        except Exception:  # noqa: BLE001
+            logger.exception("runner.json 을 읽지 못함(정리 생략): %s", job_id)
+            return
+        if not isinstance(pid, int) or not isinstance(recorded, (int, float)):
+            return
+        try:
+            now = self.probe.creation_time(pid)
+        except Exception:  # noqa: BLE001
+            logger.exception("worker 확인 실패(정리 생략): %s", job_id)
+            return
+        if now is None or abs(now - recorded) > CREATION_TOLERANCE_S:
+            return
+        logger.warning("재시작 전 worker 가 살아 있어 종료합니다: %s (PID %d)", job_id, pid)
+        try:
+            self.probe.kill_tree(pid)
+        except Exception:  # noqa: BLE001
+            logger.exception("남은 worker 종료 실패(계속 진행): %s", job_id)
+        try:
+            self.office.cleanup(before)
+        except Exception:  # noqa: BLE001
+            logger.exception("Office 정리 중 오류(계속 진행): %s", job_id)
 
     def _close(self, job: Job, state: str, error: str) -> None:
         job.state = state

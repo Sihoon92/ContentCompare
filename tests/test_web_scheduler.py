@@ -251,3 +251,119 @@ def test_failure_with_office_cleanup_exception_marks_failed(tmp_path):
     assert store.load(a.id).state == J.FAILED
     sched.tick()
     assert store.load(b.id).state == J.RUNNING
+
+
+# --------------------------------------------------------------------------- #
+# 서버가 강제로 죽은 뒤 — 살아남은 worker·Office 정리(runner.json)
+class _Probe:
+    def __init__(self, created=None, fail_kill=False):
+        self.created = created
+        self.fail_kill = fail_kill
+        self.asked: list[int] = []
+        self.killed: list[int] = []
+
+    def creation_time(self, pid):
+        self.asked.append(pid)
+        return self.created
+
+    def kill_tree(self, pid):
+        self.killed.append(pid)
+        if self.fail_kill:
+            raise OSError("taskkill 실패")
+
+
+class _PidHandle(_Handle):
+    pid = 4321
+
+
+RUNNING_ID = "20260929-140201-0001"
+
+
+def _crashed(tmp_path, probe, runner=None):
+    """서버가 죽은 뒤 상태: job.json 은 RUNNING, (선택) runner.json 이 남아 있다."""
+    store = J.JobStore(tmp_path)
+    store.save(J.Job(id=RUNNING_ID, engine="fact", state=J.RUNNING))
+    if runner is not None:
+        (store.dir(RUNNING_ID) / "runner.json").write_text(json.dumps(runner), encoding="utf-8")
+    office = _Office()
+    sched = JobScheduler(store, _Launcher(), office=office, probe=probe, clock=lambda: 50.0)
+    return store, office, sched
+
+
+def test_tick_records_runner_json_with_worker_pid(tmp_path):
+    store = J.JobStore(tmp_path)
+    probe = _Probe(created=111.25)
+    office = _Office()
+    sched = JobScheduler(store, lambda job, d: _PidHandle(), office=office, probe=probe)
+    a = _submit(sched, 1)
+    sched.tick()
+    runner = json.loads((store.dir(a.id) / "runner.json").read_text(encoding="utf-8"))
+    assert runner == {"pid": 4321, "created": 111.25, "before": [100]}
+    assert not (store.dir(a.id) / "runner.json.tmp").exists()
+
+
+def test_tick_without_pid_records_nothing(tmp_path):
+    store, _, _, sched = _setup(tmp_path)
+    a = _submit(sched, 1)
+    sched.tick()
+    assert store.load(a.id).state == J.RUNNING
+    assert not (store.dir(a.id) / "runner.json").exists()
+
+
+def test_recover_kills_surviving_worker_and_cleans_office(tmp_path):
+    probe = _Probe(created=111.6)                  # 기록과 1초 이내 → 같은 프로세스
+    store, office, sched = _crashed(
+        tmp_path, probe, {"pid": 4321, "created": 111.0, "before": [100, 200]})
+    assert sched.recover() == [RUNNING_ID]
+    assert probe.killed == [4321]
+    assert office.cleaned == [{100, 200}]
+    assert store.load(RUNNING_ID).state == J.INTERRUPTED
+
+
+def test_recover_skips_reused_pid(tmp_path):
+    probe = _Probe(created=500.0)                  # 같은 PID 인데 생성 시각이 다르다 = 남의 프로세스
+    store, office, sched = _crashed(
+        tmp_path, probe, {"pid": 4321, "created": 111.0, "before": [100]})
+    sched.recover()
+    assert probe.killed == [] and office.cleaned == []
+    assert store.load(RUNNING_ID).state == J.INTERRUPTED
+
+
+def test_recover_skips_dead_worker(tmp_path):
+    probe = _Probe(created=None)                   # 이미 끝난 프로세스
+    store, office, sched = _crashed(
+        tmp_path, probe, {"pid": 4321, "created": 111.0, "before": [100]})
+    sched.recover()
+    assert probe.killed == [] and office.cleaned == []
+    assert store.load(RUNNING_ID).state == J.INTERRUPTED
+
+
+def test_recover_never_kills_without_recorded_creation_time(tmp_path):
+    probe = _Probe(created=111.0)
+    store, office, sched = _crashed(
+        tmp_path, probe, {"pid": 4321, "created": None, "before": [100]})
+    sched.recover()
+    assert probe.killed == [] and office.cleaned == []
+    assert store.load(RUNNING_ID).state == J.INTERRUPTED
+
+
+def test_recover_without_runner_json_behaves_as_before(tmp_path):
+    probe = _Probe(created=111.0)
+    store, office, sched = _crashed(tmp_path, probe)
+    assert sched.recover() == [RUNNING_ID]
+    assert probe.asked == [] and office.cleaned == []
+    assert store.load(RUNNING_ID).state == J.INTERRUPTED
+
+
+def test_recover_tolerates_kill_failure_and_broken_runner_json(tmp_path):
+    probe = _Probe(created=111.0, fail_kill=True)
+    store, office, sched = _crashed(
+        tmp_path, probe, {"pid": 4321, "created": 111.0, "before": [100]})
+    sched.recover()
+    assert office.cleaned == [{100}]               # 종료가 실패해도 Office 정리는 계속한다
+    assert store.load(RUNNING_ID).state == J.INTERRUPTED
+
+    store2, office2, sched2 = _crashed(tmp_path / "b", _Probe(created=1.0))
+    (store2.dir(RUNNING_ID) / "runner.json").write_text("{깨짐", encoding="utf-8")
+    sched2.recover()
+    assert store2.load(RUNNING_ID).state == J.INTERRUPTED
