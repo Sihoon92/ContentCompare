@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -120,3 +121,15 @@ def test_knowledge_name_gets_md_and_rejects_paths(tmp_path):
     assert saved.json()["name"] == "노트.md"
     assert client.get("/api/knowledge/files/..%2Fx.md").status_code in (400, 404)
     assert client.get("/api/knowledge/files/.hidden.md").status_code == 400
+
+
+@pytest.mark.parametrize("bad", ["a.md:evil", "CON", "a*b", "a<b"])
+def test_knowledge_rejects_windows_special_names_without_touching_disk(tmp_path, bad):
+    client, _, config = _app(tmp_path)
+    before = client.get("/api/knowledge/files").json()["files"]
+    resp = client.put(f"/api/knowledge/files/{bad}", json={"content": "x", "base_mtime": None})
+    assert resp.status_code == 400
+    assert client.get("/api/knowledge/files").json()["files"] == before
+    kdir = Path(config.knowledge.dir)
+    assert not kdir.exists() or list(kdir.iterdir()) == []
+    assert client.get(f"/api/knowledge/files/{bad}").status_code == 400

@@ -25,6 +25,7 @@ from ..report import list_reports, read_report
 from ..timeline import ERROR_STATUSES, list_timelines, load_timeline, timeline_dir
 from ..ui import micro_world
 from ..ui.timeline_view import render_timeline_html
+from .uploads import UploadError, safe_relpath
 
 DEFAULT_RESULTS = ["mismatch", "unknown", "missing"]
 
@@ -166,11 +167,22 @@ def build_views_router(state) -> APIRouter:
     kdir = Path(config.knowledge.dir)
 
     def knowledge_name(name: str) -> str:
-        raw = (name or "").strip()
-        base = os.path.basename(raw)
-        if not base or base != raw or base.startswith(".") or "\\" in raw:
+        """파일 이름 하나만 허용한다. 검증은 업로드와 같은 규칙(safe_relpath)을 재사용한다.
+
+        ``a.md:evil``(NTFS 대체 스트림)·``a*b``·``CON`` 같은 Windows 특수 이름을 걸러
+        디스크에 닿기 전에 400 으로 끝낸다.
+        """
+        try:
+            rel = safe_relpath(name)
+        except UploadError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if "/" in rel or rel.startswith("."):
             raise HTTPException(400, "파일 이름만 쓸 수 있습니다(폴더·숨김 파일 불가).")
-        return base if base.lower().endswith(".md") else base + ".md"
+        final = rel if rel.lower().endswith(".md") else rel + ".md"
+        try:
+            return safe_relpath(final)
+        except UploadError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @router.get("/api/knowledge/files")
     def knowledge_files() -> dict:
@@ -191,6 +203,8 @@ def build_views_router(state) -> APIRouter:
     @router.put("/api/knowledge/files/{name}")
     def knowledge_save(name: str, body: KnowledgeSave) -> dict:
         path = kdir / knowledge_name(name)
+        if path.resolve().parent != kdir.resolve():
+            raise HTTPException(400, "지식 폴더 밖에는 저장할 수 없습니다.")
         with knowledge_lock:
             current = path.stat().st_mtime if path.is_file() else None
             if current is not None and (body.base_mtime is None
@@ -202,8 +216,15 @@ def build_views_router(state) -> APIRouter:
                 })
             kdir.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(path.name + ".tmp")
-            tmp.write_text(body.content, encoding="utf-8")
-            os.replace(tmp, path)
+            try:
+                tmp.write_text(body.content, encoding="utf-8")
+                os.replace(tmp, path)
+            except Exception as exc:
+                tmp.unlink(missing_ok=True)
+                if isinstance(exc, OSError):
+                    raise HTTPException(
+                        500, f"지식 파일을 저장하지 못했습니다: {type(exc).__name__}") from exc
+                raise
             return {"name": path.name, "mtime": path.stat().st_mtime}
 
     @router.get("/api/knowledge/merged")
