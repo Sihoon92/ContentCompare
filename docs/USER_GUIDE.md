@@ -127,20 +127,19 @@ contentcompare ^
 ```
 
 ### 웹 UI
-```bash
-streamlit run app\streamlit_app.py
-```
-사이드바에서:
-1. **📁 파일 선택**(네이티브 창)으로 config.yaml 을 고르거나 경로를 입력 후 **📂 불러오기**
-   → 파일의 값이 위젯에 그대로 채워집니다. 한 번 고른 경로는 **다음 실행 때 자동으로 불러옵니다.**
-2. LLM 백엔드(ollama/internal/**langchain**)·모델·base_url·api_key, **임베딩 백엔드**
-   (fastembed/onnx/ollama 등)·모델/폴더 경로를 조정.
-3. **🔌 LLM 연결 테스트**로 확인.
+여러 사람이 브라우저로 접속해 쓰는 웹 서버다. 서버 PC(Windows + Office) 한 대에서 실행한다.
 
-본문에서 **📁 기준 엑셀 선택** / **📁 파일 선택(여러 개)** / **📂 폴더 선택** 버튼으로
-네이티브 창에서 파일·폴더를 고르면 **경로만** 채워집니다(업로드/복사가 아니라 원본을
-xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 실행** →
-필드별 판정 표 확인 → 리포트 `.md` 다운로드.
+1. 처음 한 번: `setup.bat`(패키지 설치 + 화면 빌드), `copy .env.example .env` 후 `.env` 에 LLM 접속 정보(`CC_LLM_BACKEND`·`CC_LLM_BASE_URL`·`CC_LLM_API_KEY`·`CC_CHAT_MODEL` …)와 관리자 비밀번호(`CC_ADMIN_PASSWORD`)를 채운다. 세부 튜닝값은 계속 `config/config.yaml`(`CC_CONFIG`)에 둔다.
+2. `start.bat check` 로 준비 상태를 확인하고 `start.bat` 으로 실행한다. 창에 접속 주소(`http://<PC 이름>:8000`)가 나오고 브라우저가 열린다.
+3. 다른 사람은 그 주소로 접속해 **파일(또는 폴더)을 업로드**하고 🚀 비교 실행을 누른다. 실행 창에서 진행률(%)·현재 단계·로그를 실시간으로 본다. 창을 닫아도 작업은 계속되고 '내 최근 작업'에서 다시 연다.
+4. 비교는 **한 번에 1건**씩 돈다(Office·LLM 요청 한도 때문). 다른 작업이 돌고 있으면 "대기 중 · 앞에 N건"으로 보인다.
+5. 끄기: 서버 창에서 Ctrl+C 를 **한 번** 누른다(최대 5초). 실행 중이던 작업은 '중단됨'으로 남고 다시 돌리지 않는다.
+
+- 🔐 관리자: 상단 버튼 → 비밀번호 → 로그(레벨·검색·다운로드)와 작업 관리(취소·삭제). 5회 틀리면 1분 잠긴다. HTTPS 가 없으므로 **사내망 전용**이다.
+- 서버 PC 에서 사람이 Office 를 함께 쓰지 말 것 — 작업이 비정상 종료되면 새로 뜬 Office 를 정리하면서 함께 닫힐 수 있다. Windows 서비스로 등록하지 말 것(Office 자동화는 로그인된 데스크톱 세션이 필요하다).
+- 서버 PC 에 Node.js 가 없으면 Node 가 있는 PC 에서 `cd web && npm ci && npm run build` 로 만든 `web\dist` 폴더를 복사한다.
+- 개발: `start.bat dev` — API(자동 재시작)와 화면(Vite, http://localhost:5173)을 각각 새 창으로 띄운다.
+- 기존 Streamlit 화면(`streamlit run app/streamlit_app.py`)은 새 화면이 검증될 때까지 남겨 둔다(한 사람이 로컬에서 쓸 때).
 
 ## 5. 결과 보는 법
 

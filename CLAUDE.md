@@ -177,7 +177,7 @@ CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [-
 
 - **CLI** `cli.py`(`contentcompare` 스크립트): `--check` 연결점검 / `--reference`+`--targets` 비교.
 - **웹 서버** `python -m contentcompare.web`(FastAPI, `contentcompare/web/`): 여러 명이 브라우저로 접속해 업로드 → 대기열(한 번에 1건) → 별도 worker 프로세스 실행. 설계 `docs/superpowers/specs/2026-09-29-web-frontend-design.md`. 설정은 `.env`(견본 `.env.example`).
-- **Streamlit** `app/streamlit_app.py`: 사이드바=설정(백엔드/모델/검색 파라미터), 4탭=비교 실행(엔진 `rag|fact` 선택) / 리포트 보기 / **🔬 파이프라인 현미경** / 도메인 지식. COM 은 데스크톱 세션이 필요하므로 **사용자 PC localhost** 전용. 입력은 업로드보다 **로컬 경로 직접 지정**을 권장(COM 은 실제 파일 경로 필요; 사내 보안/DRM 친화적).
+- **Streamlit** `app/streamlit_app.py`: (기존·단일 사용자용 — 웹 서버가 검증될 때까지 유지) 사이드바=설정(백엔드/모델/검색 파라미터), 4탭=비교 실행(엔진 `rag|fact` 선택) / 리포트 보기 / **🔬 파이프라인 현미경** / 도메인 지식. COM 은 데스크톱 세션이 필요하므로 **사용자 PC localhost** 전용. 입력은 업로드보다 **로컬 경로 직접 지정**을 권장(COM 은 실제 파일 경로 필요; 사내 보안/DRM 친화적).
 
 **UI 3층 분리** — `ui/runner.py` 의 "streamlit 없이 단위테스트 가능" 원칙을 시각화까지 확장했다. **HTML 문자열 생성까지가 순수 함수**이고 Streamlit 은 그것을 iframe 에 넣기만 한다:
 
@@ -254,3 +254,6 @@ CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [-
 - **jobs 폴더당 서버 하나**(`<jobs>/.server.lock`, `instance_lock.py`). uvicorn 은 lifespan 시작을 **포트를 잡기 전에** 돌아서, 같은 폴더로 두 번 띄우면 두 번째가 포트 충돌로 죽기 전에 첫 서버의 실행 중 작업을 `interrupted` 로 덮어썼다. 잠금은 `recover()` 보다 먼저 잡고, worker 를 끝낸 뒤에 놓는다.
 - **진행 스냅샷은 파일이 바뀔 때만 다시 계산한다**(`events.snapshot_for`, `(경로, 크기, mtime_ns)` 키, 최근 64개). F5 는 기준 fact 마다 한 줄이라 `progress.jsonl` 이 수천 줄인데, 구독자·조회마다 0.5초에 한 번 전체를 다시 읽으면 한 프로세스(GIL) 안에서 사람 수만큼 곱해진다. 돌려준 객체는 공유되므로 고치지 말 것.
 - 테스트: FastAPI 를 쓰는 파일은 `pytest.importorskip("fastapi")` — `.venv` 에는 없어서 건너뛴다. worker 통합 테스트는 `CC_PIPELINE_FACTORY=web_fake_factory:make` 로 가짜 파이프라인을 주입해 실제 서브프로세스를 띄운다.
+- **화면은 `web/`(Vite + React + TS)이고 빌드 결과 `web/dist` 를 서버가 서빙한다**(`static.py`). 계산이 있는 로직은 `web/src/lib/`·`web/src/api/client.ts` 의 순수 함수로 두고 vitest 로 시험한다(`npm --prefix web test`). 모든 API 호출은 `web/src/api/endpoints.ts` 를 거친다.
+- ⚠️ **XSS 규칙**: `dangerouslySetInnerHTML` 금지. 요청자 이름·파일명·로그는 텍스트로만, 마크다운은 `skipHtml`, 서버가 만든 HTML(현미경·타임라인)은 `<iframe srcDoc sandbox="allow-scripts">` 로만 — `allow-same-origin` 을 주면 산출물 안의 문서 원문이 쿠키·API 에 닿는다.
+- 실행: `start.bat`(점검 `start.bat check`, 개발 `start.bat dev` = uvicorn `--factory contentcompare.web.__main__:dev_app --reload` + Vite). `.bat` 은 CP949 + CRLF 로 저장한다. 수동 점검은 `docs/WEB_MANUAL_CHECK.md`.

@@ -65,6 +65,19 @@ def access_urls(host: str, port: int) -> list[str]:
     return [f"http://localhost:{port}"] + [f"http://{n}:{port}" for n in sorted(names)]
 
 
+def dev_app():
+    """``start.bat dev`` 용 — ``uvicorn --factory --reload`` 가 부르는 인자 없는 팩토리.
+
+    ``--reload`` 는 앱을 import 문자열로만 받아서 ``main()`` 의 인자 처리를 거치지 않는다.
+    같은 일을 여기서 한다: `.env` 경로를 worker 에 물려주고 서버 로그를 켠 뒤 앱을 만든다.
+    """
+    dotenv = os.environ.get(DOTENV_ENV, ".env")
+    settings = load_settings(dotenv)
+    os.environ[DOTENV_ENV] = str(Path(dotenv).resolve())
+    configure_server_logging(Path(settings.logs_dir))
+    return create_app(settings)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m contentcompare.web",
                                      description="ContentCompare 웹 서버")

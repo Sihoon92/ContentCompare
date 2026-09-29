@@ -1,22 +1,22 @@
 @echo off
 rem ============================================================
 rem  ContentCompare 개발환경 준비 스크립트 (Windows)
-rem  - .venv 가상환경 생성(없을 때만) → 활성화 → 패키지 설치
+rem  - .venv 가상환경 생성(없을 때만) -> 활성화 -> 패키지 설치 -> 화면 빌드
 rem  사용법:
-rem    setup.bat                 (기본: office,ui,dev,fastembed,langchain 전부 설치)
+rem    setup.bat                 (기본: office,ui,dev,fastembed,langchain,web 전부 설치)
 rem    setup.bat all             (기본 + onnx 까지 모두)
 rem    setup.bat office,ui       (원하는 extras 만 골라서)
-rem    setup.bat core            (코어 의존성만: pyyaml+requests)
+rem    setup.bat core            (코어 의존성만: pyyaml+requests, 화면 빌드 안 함)
 rem ============================================================
-rem  (이 파일은 CP949/ANSI 로 저장되어야 한글이 콘솔에 정상 출력됩니다)
+rem  (이 파일은 CP949/ANSI + CRLF 로 저장되어야 한글이 콘솔에 정상 출력됩니다)
 setlocal
 cd /d "%~dp0"
 
 rem  %* 로 받아야 콤마가 인자 구분자로 잘리지 않는다. 공백 구분도 콤마로 정규화.
 set "EXTRAS=%*"
-if "%EXTRAS%"=="" set "EXTRAS=office,ui,dev,fastembed,langchain"
+if "%EXTRAS%"=="" set "EXTRAS=office,ui,dev,fastembed,langchain,web"
 set "EXTRAS=%EXTRAS: =,%"
-if /i "%EXTRAS%"=="all" set "EXTRAS=office,ui,dev,fastembed,langchain,onnx"
+if /i "%EXTRAS%"=="all" set "EXTRAS=office,ui,dev,fastembed,langchain,web,onnx"
 
 rem --- 1) 파이썬 인터프리터 찾기 (py 런처 우선) ---------------
 set "PY_CMD="
@@ -31,9 +31,9 @@ if not defined PY_CMD (
 
 rem --- 2) 가상환경 생성 ---------------------------------------
 if exist ".venv\Scripts\python.exe" (
-    echo [1/4] 기존 .venv 를 재사용합니다.
+    echo [1/5] 기존 .venv 를 재사용합니다.
 ) else (
-    echo [1/4] .venv 가상환경 생성 중... ^(%PY_CMD%^)
+    echo [1/5] .venv 가상환경 생성 중... ^(%PY_CMD%^)
     %PY_CMD% -m venv .venv
     if errorlevel 1 (
         echo [ERROR] 가상환경 생성 실패.
@@ -42,7 +42,7 @@ if exist ".venv\Scripts\python.exe" (
 )
 
 rem --- 3) 활성화 ----------------------------------------------
-echo [2/4] 가상환경 활성화...
+echo [2/5] 가상환경 활성화...
 call ".venv\Scripts\activate.bat"
 if errorlevel 1 (
     echo [ERROR] 가상환경 활성화 실패.
@@ -51,7 +51,7 @@ if errorlevel 1 (
 python -c "import sys; print('     python:', sys.version.split()[0], '-', sys.executable)"
 
 rem --- 4) pip 최신화 ------------------------------------------
-echo [3/4] pip 업그레이드...
+echo [3/5] pip 업그레이드...
 python -m pip install --upgrade pip
 if errorlevel 1 (
     echo [ERROR] pip 업그레이드 실패.
@@ -60,10 +60,10 @@ if errorlevel 1 (
 
 rem --- 5) 패키지 설치 -----------------------------------------
 if /i "%EXTRAS%"=="core" (
-    echo [4/4] 패키지 설치: 코어만 ^(pyyaml, requests^)
+    echo [4/5] 패키지 설치: 코어만 ^(pyyaml, requests^)
     python -m pip install -e .
 ) else (
-    echo [4/4] 패키지 설치: extras = %EXTRAS%
+    echo [4/5] 패키지 설치: extras = %EXTRAS%
     python -m pip install -e ".[%EXTRAS%]"
 )
 if errorlevel 1 (
@@ -71,6 +71,30 @@ if errorlevel 1 (
     goto :fail
 )
 
+rem --- 6) 화면 빌드(web\dist) ------------------------------------
+if /i "%EXTRAS%"=="core" goto :done
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo [5/5] npm 이 없어 화면 빌드를 건너뜁니다. Node.js 가 있는 PC 에서 빌드한 web\dist 폴더를 복사하세요.
+    goto :done
+)
+echo [5/5] 화면 빌드: npm ci, npm run build
+pushd web
+call npm ci
+if errorlevel 1 (
+    popd
+    echo [ERROR] npm ci 실패.
+    goto :fail
+)
+call npm run build
+if errorlevel 1 (
+    popd
+    echo [ERROR] 화면 빌드 실패.
+    goto :fail
+)
+popd
+
+:done
 echo.
 echo ============================================================
 echo  완료. 새 터미널에서는 아래로 가상환경을 켜세요.
@@ -79,7 +103,9 @@ echo    cmd        : .venv\Scripts\activate.bat
 echo.
 echo  다음 단계 ^(설정 파일이 없다면^):
 echo    copy config\config.example.yaml config\config.yaml
-echo    contentcompare --check --config config\config.yaml
+echo    copy .env.example .env      ^(LLM 접속 정보, 관리자 비밀번호^)
+echo    start.bat check             ^(실행 준비 점검^)
+echo    start.bat                   ^(웹 서버 실행^)
 echo ============================================================
 if not defined CC_NO_PAUSE pause
 endlocal
