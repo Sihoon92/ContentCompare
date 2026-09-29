@@ -160,3 +160,30 @@ def test_concept_failure_closes_every_unit(tmp_path, mem, monkeypatch):
     assert states["concept"] == (prog.FAILED, "RuntimeError")
     assert states["compare:발표.pptx"] == (prog.SKIPPED, "건너뜀")
     assert snap.finished == snap.total and snap.fraction == 1.0
+
+
+def test_duplicate_target_basenames_get_their_own_units(tmp_path, mem):
+    """폴더 업로드의 a/규격.xlsx·b/규격.xlsx — 두 번째 F5 가 도는 동안 100% 가 아니어야 한다."""
+    _pipe(tmp_path).run("기준.xlsx", ["a/규격.xlsx", "b/규격.xlsx"])
+    plan = _events(mem, "plan")[0]
+    assert [u["key"] for u in plan["units"]] == [
+        "doc:0", "doc:1", "doc:2", "concept", "compare:규격.xlsx", "compare:규격.xlsx#2"]
+    second = next(i for i, e in enumerate(mem.events)
+                  if e["ev"] == "unit_start" and e["key"] == "compare:규격.xlsx#2")
+    midway = prog.summarize(mem.events[:second + 1])
+    assert midway.percent < 100
+    assert midway.current == "compare:규격.xlsx#2"
+    final = prog.summarize(mem.events)
+    assert all(u.state == prog.DONE for u in final.units) and final.fraction == 1.0
+
+
+def test_failed_duplicate_target_keeps_the_survivor_on_its_own_unit(tmp_path, mem):
+    def flaky(path):
+        if path == "a/규격.xlsx":
+            raise OSError("열 수 없음")
+        return _fake_excel(path)
+
+    _pipe(tmp_path, extractor=flaky).run("기준.xlsx", ["a/규격.xlsx", "b/규격.xlsx"])
+    states = {u.key: u.state for u in prog.summarize(mem.events).units}
+    assert states["compare:규격.xlsx"] == prog.SKIPPED
+    assert states["compare:규격.xlsx#2"] == prog.DONE

@@ -61,6 +61,23 @@ def _doc_parts(path: str) -> tuple[str, ...]:
     return EXCEL_PARTS if os.path.splitext(path)[1].lower() in _EXCEL_EXTS else BLOCK_PARTS
 
 
+def compare_unit_keys(names: list[str]) -> list[str]:
+    """대상마다 F5 진행률 단위 키. 같은 basename 이 다시 나오면 ``#2``, ``#3`` 을 붙인다.
+
+    폴더 업로드는 하위 경로를 보존하므로 ``a/규격.docx``·``b/규격.docx`` 가 흔하다. 키가
+    겹치면 ``summarize`` 가 첫 것만 세서, 두 번째 F5 가 도는 내내 막대가 100% 에 머물고
+    "현재 단계"가 빈다 — 이 모듈이 막으려던 "끝나지 않았는데 100%" 그 자체다.
+    """
+    seen: dict[str, int] = {}
+    keys: list[str] = []
+    for name in names:
+        base = os.path.basename(name)
+        seen[base] = seen.get(base, 0) + 1
+        n = seen[base]
+        keys.append(f"compare:{base}" if n == 1 else f"compare:{base}#{n}")
+    return keys
+
+
 def _enter(parts: tuple[str, ...], name: str) -> None:
     """하위 단계 진입을 알린다. 목록에 없는 이름이면 조용히 넘어간다 — 진행률이 실행을
     막으면 안 된다(확장자와 실제 doc_type 이 어긋나는 문서가 와도 죽지 않는다)."""
@@ -160,7 +177,13 @@ class FactPipeline:
                 result.summaries.append(summary)
                 if progress:
                     progress(i, len(docs), path)
-            self._compare_and_report(store, reference, targets, result)
+            # 성공한 대상만 store 에 들어가므로 F5 단위 키도 그 순서로 추린다 — 앞선 동명
+            # 대상이 실패해도 살아남은 쪽이 자기 키(``#2``)로 진행을 알린다.
+            unit_keys = [
+                key for key, summary in zip(compare_unit_keys(targets), result.summaries[1:])
+                if summary.get("status") == "ok"
+            ]
+            self._compare_and_report(store, reference, targets, result, unit_keys=unit_keys)
             return result
         finally:
             # 시작도 못 한 단위(실패한 대상의 F5, 대상이 없어 건너뛴 F7)를 닫는다.
@@ -171,9 +194,8 @@ class FactPipeline:
     def _progress_units(self, reference: str, targets: list[str]) -> list[prog.Unit]:
         """진행률 단계 N — **시작 시 확정하고 실행 중 바꾸지 않는다**(설계 §7.1).
 
-        F5 단위 키는 대상 basename 이다(``DocFacts.doc_name`` 과 같은 값이라 비교 루프에서
-        그대로 찾을 수 있다). basename 이 겹치면 키도 겹치는데, ``summarize`` 가 첫 것만
-        센다 — 같은 이름 대상은 artifacts 폴더도 겹치므로 웹 업로드가 먼저 거절한다.
+        F5 단위 키는 :func:`compare_unit_keys` 가 만든다 — basename 이 겹치면 ``#2`` 를
+        붙여 단위를 따로 세운다.
         """
         docs = [reference, *targets]
         units = [prog.Unit(f"doc:{i}", os.path.basename(p), prog.DOC)
@@ -181,9 +203,8 @@ class FactPipeline:
         if self.fact.use_concept_graph:
             units.append(prog.Unit("concept", "F7 개념 판정", prog.CONCEPT))
         units += [
-            prog.Unit(f"compare:{os.path.basename(t)}",
-                      f"F5 값 대조 · {os.path.basename(t)}", prog.COMPARE)
-            for t in targets
+            prog.Unit(key, f"F5 값 대조 · {os.path.basename(t)}", prog.COMPARE)
+            for key, t in zip(compare_unit_keys(targets), targets)
         ]
         return units
 
@@ -196,17 +217,24 @@ class FactPipeline:
         reference: str,
         targets: list[str],
         result: FactRunResult,
+        *,
+        unit_keys: Optional[list[str]] = None,
     ) -> None:
-        merged = self._compare_from_store(store, reference, targets)
+        merged = self._compare_from_store(store, reference, targets, unit_keys=unit_keys)
         result.comparisons = merged.comparisons
         result.compare_stats = merged.compare_stats
         result.markdown = merged.markdown
         result.concept_graph = merged.concept_graph
 
     def _compare_from_store(
-        self, store: FactStore, reference: str, targets: list[str]
+        self, store: FactStore, reference: str, targets: list[str],
+        *, unit_keys: Optional[list[str]] = None,
     ) -> FactRunResult:
-        """fact 가 모인 상태에서 개념 그래프 → 비교 → 리포트까지 한다."""
+        """fact 가 모인 상태에서 개념 그래프 → 비교 → 리포트까지 한다.
+
+        ``unit_keys`` 는 ``store.targets`` 순서의 F5 진행률 단위 키다. 없으면(테스트·스크립트가
+        직접 부를 때) 대상 이름으로 같은 규칙(:func:`compare_unit_keys`)을 적용한다.
+        """
         result = FactRunResult()
         if not store.ready:
             logger.warning("[Fact] 비교 생략 — 기준/대상 fact 가 부족합니다: %s", store.summary())
@@ -227,12 +255,14 @@ class FactPipeline:
         assert ref_doc is not None  # store.ready 가 보장
 
         gate = AcceptanceGate(self.fact.fast_path)
-        for target in store.targets:
+        if unit_keys is None:
+            unit_keys = compare_unit_keys([t.doc_name for t in store.targets])
+        for target, unit_key in zip(store.targets, unit_keys):
             matcher = self._matcher_for(graph, ref_doc, target)
             # 후보가 없을 때의 사유는 매칭 전략이 안다(개념 경로 = '연결 없음').
             explain = getattr(matcher, "explain_missing", None)
             ref_facts = ref_doc.facts.facts
-            with prog.unit(f"compare:{target.doc_name}"), \
+            with prog.unit(unit_key), \
                     stage(f"F5 값 대조 · {target.doc_name}"):
                 prog.step(0, len(ref_facts))
                 for n, ref_fact in enumerate(ref_facts, start=1):
