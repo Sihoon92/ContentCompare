@@ -231,3 +231,9 @@ CLI: `python scripts/why_missing.py [항목명] [대상문서] [--run 라벨] [-
 **`llm.extra_body`(기본 `{}`)** 가 그 조치다 — 요청 본문에 임의 필드를 그대로 얹는다. ⚠️ **`think: bool` 같은 손잡이를 일부러 안 만들었다**: 사고를 끄는 파라미터 이름이 배포마다 다르다(`thinking: {type: disabled}` / `chat_template_kwargs: {enable_thinking: false}` / `reasoning_effort` …). 이름을 하나로 정하면 그 이름을 안 쓰는 게이트웨이에서 **조용히 무시**되는데, 그것이 이 저장소에서 가장 나쁜 결과다 — 모르는 것을 아는 척하지 않는다. `llm.ollama.think` 와 겹치지 않는다(그쪽은 Ollama 가 규격으로 정한 이름이 **있는** 경우다). 병합은 `base.apply_extra_body` 한 곳이고 **`setdefault` 인 것이 계약**이다 — 사람이 넣은 값으로 `model`·`messages`·`stream` 을 갈아치울 수 있으면 손잡이가 아니라 사고다(`stream` 하나로 응답 파싱이 조용히 깨진다). `max_tokens` 와 같은 이유로 **세 백엔드 전부에 배선**되어 있어야 하고(`test_extra_body_reaches_every_backend`), langchain 만 봉투 이름이 다르지만(openai SDK 의 `extra_body` 인자) 그 정의가 "요청 본문에 병합하라"라 **서버가 보는 모양은 셋이 같다**. YAML 에서 출발하는 테스트를 따로 둔 이유는 이 저장소가 두 번 당한 결함이 "설정에는 있는데 호출 경로에는 없다"이기 때문이다.
 
 조회는 `python scripts/show_timeline.py [--errors] [--slow N] [--stage 이름] [--list]`, 화면은 Streamlit **⏱ 타임라인** 탭(`ui/timeline_view.py` — 표현층은 streamlit 무의존 순수 함수). `timeline.diagnose()` 는 관측된 증상에서 **다음 조치**를 문장으로 낸다(타임아웃 → `record_batch_rows`·`llm.timeout`, 429 → `max_calls_per_minute`, 빈 응답 → Ollama `num_ctx`) — 사람이 코드를 읽어 같은 결론에 다시 도달하지 않게 하려는 것이다.
+
+### 진행률 (`progress.py`) — "전체 N 단계 중 몇 단계"
+
+웹 실행 창의 % 를 만드는 모듈이다. `timeline.py` 와 **역할이 다르다** — 타임라인은 사람이 읽는 진단 기록이라 배치 번호가 `"배치 3/7"` **문자열 안에만** 있고 F5·F7 반복에는 이벤트가 없다. 진행률을 이름 파싱에 기대면 이름 형식만 바꿔도 조용히 깨지므로 따로 뒀다.
+
+**쓰는 쪽은 사실만, 계산은 읽는 쪽이.** 파이프라인은 `prog.plan`/`unit_start`/`part`/`step`/`unit_done` 만 부르고, 비율과 단조 보장은 `summarize(events)` 가 한다. 단계 N 은 `plan` 으로 **시작 시 확정하고 바꾸지 않는다**(fact: 문서 × (1+T) + F7 1 + F5 × T / rag: 준비 1 + 판정 1). ⚠️ 두 파이프라인의 `run()` 에 `progress` 라는 **매개변수**가 이미 있어서 모듈은 `prog` 로 가져온다. 기본 보고기는 `NullProgress` 라 CLI·테스트는 무영향이고, 웹 worker 가 `JsonlProgress` 를 설치한다. 실행 끝 `finally` 의 `finish_remaining()` 을 지우지 말 것 — 실패한 대상의 F5 단위처럼 영영 시작 안 되는 단위가 막대를 100% 아래에 묶어 둔다.
