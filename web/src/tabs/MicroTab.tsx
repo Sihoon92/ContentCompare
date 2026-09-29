@@ -8,6 +8,7 @@ export default function MicroTab() {
   const [runs, setRuns] = useState<MicroRun[]>([]);
   const [run, setRun] = useState("");
   const [options, setOptions] = useState<MicroOptions | null>(null);
+  const [optionsRun, setOptionsRun] = useState(""); // 로드된 options 가 어느 run 의 것인지 추적
   const [mode, setMode] = useState<"debug" | "learn">("debug");
   const [target, setTarget] = useState("");
   const [results, setResults] = useState<string[]>([]);
@@ -18,40 +19,55 @@ export default function MicroTab() {
   const [error, setError] = useState("");
 
   const loadRuns = useCallback(() => {
+    let cancelled = false;
     listMicroRuns()
       .then((r) => {
-        setRuns(r.runs);
-        setRun((prev) => (prev && r.runs.some((x) => x.id === prev) ? prev : r.runs[0]?.id ?? ""));
+        if (!cancelled) {
+          setRuns(r.runs);
+          setRun((prev) => (prev && r.runs.some((x) => x.id === prev) ? prev : r.runs[0]?.id ?? ""));
+          setError("");
+        }
       })
-      .catch((e) => setError(errorText(e)));
+      .catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
   useEffect(() => {
-    if (!run) { setOptions(null); setView(null); return; }
+    if (!run) { setOptions(null); setOptionsRun(""); setView(null); return; }
+    let cancelled = false;
     getMicroOptions(run)
       .then((o) => {
-        setOptions(o);
-        setTarget("");
-        setResults(o.default_results);
-        const firstDoc = o.learn_docs[0] ?? o.reference_doc;
-        setDoc(firstDoc);
-        setFact(o.facts[firstDoc]?.[0]?.id ?? "");
-        setError("");
+        if (!cancelled) {
+          setOptions(o);
+          setOptionsRun(run);
+          setTarget("");
+          setResults(o.default_results);
+          const firstDoc = o.learn_docs[0] ?? o.reference_doc;
+          setDoc(firstDoc);
+          setFact(o.facts[firstDoc]?.[0]?.id ?? "");
+          setError("");
+        }
       })
-      .catch((e) => setError(errorText(e)));
+      .catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
   }, [run]);
 
   useEffect(() => {
-    if (!run || !options) return;
+    if (!run || !options || optionsRun !== run) return;
+    let cancelled = false;
     getMicroHtml({ run, mode, target, results: results.join(","), doc, fact, theme: "light" })
       .then((v) => {
-        setView(v);
-        if (v.height) setHeight(Math.min(3000, Math.max(400, v.height)));
+        if (!cancelled) {
+          setView(v);
+          if (v.height) setHeight(Math.min(3000, Math.max(400, v.height)));
+          setError("");
+        }
       })
-      .catch((e) => setError(errorText(e)));
-  }, [run, options, mode, target, results, doc, fact]);
+      .catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
+  }, [run, options, optionsRun, mode, target, results, doc, fact]);
 
   function toggleResult(key: string) {
     setResults((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));

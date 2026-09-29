@@ -11,20 +11,29 @@ export default function ReportTab() {
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
+    let cancelled = false;
     listReports()
       .then((r) => {
-        setItems(r.reports);
-        setPicked((prev) => (prev && r.reports.some((i) => i.id === prev) ? prev : r.reports[0]?.id ?? ""));
-        setError("");
+        if (!cancelled) {
+          setItems(r.reports);
+          setPicked((prev) => (prev && r.reports.some((i) => i.id === prev) ? prev : r.reports[0]?.id ?? ""));
+          setError("");
+        }
       })
-      .catch((e) => setError(errorText(e)));
+      .catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (!picked) { setMarkdown(""); return; }
-    getReport(picked).then((r) => setMarkdown(r.markdown)).catch((e) => setError(errorText(e)));
+    setMarkdown(""); // 새 리포트를 선택했을 때 즉시 내용을 지워 다운로드 버튼을 비활성화
+    let cancelled = false;
+    getReport(picked)
+      .then((r) => { if (!cancelled) { setMarkdown(r.markdown); setError(""); } })
+      .catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
   }, [picked]);
 
   function download() {

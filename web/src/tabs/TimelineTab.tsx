@@ -12,19 +12,28 @@ export default function TimelineTab() {
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
+    let cancelled = false;
     listTimelines()
       .then((r) => {
-        setItems(r.timelines);
-        setPicked((prev) => (prev && r.timelines.some((i) => i.id === prev) ? prev : r.timelines[0]?.id ?? ""));
+        if (!cancelled) {
+          setItems(r.timelines);
+          setPicked((prev) => (prev && r.timelines.some((i) => i.id === prev) ? prev : r.timelines[0]?.id ?? ""));
+          setError("");
+        }
       })
-      .catch((e) => setError(errorText(e)));
+      .catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (!picked) { setHtml(""); return; }
-    getTimelineHtml(picked, errorsOnly).then((r) => setHtml(r.html)).catch((e) => setError(errorText(e)));
+    let cancelled = false;
+    getTimelineHtml(picked, errorsOnly)
+      .then((r) => { if (!cancelled) { setHtml(r.html); setError(""); } })
+      .catch((e) => { if (!cancelled) setError(errorText(e)); });
+    return () => { cancelled = true; };
   }, [picked, errorsOnly]);
 
   return (
