@@ -30,7 +30,11 @@ export default function AdminPage() {
   }
 
   async function logout() {
-    await adminLogout().catch(() => undefined);
+    try {
+      await adminLogout();
+    } catch (e) {
+      setError(errorText(e)); // 실패를 숨기지 않는다 — 그래도 상태는 다시 읽는다
+    }
     refresh();
   }
 
