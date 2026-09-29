@@ -31,7 +31,6 @@ export function isReferenceName(name: string): boolean {
 
 export function addTargets(existing: PickedFile[], files: File[]): { items: PickedFile[]; skipped: string[] } {
   const items = [...existing];
-  const seen = new Set(existing.map((p) => p.path));
   const skipped: string[] = [];
   for (const file of files) {
     const path = relativePathOf(file);
@@ -39,8 +38,11 @@ export function addTargets(existing: PickedFile[], files: File[]): { items: Pick
       skipped.push(path);
       continue;
     }
-    if (seen.has(path)) continue;
-    seen.add(path);
+    // 같은 경로인데 이미 있으면: 크기·수정시각이 정확히 같을 때만 중복으로 간주
+    // (다르면 서버가 명확한 메시지로 거절하게 놔둔다)
+    if (items.some((p) => p.path === path && p.file.size === file.size && p.file.lastModified === file.lastModified)) {
+      continue;
+    }
     items.push({ file, path });
   }
   return { items, skipped };

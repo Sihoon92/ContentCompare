@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { addTargets, buildJobForm, isReferenceName, relativePathOf } from "./uploads";
 
-const file = (name: string, relative = "") => {
-  const f = new File(["x"], name);
+const file = (name: string, relative = "", options?: { lastModified?: number }) => {
+  const f = new File(["x"], name, options);
   if (relative) Object.defineProperty(f, "webkitRelativePath", { value: relative });
   return f;
 };
@@ -31,10 +31,21 @@ describe("addTargets", () => {
     expect(r.items.map((i) => i.path)).toEqual(["자료/하위/규격서 v2.docx", "발표.PPTX"]);
     expect(r.skipped).toEqual(["자료/하위/~$규격서 v2.docx", "자료/메모.txt"]);
   });
-  it("같은 경로를 다시 고르면 한 번만", () => {
-    const first = addTargets([], [file("a.docx")]);
-    const again = addTargets(first.items, [file("a.docx"), file("b.docx")]);
+  it("같은 파일을 다시 고르면(크기·수정시각 동일) 한 번만", () => {
+    const first = addTargets([], [file("a.docx", "", { lastModified: 1000 })]);
+    const again = addTargets(first.items, [
+      file("a.docx", "", { lastModified: 1000 }),
+      file("b.docx", "", { lastModified: 2000 }),
+    ]);
     expect(again.items.map((i) => i.path)).toEqual(["a.docx", "b.docx"]);
+  });
+
+  it("같은 경로인데 다른 파일(크기·수정시각 다름)은 둘 다 보존 (서버가 거절함)", () => {
+    const f1 = file("a.docx", "자료/a.docx", { lastModified: 1000 });
+    const f2 = file("a.docx", "자료/a.docx", { lastModified: 2000 });
+    const r = addTargets([], [f1, f2]);
+    expect(r.items).toHaveLength(2);
+    expect(r.items.map((i) => i.path)).toEqual(["자료/a.docx", "자료/a.docx"]);
   });
 });
 
