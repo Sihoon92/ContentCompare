@@ -31,6 +31,7 @@ from .launcher import default_office_guard, process_launcher
 from .scheduler import JobScheduler
 from .settings import WebSettings, build_app_config, public_llm_summary
 from .uploads import UploadError, plan_upload, resolve_under, safe_relpath, save_stream
+from .views import build_views_router
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ def create_app(
     app = FastAPI(title="ContentCompare", lifespan=lifespan)
     app.state.cc = state
     _register_job_routes(app, state)
+    app.include_router(build_views_router(state))
     return app
 
 
