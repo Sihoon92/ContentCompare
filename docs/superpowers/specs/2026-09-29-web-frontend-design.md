@@ -202,11 +202,18 @@ jobs/<작업ID>/
 ### 7.4 `contentcompare/progress.py`
 
 ```python
-plan(units: list[Unit])                 # 단계 N 확정
-start(key: str, substeps: int = 0)      # 단계(또는 문서 하위 단계) 시작
-step(key: str, done: int, total: int, label: str = "")   # 내부 진척
-done(key: str, ok: bool = True)         # 단계 완료(실패 포함)
+plan(units: Iterable[Unit])                         # 단계 N 확정 (실행마다 1회, 맨 처음)
+unit_start(key: str, parts: int = 1)                # 단위 시작, parts = 하위 단계 수
+part(index: int, name: str)                         # 진행 중 단위의 하위 단계 진입(1부터)
+step(done: int, total: int)                         # 진행 중 (하위) 단계 안의 진척
+unit_done(key: str, *, ok: bool = True, error: str = "")   # 단위 완료(실패 포함)
+finish_remaining(error: str = "")                   # 안 닫힌 단위 일괄 종료(실행 끝 finally)
+unit(key: str, parts: int = 1)                      # unit_start … unit_done 컨텍스트 매니저
 ```
+
+`part`/`step` 은 키를 받지 않는다 — 모듈이 "지금 진행 중인 단위"를 기억하므로 배치 루프 깊숙한
+곳(F2·F3·F7)이 자기가 어느 단위 안에 있는지 몰라도 된다. 두 파이프라인의 `run()` 에 `progress`
+라는 매개변수가 이미 있어서 모듈은 `prog` 로 가져온다.
 
 - 기본 보고기는 **아무 일도 하지 않는다** → CLI·기존 테스트 무영향.
 - worker 는 `JsonlProgress(작업폴더/progress.jsonl)` 를 설치한다. 한 줄 = 한 이벤트
