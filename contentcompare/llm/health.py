@@ -13,6 +13,7 @@ from typing import Optional
 from ..config import AppConfig
 from .base import EmbeddingClient, LLMClient
 from .factory import build_clients
+from .tls import REMOTE_BACKENDS, describe
 
 _PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 
@@ -30,6 +31,24 @@ class CheckResult:
 
 def _err(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"
+
+
+def _is_cert_failure(exc: Exception) -> bool:
+    return "CERTIFICATE_VERIFY_FAILED" in str(exc) or "SSLError" in type(exc).__name__
+
+
+def _call_err(exc: Exception) -> str:
+    """chat/임베딩 호출 실패. 사내 CA 인증서 실패면 해법을 붙인다(가장 흔한 첫 실패다)."""
+    detail = _err(exc)
+    if _is_cert_failure(exc):
+        detail += (
+            "\n     → 사내 CA 인증서를 신뢰하지 못했습니다. `pip install truststore` 가 "
+            "되어 있는지 확인하세요 - OS 인증서 저장소를 쓰므로 브라우저로 이 주소가 "
+            "열리는 PC 면 대개 이걸로 끝납니다."
+            "\n       그래도 안 되면 llm.internal.verify_ssl: false 로 검증을 끄세요"
+            "(임베딩 주소가 따로면 llm.embed_internal.verify_ssl)."
+        )
+    return detail
 
 
 def _trim(text: str, n: int = 80) -> str:
@@ -67,6 +86,11 @@ def check_llm(
     # 0-1) 프록시 상태(실제 비어 있는지 확인)
     results.append(_proxy_result(config))
 
+    # 0-2) 인증서 검증 상태 — 원격 백엔드일 때만(ollama 사용자에게 무의미한 줄을 안 띄운다)
+    embed_backend = (llm.embed_backend or llm.backend).lower()
+    if {llm.backend.lower(), embed_backend} & set(REMOTE_BACKENDS):
+        results.append(CheckResult("SSL 인증서 검증", True, describe(llm)))
+
     # 1) chat 핑
     try:
         out = chat_client.complete("연결 점검입니다.", "OK 라고만 답하세요.")
@@ -75,7 +99,7 @@ def check_llm(
         else:
             results.append(CheckResult(f"chat ({llm.chat_model})", False, "빈 응답"))
     except Exception as exc:  # noqa: BLE001
-        results.append(CheckResult(f"chat ({llm.chat_model})", False, _err(exc)))
+        results.append(CheckResult(f"chat ({llm.chat_model})", False, _call_err(exc)))
 
     # 2) embedding 핑
     try:
@@ -86,7 +110,7 @@ def check_llm(
         else:
             results.append(CheckResult(f"embeddings ({llm.embed_model})", False, "빈 벡터"))
     except Exception as exc:  # noqa: BLE001
-        results.append(CheckResult(f"embeddings ({llm.embed_model})", False, _err(exc)))
+        results.append(CheckResult(f"embeddings ({llm.embed_model})", False, _call_err(exc)))
 
     # 3) Langfuse(선택). 켜져 있을 때만 점검한다 — 안 쓰는 사람에게 실패 줄이 뜨면 안 된다.
     lf_result = _langfuse_result(config)

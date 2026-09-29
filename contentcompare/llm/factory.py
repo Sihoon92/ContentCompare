@@ -17,6 +17,7 @@ from ..logging_setup import log_print
 from .base import EmbeddingClient, LLMClient
 from .internal import InternalBackend
 from .ollama import OllamaBackend
+from .tls import apply_tls_policy
 
 _VALID = "ollama | internal | langchain | fastembed/onnx(embed 전용)"
 
@@ -84,6 +85,10 @@ def build_clients(config: AppConfig) -> tuple[LLMClient, EmbeddingClient]:
     if "internal" in (backend, embed_backend) or "langchain" in (backend, embed_backend):
         if llm.internal.unset_proxy or llm.embed_internal.unset_proxy:
             disable_proxy()
+
+    # 인증서 검증 정책도 프로세스 전역이고, **클라이언트를 만들기 전에** 적용해야 한다 —
+    # httpx 는 생성 시점에 SSL 컨텍스트를 만들므로 뒤에 주입하면 langchain 경로가 빠진다.
+    apply_tls_policy(llm)
 
     chat_obj = _make(backend, llm)
     embed_obj = _make_embed(embed_backend, backend, llm, chat_obj)

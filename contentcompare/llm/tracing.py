@@ -40,6 +40,7 @@ from typing import Any, Iterator, Optional
 
 from .. import timeline
 from ..config import AppConfig
+from .tls import inject_os_trust_store
 from .usage import UNKNOWN, Usage, from_response
 
 logger = logging.getLogger("contentcompare.llm.tracing")
@@ -252,9 +253,6 @@ def ca_bundle(lf: Any) -> Any:
     return path
 
 
-_trust_store_logged = False
-
-
 def use_os_trust_store(lf: Any) -> bool:
     """OS(Windows) 인증서 저장소를 파이썬 전역 SSL 에 주입한다. 성공하면 ``True``.
 
@@ -272,34 +270,14 @@ def use_os_trust_store(lf: Any) -> bool:
     - ``ssl_cert`` 를 명시했다 → 그 인증서가 우선이다
     - ``verify_ssl: false`` → 검증할 게 없다
 
-    선택 의존성이라 없으면 예전대로 certifi 로 돈다. 관측 기능의 실패가 비교 실행을
-    막아선 안 되므로 어떤 예외도 삼킨다.
+    주입 자체는 LLM 호출과 공유한다(:func:`.tls.inject_os_trust_store` — 사내 게이트웨이도
+    같은 사설 CA 문제를 겪는다). 선택 의존성이라 없으면 예전대로 certifi 로 돈다.
     """
-    global _trust_store_logged
-
     if (getattr(lf, "ssl_cert", "") or "").strip():
         return False
     if not getattr(lf, "verify_ssl", True):
         return False
-    try:
-        import truststore  # noqa: WPS433 — 지연 import (선택 의존성)
-
-        truststore.inject_into_ssl()
-    except ImportError:
-        if not _trust_store_logged:
-            _trust_store_logged = True
-            logger.info(
-                "사내 CA 를 쓰는 환경이면 `pip install truststore` 를 권합니다 "
-                "— OS 인증서 저장소를 그대로 써서 PEM 파일이 필요 없어집니다."
-            )
-        return False
-    except Exception as exc:  # noqa: BLE001 — 관측 실패가 실행을 막으면 안 된다
-        logger.warning("OS 인증서 저장소를 쓰지 못했습니다: %s", exc)
-        return False
-    if not _trust_store_logged:
-        _trust_store_logged = True
-        logger.info("OS 인증서 저장소 사용(truststore) — 사내 CA 를 그대로 신뢰합니다.")
-    return True
+    return inject_os_trust_store()
 
 
 def apply_ssl_env(lf: Any) -> None:
