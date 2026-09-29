@@ -12,6 +12,7 @@ import json
 import logging
 from typing import Any, Iterator, Optional
 
+from .. import progress as prog
 from ..logging_setup import log_print
 from ..llm.tracing import substage
 from .artifacts import ArtifactStore
@@ -198,8 +199,11 @@ def normalize_records(
                     carry["subcategory"] = rec.entity.subcategory
             records.extend(batch_records)
 
+        prog.step(0, len(batches))
         for index, batch in enumerate(batches, start=1):
             run_batch(batch, call, name=label, stats=split)
+            # 원래 배치 번호로만 센다 — 쪼개진 조각은 run_batch 안에서 끝나므로 세지 않는다.
+            prog.step(index, len(batches))
         return RecordSet(location=location, records=records).to_dict()
 
     if store is not None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from .. import progress as prog
 from ..llm.tracing import substage
 from .fact_models import Fact, FactSet
 from .fact_types import FT_DESCRIPTIVE, FT_QUALITATIVE, FT_QUANTITATIVE
@@ -291,8 +292,10 @@ def _facts_from_blocks(
         # 아니라 조각 3a 를 이어받는다(실패한 호출은 여기 못 오므로 prev 가 안 더럽혀진다).
         prev = list(blocks)
 
+    prog.step(0, len(batches))
     for index, batch in enumerate(batches, start=1):
         run_batch(batch, call, name=label, stats=split)
+        prog.step(index, len(batches))
     if drops is not None:
         drops.update(split)
         # 커버리지: 입력 블록 중 **어떤 fact 의 근거로도 인용되지 않은** 블록.
