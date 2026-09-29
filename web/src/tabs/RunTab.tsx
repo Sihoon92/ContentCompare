@@ -17,6 +17,7 @@ export default function RunTab() {
   const [notice, setNotice] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [openJob, setOpenJob] = useState<string | null>(null);
+  const [openSeq, setOpenSeq] = useState(0);
   const [listError, setListError] = useState("");
   const folderInput = useRef<HTMLInputElement>(null);
   const referenceInput = useRef<HTMLInputElement>(null);
@@ -35,6 +36,12 @@ export default function RunTab() {
     const timer = window.setInterval(load, 3000);
     return () => { alive = false; window.clearInterval(timer); };
   }, []);
+
+  // 열기는 언제나 창을 새로 펼친다 — key 가 바뀌면 JobWindow 가 다시 만들어져 최소화 상태가 풀린다.
+  function openJobWindow(id: string) {
+    setOpenJob(id);
+    setOpenSeq((n) => n + 1);
+  }
 
   function pickReference(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
@@ -63,7 +70,7 @@ export default function RunTab() {
     setNotice("");
     try {
       const r = await submitJob(buildJobForm(engine, loadRequester(), reference, targets));
-      setOpenJob(r.job.id);
+      openJobWindow(r.job.id);
       if (r.skipped.length > 0) setNotice(`서버가 건너뛴 파일 ${r.skipped.length}개: ${r.skipped.join(", ")}`);
     } catch (e) {
       setError(errorText(e));
@@ -117,10 +124,10 @@ export default function RunTab() {
       {notice && <p className="muted">{notice}</p>}
 
       {listError && <p className="warn">{listError}</p>}
-      <JobList title="내 최근 작업" jobs={mine} empty="아직 이 브라우저에서 실행한 작업이 없습니다." onOpen={setOpenJob} />
-      <JobList title="대기열" jobs={active} empty="대기 중이거나 실행 중인 작업이 없습니다." onOpen={setOpenJob} />
+      <JobList title="내 최근 작업" jobs={mine} empty="아직 이 브라우저에서 실행한 작업이 없습니다." onOpen={openJobWindow} />
+      <JobList title="대기열" jobs={active} empty="대기 중이거나 실행 중인 작업이 없습니다." onOpen={openJobWindow} />
 
-      {openJob && <JobWindow jobId={openJob} onClose={() => setOpenJob(null)} />}
+      {openJob && <JobWindow key={`${openJob}-${openSeq}`} jobId={openJob} onClose={() => setOpenJob(null)} />}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { errorText } from "../api/client";
+import { ApiError, errorText } from "../api/client";
 import { cancelJob, getJob, getResult } from "../api/endpoints";
 import type { JobDetail, JobResult, JobState } from "../api/types";
 import { useJobStream } from "../hooks/useJobStream";
@@ -13,6 +13,8 @@ export default function JobView({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<JobDetail | null>(null);
   const [result, setResult] = useState<{ result: JobResult; report: boolean } | null>(null);
   const [error, setError] = useState("");
+  const [resultError, setResultError] = useState("");
+  const [resultTry, setResultTry] = useState(0); // "다시 불러오기" 로 올려 결과 조회 효과를 다시 돌린다
   const [now, setNow] = useState(() => Date.now() / 1000);
 
   // 스트림이 영영 끊겼는데(연결 거절 등) 폴링한 작업이 이미 끝났다면 폴링 값이 옳다.
@@ -39,8 +41,18 @@ export default function JobView({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     if (!final) return;
-    getResult(jobId).then(setResult).catch(() => setResult(null));
-  }, [jobId, final]);
+    let alive = true;
+    setResultError("");
+    getResult(jobId)
+      .then((r) => { if (alive) setResult(r); })
+      .catch((e) => {
+        if (!alive) return;
+        setResult(null);
+        // 실패한 작업에는 결과가 없어 404 가 정상이다 — 그것만 조용히 넘기고 나머지는 알린다.
+        if (!(e instanceof ApiError && e.status === 404)) setResultError(`결과를 불러오지 못했습니다: ${errorText(e)}`);
+      });
+    return () => { alive = false; };
+  }, [jobId, final, resultTry]);
 
   async function cancel() {
     try {
@@ -91,6 +103,12 @@ export default function JobView({ jobId }: { jobId: string }) {
 
       {final && failure && <p className="error">{failure}</p>}
       {error && <p className="error">{error}</p>}
+      {resultError && (
+        <div className="row">
+          <p className="error">{resultError}</p>
+          <button className="button secondary" onClick={() => setResultTry((n) => n + 1)}>다시 불러오기</button>
+        </div>
+      )}
 
       <LogPanel lines={stream.lines} />
 

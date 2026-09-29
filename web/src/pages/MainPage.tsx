@@ -19,7 +19,7 @@ export default function MainPage() {
         {/* 탭을 숨기기만 하고 내리지 않는다 — 고른 파일·입력한 내용이 탭을 옮겨도 남게(Streamlit 과 같다). */}
         {TABS.map((t) => (
           <section key={t.key} className="tab-body" hidden={t.key !== active}>
-            <t.Component />
+            <t.Component active={t.key === active} />
           </section>
         ))}
       </main>

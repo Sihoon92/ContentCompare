@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../api/client";
 import { getReport, listReports } from "../api/endpoints";
 import type { ReportItem } from "../api/types";
 import Markdown from "../components/Markdown";
 
-export default function ReportTab() {
+export default function ReportTab({ active }: { active: boolean }) {
   const [items, setItems] = useState<ReportItem[]>([]);
   const [picked, setPicked] = useState("");
   const [markdown, setMarkdown] = useState("");
   const [error, setError] = useState("");
+  const pickedByUser = useRef(false); // 이번 활성화 동안 사용자가 직접 고른 적이 있는가
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -16,7 +17,8 @@ export default function ReportTab() {
       .then((r) => {
         if (!cancelled) {
           setItems(r.reports);
-          setPicked((prev) => (prev && r.reports.some((i) => i.id === prev) ? prev : r.reports[0]?.id ?? ""));
+          // 선택 규칙: 이번 활성화 동안 직접 고른 항목이 목록에 있으면 유지, 아니면 최신(첫 항목).
+          setPicked((prev) => (pickedByUser.current && prev && r.reports.some((i) => i.id === prev) ? prev : r.reports[0]?.id ?? ""));
           setError("");
         }
       })
@@ -24,7 +26,12 @@ export default function ReportTab() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // 탭이 보이게 될 때마다 목록을 다시 읽는다(비교를 실행한 뒤 새 리포트가 보이도록). 처음 보이기 전에는 요청하지 않는다.
+  useEffect(() => {
+    if (!active) return;
+    pickedByUser.current = false;
+    return load();
+  }, [active, load]);
 
   useEffect(() => {
     if (!picked) { setMarkdown(""); return; }
@@ -49,7 +56,7 @@ export default function ReportTab() {
   return (
     <div>
       <div className="row">
-        <select value={picked} onChange={(e) => setPicked(e.target.value)}>
+        <select value={picked} onChange={(e) => { pickedByUser.current = true; setPicked(e.target.value); }}>
           {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
         </select>
         <button className="button secondary" onClick={load}>새로고침</button>

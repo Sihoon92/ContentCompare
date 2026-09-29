@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ApiError, errorText } from "../api/client";
 import { getJobReport, jobReportUrl } from "../api/endpoints";
 import type { JobResult } from "../api/types";
 import DataTable from "./DataTable";
@@ -7,10 +8,21 @@ import Markdown from "./Markdown";
 // Streamlit 의 show_results / show_fact_results 와 같은 내용. 라벨은 서버가 준 것을 그대로 쓴다.
 export default function ResultView({ jobId, result, hasReport }: { jobId: string; result: JobResult; hasReport: boolean }) {
   const [markdown, setMarkdown] = useState("");
+  const [previewError, setPreviewError] = useState("");
+  const [previewTry, setPreviewTry] = useState(0); // "다시 불러오기" 로 올려 미리보기 조회 효과를 다시 돌린다
   useEffect(() => {
     if (!hasReport) return;
-    getJobReport(jobId).then(setMarkdown).catch(() => setMarkdown(""));
-  }, [jobId, hasReport]);
+    let alive = true;
+    setPreviewError("");
+    getJobReport(jobId)
+      .then((t) => { if (alive) setMarkdown(t); })
+      .catch((e) => {
+        if (!alive) return;
+        setMarkdown("");
+        if (!(e instanceof ApiError && e.status === 404)) setPreviewError(`리포트를 불러오지 못했습니다: ${errorText(e)}`);
+      });
+    return () => { alive = false; };
+  }, [jobId, hasReport, previewTry]);
 
   return (
     <section className="result">
@@ -71,6 +83,12 @@ export default function ResultView({ jobId, result, hasReport }: { jobId: string
           </div>
           <details>
             <summary>📄 리포트(Markdown) 미리보기</summary>
+            {previewError && (
+              <div className="row">
+                <p className="error">{previewError}</p>
+                <button className="button secondary" onClick={() => setPreviewTry((n) => n + 1)}>다시 불러오기</button>
+              </div>
+            )}
             <Markdown text={markdown} />
           </details>
         </>

@@ -8,7 +8,8 @@ import KnowledgeTab from "./KnowledgeTab";
 export interface TabDef {
   key: string;
   title: string;
-  Component: ComponentType;
+  // active: 지금 보이는 탭인가. 조회 탭은 활성화될 때마다 목록을 다시 읽는다.
+  Component: ComponentType<{ active: boolean }>;
 }
 
 // 탭은 Streamlit 과 같은 순서로 채운다: 🚀 비교 실행 · 📄 리포트 · 🔬 현미경 · ⏱ 타임라인 · 📚 도메인 지식.

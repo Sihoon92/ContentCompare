@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../api/client";
 import { getTimelineHtml, listTimelines } from "../api/endpoints";
 import type { TimelineItem } from "../api/types";
 import HtmlFrame from "../components/HtmlFrame";
 
-export default function TimelineTab() {
+export default function TimelineTab({ active }: { active: boolean }) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [picked, setPicked] = useState("");
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [html, setHtml] = useState("");
   const [error, setError] = useState("");
+  const pickedByUser = useRef(false); // 이번 활성화 동안 사용자가 직접 고른 적이 있는가
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -17,7 +18,8 @@ export default function TimelineTab() {
       .then((r) => {
         if (!cancelled) {
           setItems(r.timelines);
-          setPicked((prev) => (prev && r.timelines.some((i) => i.id === prev) ? prev : r.timelines[0]?.id ?? ""));
+          // 선택 규칙: 이번 활성화 동안 직접 고른 항목이 목록에 있으면 유지, 아니면 최신(첫 항목).
+          setPicked((prev) => (pickedByUser.current && prev && r.timelines.some((i) => i.id === prev) ? prev : r.timelines[0]?.id ?? ""));
           setError("");
         }
       })
@@ -25,16 +27,22 @@ export default function TimelineTab() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // 탭이 보이게 될 때마다 목록을 다시 읽는다. 처음 보이기 전에는 목록도 서버가 만든 HTML 도 요청하지 않는다.
+  useEffect(() => {
+    if (!active) return;
+    pickedByUser.current = false;
+    return load();
+  }, [active, load]);
 
   useEffect(() => {
+    if (!active) return;
     if (!picked) { setHtml(""); return; }
     let cancelled = false;
     getTimelineHtml(picked, errorsOnly)
       .then((r) => { if (!cancelled) { setHtml(r.html); setError(""); } })
       .catch((e) => { if (!cancelled) setError(errorText(e)); });
     return () => { cancelled = true; };
-  }, [picked, errorsOnly]);
+  }, [active, picked, errorsOnly]);
 
   return (
     <div>
@@ -42,7 +50,7 @@ export default function TimelineTab() {
         단계 시작·종료, LLM 호출, 재시도, 한도 대기를 한 시간축에 놓는다. 실패했을 때 '어느 문서 · 어느 단계 · 몇 번째 배치 · 왜'를 여기서 읽는다.
       </p>
       <div className="row">
-        <select value={picked} onChange={(e) => setPicked(e.target.value)}>
+        <select value={picked} onChange={(e) => { pickedByUser.current = true; setPicked(e.target.value); }}>
           {items.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
         </select>
         <label><input type="checkbox" checked={errorsOnly} onChange={(e) => setErrorsOnly(e.target.checked)} /> 실패·재시도만</label>

@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../api/client";
 import { getMicroHtml, getMicroOptions, listMicroRuns } from "../api/endpoints";
 import type { MicroHtml, MicroOptions, MicroRun } from "../api/types";
 import HtmlFrame from "../components/HtmlFrame";
 
-export default function MicroTab() {
+export default function MicroTab({ active }: { active: boolean }) {
   const [runs, setRuns] = useState<MicroRun[]>([]);
   const [run, setRun] = useState("");
   const [options, setOptions] = useState<MicroOptions | null>(null);
@@ -17,6 +17,7 @@ export default function MicroTab() {
   const [view, setView] = useState<MicroHtml | null>(null);
   const [height, setHeight] = useState(900);
   const [error, setError] = useState("");
+  const pickedByUser = useRef(false); // 이번 활성화 동안 사용자가 직접 실행을 고른 적이 있는가
 
   const loadRuns = useCallback(() => {
     let cancelled = false;
@@ -24,7 +25,8 @@ export default function MicroTab() {
       .then((r) => {
         if (!cancelled) {
           setRuns(r.runs);
-          setRun((prev) => (prev && r.runs.some((x) => x.id === prev) ? prev : r.runs[0]?.id ?? ""));
+          // 선택 규칙: 이번 활성화 동안 직접 고른 실행이 목록에 있으면 유지, 아니면 최신(첫 항목).
+          setRun((prev) => (pickedByUser.current && prev && r.runs.some((x) => x.id === prev) ? prev : r.runs[0]?.id ?? ""));
           setError("");
         }
       })
@@ -32,7 +34,12 @@ export default function MicroTab() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => { loadRuns(); }, [loadRuns]);
+  // 탭이 보이게 될 때마다 목록을 다시 읽는다. 처음 보이기 전에는 목록도 서버가 만든 HTML 도 요청하지 않는다.
+  useEffect(() => {
+    if (!active) return;
+    pickedByUser.current = false;
+    return loadRuns();
+  }, [active, loadRuns]);
 
   useEffect(() => {
     if (!run) { setOptions(null); setOptionsRun(""); setView(null); return; }
@@ -55,7 +62,7 @@ export default function MicroTab() {
   }, [run]);
 
   useEffect(() => {
-    if (!run || !options || optionsRun !== run) return;
+    if (!active || !run || !options || optionsRun !== run) return;
     let cancelled = false;
     getMicroHtml({ run, mode, target, results: results.join(","), doc, fact, theme: "light" })
       .then((v) => {
@@ -67,7 +74,7 @@ export default function MicroTab() {
       })
       .catch((e) => { if (!cancelled) setError(errorText(e)); });
     return () => { cancelled = true; };
-  }, [run, options, optionsRun, mode, target, results, doc, fact]);
+  }, [active, run, options, optionsRun, mode, target, results, doc, fact]);
 
   function toggleResult(key: string) {
     setResults((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -91,7 +98,7 @@ export default function MicroTab() {
   return (
     <div>
       <div className="row">
-        <select value={run} onChange={(e) => setRun(e.target.value)}>
+        <select value={run} onChange={(e) => { pickedByUser.current = true; setRun(e.target.value); }}>
           {runs.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
         </select>
         <button className="button secondary" onClick={loadRuns}>새로고침</button>
