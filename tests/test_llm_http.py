@@ -239,3 +239,51 @@ def test_internal_retries_with_injected_sleep():
     be = InternalBackend(cfg, poster=poster, sleep=_NOSLEEP)
     assert be.complete("s", "u") == "ok"
     assert poster.calls["i"] == 2
+
+
+# --------------------------------------------------------------------------- #
+# 토큰 사용량 — 백엔드가 받은 숫자를 버리지 않는가
+# --------------------------------------------------------------------------- #
+def test_ollama_records_last_usage():
+    """실제 Ollama 응답 모양 그대로(로그에서 가져옴)."""
+    from contentcompare.llm.usage import Usage
+
+    poster = scripted_poster([FakeResponse(200, {
+        "message": {"content": "{}"}, "done": True,
+        "prompt_eval_count": 776, "eval_count": 166,
+    })])
+    be = OllamaBackend(LLMConfig(), poster=poster, sleep=_NOSLEEP)
+    be.complete("sys", "usr")
+    assert be.last_usage == Usage(input_tokens=776, output_tokens=166)
+
+
+def test_internal_records_last_usage():
+    from contentcompare.llm.usage import Usage
+
+    poster = scripted_poster([FakeResponse(200, {
+        "choices": [{"message": {"content": "{}"}}],
+        "usage": {"prompt_tokens": 3204, "completion_tokens": 512, "total_tokens": 3716},
+    })])
+    be = InternalBackend(LLMConfig(), poster=poster, sleep=_NOSLEEP)
+    be.complete("sys", "usr")
+    assert be.last_usage == Usage(input_tokens=3204, output_tokens=512)
+
+
+def test_usage_is_cleared_before_each_call():
+    """usage 를 안 주는 응답이 오면 **직전 값이 남지 않는다.**
+
+    사내 게이트웨이가 usage 를 빼고 줄 수 있는데, 그때 앞 호출의 3204 가 그대로
+    남으면 "배치를 줄였는데 토큰이 그대로"라는 거짓 관측이 만들어진다.
+    """
+    from contentcompare.llm.usage import UNKNOWN
+
+    poster = scripted_poster([
+        FakeResponse(200, {"choices": [{"message": {"content": "a"}}],
+                           "usage": {"prompt_tokens": 10, "completion_tokens": 2}}),
+        FakeResponse(200, {"choices": [{"message": {"content": "b"}}]}),
+    ])
+    be = InternalBackend(LLMConfig(), poster=poster, sleep=_NOSLEEP)
+    be.complete("s", "u")
+    assert be.last_usage.known
+    be.complete("s", "u")
+    assert be.last_usage == UNKNOWN

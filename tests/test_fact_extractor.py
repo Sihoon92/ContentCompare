@@ -345,42 +345,50 @@ def test_word_cache_hit_skips_llm(tmp_path):
     assert [f.entity_name for f in fs2.facts] == ["A"]
 
 
-def test_with_context_prefixes_previous_tail():
-    """두 번째 배치부터 직전 배치의 꼬리 3블록이 맥락으로 붙는다."""
-    from contentcompare.fact.fact_extractor import _with_context
+def test_prepend_context_uses_the_previous_tail():
+    """직전에 처리한 것의 꼬리 3블록이 맥락으로 붙는다.
 
-    batches = [
-        [{"id": f"w_b{i:03d}", "type": "text", "text": "x"} for i in range(1, 6)],
-        [{"id": "w_b006", "type": "text", "text": "y"}],
-    ]
-    out = _with_context(batches)
+    예전에는 배치 목록 전체를 미리 만들어 붙였는데(``_with_context``), 출력 절단으로
+    배치가 **실행 중에** 쪼개질 수 있게 되면서 미리 만들 수 없게 됐다 — 조각 3b 의
+    맥락은 배치 2 가 아니라 **조각 3a** 여야 하기 때문이다.
+    """
+    from contentcompare.fact.fact_extractor import _prepend_context
 
-    assert [u["id"] for u in out[0]] == ["w_b001", "w_b002", "w_b003", "w_b004", "w_b005"]
-    assert [u["id"] for u in out[1]] == ["w_b003", "w_b004", "w_b005", "w_b006"]
-    assert [u.get("context") for u in out[1]] == [True, True, True, None]
+    prev = [{"id": f"w_b{i:03d}", "type": "text", "text": "x"} for i in range(1, 6)]
+    out = _prepend_context(prev, [{"id": "w_b006", "type": "text", "text": "y"}])
+
+    assert [u["id"] for u in out] == ["w_b003", "w_b004", "w_b005", "w_b006"]
+    assert [u.get("context") for u in out] == [True, True, True, None]
 
 
-def test_with_context_does_not_mutate_input():
-    """원본 unit dict 에 context 를 찍으면 앞 배치의 렌더까지 오염된다."""
-    from contentcompare.fact.fact_extractor import _with_context
+def test_prepend_context_is_a_noop_for_the_first_call():
+    from contentcompare.fact.fact_extractor import _prepend_context
+
+    blocks = [{"id": "w_b001", "type": "text", "text": "x"}]
+    assert _prepend_context([], blocks) == blocks
+
+
+def test_prepend_context_does_not_mutate_input():
+    """원본 unit dict 에 context 를 찍으면 그 블록이 자기 배치에서도 맥락으로 렌더된다."""
+    from contentcompare.fact.fact_extractor import _prepend_context
 
     first = [{"id": "w_b001", "type": "text", "text": "x"}]
-    _with_context([first, [{"id": "w_b002", "type": "text", "text": "y"}]])
+    _prepend_context(first, [{"id": "w_b002", "type": "text", "text": "y"}])
 
     assert "context" not in first[0]
 
 
 def test_context_table_is_truncated():
     """표를 통째로 맥락에 실으면 배치 토큰을 삼킨다 — 앞 2행만."""
-    from contentcompare.fact.fact_extractor import _with_context
+    from contentcompare.fact.fact_extractor import _prepend_context
 
     tbl = {"id": "w_b001", "type": "table",
            "rows": [["a"], ["b"], ["c"], ["d"]],
            "cell_lines": [[[]], [[]], [[]], [[]]]}
-    out = _with_context([[tbl], [{"id": "w_b002", "type": "text", "text": "y"}]])
+    out = _prepend_context([tbl], [{"id": "w_b002", "type": "text", "text": "y"}])
 
-    assert out[1][0]["rows"] == [["a"], ["b"]]
-    assert len(out[1][0]["cell_lines"]) == 2
+    assert out[0]["rows"] == [["a"], ["b"]]
+    assert len(out[0]["cell_lines"]) == 2
     assert tbl["rows"] == [["a"], ["b"], ["c"], ["d"]]      # 원본 불변
 
 
@@ -397,7 +405,7 @@ def test_context_blocks_cannot_be_fact_sources():
         def __init__(self):
             self.calls = 0
 
-        def complete_json(self, system, user):
+        def complete_json(self, system, user, *, schema=None):
             self.calls += 1
             # 두 번째 배치에서 앞 배치(맥락) 블록만 근거로 든 fact 를 낸다.
             if self.calls == 2:
@@ -466,7 +474,7 @@ def test_fingerprint_changes_with_line_structure(tmp_path):
         def __init__(self):
             self.calls = 0
 
-        def complete_json(self, system, user):
+        def complete_json(self, system, user, *, schema=None):
             self.calls += 1
             return {"facts": [{"entity_name": f"호출{self.calls}",
                                "source_ids": ["w_b001"]}]}
@@ -498,7 +506,7 @@ def test_facts_inherited_is_counted():
     ]}
 
     class _Runner:
-        def complete_json(self, system, user):
+        def complete_json(self, system, user, *, schema=None):
             return {"facts": [
                 {"entity_name": "이어받음", "source_ids": ["w_b002"],
                  "inherited_from": ["w_b001"]},
@@ -509,3 +517,180 @@ def test_facts_inherited_is_counted():
     _facts_from_blocks(compact, None, _Runner(), 20, drops)
 
     assert drops["facts_inherited"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# search_text 보강 (fact.search_text_augment)
+#
+# 재조립된 search_text 는 속성 **값**만 담으므로, F3 가 칸만 만들고 값을 null 로 두면
+# 숫자가 통째로 빠진다. 옆 항목은 값이 채워져 숫자가 들어가므로 순위 경쟁이 기울어진다.
+# --------------------------------------------------------------------------- #
+def _null_valued_records():
+    return RecordSet(
+        records=[
+            Record(
+                record_id="row-9",
+                entity=Entity(display_name="충전온도범위", path=["충전온도범위"]),
+                attributes={"charge_temp_range_1": Attribute(None, "℃"),
+                            "charge_temp_range_2": Attribute(None, "℃")},
+                source=RecordSource(row=9),
+                evidence_text="충전온도범위: -5~5℃, 0.1C(4.55V) 12~15℃, 0.8C(4.55V)",
+            )
+        ]
+    )
+
+
+def test_augment_off_leaves_search_text_without_numbers():
+    fs = extract_facts({"doc_type": "excel"}, records=_null_valued_records())
+    st = fs.facts[0].search_text
+    assert "℃" in st
+    assert "0.1" not in st and "4.55" not in st   # 값이 null 이라 넣을 숫자가 없다
+
+
+def test_augment_numbers_fills_only_the_numeric_gap():
+    fs = extract_facts({"doc_type": "excel"}, records=_null_valued_records(),
+                       search_text_augment="numbers")
+    st = fs.facts[0].search_text
+    assert "0.1" in st and "4.55" in st
+    assert "0.1C(4.55V)" not in st                # 숫자만 — 원문 형태는 오지 않는다
+
+
+def test_augment_full_keeps_the_original_shape():
+    fs = extract_facts({"doc_type": "excel"}, records=_null_valued_records(),
+                       search_text_augment="full")
+    st = fs.facts[0].search_text
+    assert "-5~5℃, 0.1C(4.55V)" in st             # 값·단위가 붙은 형태가 보존된다
+
+
+def test_augment_numbers_skips_facts_that_already_have_values():
+    """이미 수치가 있으면 손대지 않는다 — validator.numeric_coverage 와 같은 판정."""
+    records = RecordSet(
+        records=[
+            Record(
+                record_id="row-4",
+                entity=Entity(display_name="표준환경온도", path=["표준환경온도"]),
+                attributes={"lower_limit": Attribute(21, "℃"), "upper_limit": Attribute(29, "℃")},
+                source=RecordSource(row=4),
+                evidence_text="표준환경온도 21 ~ 29 (중심 25) ℃",
+            )
+        ]
+    )
+    off = extract_facts({"doc_type": "excel"}, records=records).facts[0].search_text
+    num = extract_facts({"doc_type": "excel"}, records=records,
+                        search_text_augment="numbers").facts[0].search_text
+    assert off == num
+    assert "25" not in num          # 중심치는 속성에 없으니 numbers 로도 안 들어온다
+
+
+def test_augment_mode_changes_the_facts_cache_fingerprint(tmp_path):
+    """모드를 바꾸면 재추출돼야 한다 — 지문에 안 섞으면 실험이 조용히 무효가 된다."""
+    records = _null_valued_records()
+    store = ArtifactStore(str(tmp_path), "doc.xlsx")
+    a = extract_facts({"doc_type": "excel"}, records=records, store=store)
+    b = extract_facts({"doc_type": "excel"}, records=records, store=store,
+                      search_text_augment="full")
+    assert "0.1C(4.55V)" not in a.facts[0].search_text
+    assert "0.1C(4.55V)" in b.facts[0].search_text
+
+
+# --------------------------------------------------------------------------- #
+# 출력 절단 → 배치 자동 축소 (F3)
+#
+# F2 보다 어렵다: 맥락 블록(_prepend_context)이 batch_ids 에서 빠져야 하는데, 분할
+# 지점이 맥락을 가르면 조각의 batch_ids 가 엉뚱해진다. 그래서 run_batch 에는 **맥락을
+# 뺀 진짜 블록만** 넘기고 맥락 부착은 call 이 한다.
+# --------------------------------------------------------------------------- #
+def _blocks(n: int) -> dict:
+    return {"doc_type": "word", "blocks": [
+        {"id": f"w_b{i:03d}", "type": "paragraph", "text": f"내용 {i}"}
+        for i in range(1, n + 1)
+    ]}
+
+
+class _TruncatingRunner:
+    """블록이 ``limit`` 개 이상 실리면 출력이 잘린 것처럼 군다."""
+
+    def __init__(self, limit: int, *, facts_per_call=None) -> None:
+        self.limit = limit
+        self.calls = 0
+        self.prompts: list[str] = []
+        self._facts = facts_per_call or (lambda user: [])
+
+    def complete_json(self, system, user, *, schema=None):
+        import re
+
+        from contentcompare.llm.truncation import LengthLimitError
+
+        self.calls += 1
+        self.prompts.append(user)
+        # 맥락 블록은 ``[맥락][w_bNNN]`` 로 렌더되므로 **줄 시작이 [w_b 인 것**만 센다
+        # (머리말에도 "[맥락] 표시가 붙은 블록은…" 이 있어 부분일치로 세면 틀린다).
+        real = len(re.findall(r"^\[w_b", user, re.M))
+        if real >= self.limit:
+            raise LengthLimitError("잘렸습니다", output="{", backend="fake")
+        return {"facts": self._facts(user)}
+
+
+def test_f3_splits_the_batch_when_output_is_truncated():
+    from contentcompare.fact.fact_extractor import _facts_from_blocks
+
+    runner = _TruncatingRunner(limit=4)
+    drops: dict = {}
+    _facts_from_blocks(_blocks(4), None, runner, 4, drops)
+
+    assert runner.calls == 3            # 실패 1 + 조각 2
+    assert drops["batches_split"] == 1
+    assert drops["max_split_depth"] == 1
+
+
+def test_f3_split_chunk_inherits_context_from_the_previous_chunk():
+    """조각 3b 의 맥락은 배치 2 가 아니라 **조각 3a** 여야 한다.
+
+    ``_prepend_context`` 가 "직전에 처리한 것"을 들고 다니는 이유가 이것이다. 배치
+    목록을 미리 만들어 맥락을 붙이던 예전 방식으로는 표현할 수 없다.
+    """
+    from contentcompare.fact.fact_extractor import _facts_from_blocks
+
+    runner = _TruncatingRunner(limit=4)
+    _facts_from_blocks(_blocks(4), None, runner, 4, {})
+
+    # prompts = [잘린 4블록, 조각1(w_b001,2), 조각2(w_b003,4)]
+    assert "w_b001" in runner.prompts[1] and "w_b003" not in runner.prompts[1]
+    # 조각2 는 조각1 의 꼬리를 **맥락으로** 받는다(근거로는 못 쓴다).
+    assert "[맥락][w_b001]" in runner.prompts[2]
+    assert "[맥락][w_b002]" in runner.prompts[2]
+    assert "[w_b003]" in runner.prompts[2]
+
+
+def test_f3_split_recomputes_batch_ids_per_chunk():
+    """조각의 근거 검증은 **그 조각의 블록만** 인정해야 한다.
+
+    batch_ids 를 분할 전 배치 기준으로 두면 조각 2 가 조각 1 의 블록을 근거로 든 fact 를
+    통과시켜, 맥락 블록이 근거가 되는 것을 막던 방어선이 무너진다.
+    """
+    from contentcompare.fact.fact_extractor import _facts_from_blocks
+
+    def facts(user: str):
+        # 조각 2 에서 **맥락으로만 보이는** w_b002 를 근거로 든 fact 를 낸다.
+        if "[w_b003]" in user and "[맥락][w_b002]" in user:
+            return [{"entity_name": "유령", "source_ids": ["w_b002"]}]
+        return []
+
+    runner = _TruncatingRunner(limit=4, facts_per_call=facts)
+    drops: dict = {}
+    out = _facts_from_blocks(_blocks(4), None, runner, 4, drops)
+
+    assert out.facts == []
+    assert drops["dropped_no_valid_source_id"] == 1
+
+
+def test_f3_without_split_is_unchanged():
+    """분할이 없으면 오늘과 완전히 같다 — 계측 키도 안 생긴다."""
+    from contentcompare.fact.fact_extractor import _facts_from_blocks
+
+    runner = _TruncatingRunner(limit=99)
+    drops: dict = {}
+    _facts_from_blocks(_blocks(4), None, runner, 2, drops)
+
+    assert runner.calls == 2           # 2블록씩 2배치
+    assert "batches_split" not in drops

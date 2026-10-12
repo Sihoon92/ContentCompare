@@ -203,3 +203,125 @@ def test_edges_without_runner_are_not_attributed_to_llm():
 def test_empty_store_yields_empty_graph():
     graph = build_concept_graph(FactStore(), embedder=_FakeEmbedder(), runner=None)
     assert graph.nodes == [] and graph.edges == []
+
+
+# --------------------------------------------------------------------- #
+# 출력 절단 → 배치 축소 (F2/F3 의 run_batch 를 F7 에도)
+#
+# 오늘은 ``except Exception`` 이 LengthLimitError 를 삼켜 **배치 20쌍이 통째로**
+# unknown 이 된다. 쌍끼리 독립이라(carry 가 없다) F2 보다 단순하게 붙는다.
+# --------------------------------------------------------------------- #
+class _TruncatingConceptRunner:
+    """쌍이 ``limit`` 개 이상 실리면 출력이 잘린 것처럼 구는 가짜 runner.
+
+    ``always`` 에 fact_id 를 주면 그 쌍이 실린 프롬프트는 **크기와 무관하게** 잘린다 —
+    더 쪼갤 수 없는 조각(1쌍)을 만들어 하한 동작을 시험하려는 것이다.
+    """
+
+    def __init__(self, limit, *, always=""):
+        self.limit = limit
+        self.always = always
+        self.calls = 0
+        self.prompts = []
+
+    def complete_json(self, system, user, *, schema=None):
+        import re
+
+        from contentcompare.llm.truncation import LengthLimitError
+
+        self.calls += 1
+        self.prompts.append(user)
+        loaded = len(re.findall(r"^\[쌍 ", user, re.M))
+        if loaded >= self.limit or (self.always and self.always in user):
+            raise LengthLimitError("잘렸습니다", output="{", backend="fake")
+        lefts = re.findall(r"^left_fact_id: (\S+)", user, re.M)
+        rights = re.findall(r"^right_fact_id: (\S+)", user, re.M)
+        return {"pairs": [
+            {"left_fact_id": lf, "right_fact_id": rt, "relation": DIFFERS_BY,
+             "axis": "측정조건", "reason": "저장 조건과 환경 조건"}
+            for lf, rt in zip(lefts, rights)
+        ]}
+
+
+def _pairs(n: int):
+    """후보 쌍 ``n`` 건(기준 fact n개 × 대상 fact 1개)."""
+    store = _store()
+    for i in range(1, n):
+        store.reference.facts.facts.append(
+            _fact(f"fact-row-{20 + i}", f"{i + 1}개월저장온도"))
+    pairs = candidate_pairs(store, embedder=_FakeEmbedder())
+    assert len(pairs) == n  # 전제가 깨지면 아래 계산이 전부 무의미하다
+    return pairs
+
+
+def test_f7_splits_the_batch_when_output_is_truncated():
+    """4쌍이 잘리면 2+2 로 갈라 다시 부른다 — 한 쌍도 잃지 않는다."""
+    runner = _TruncatingConceptRunner(limit=4)
+    edges, _ = judge_pairs(runner, _pairs(4), batch_size=4)
+
+    assert runner.calls == 3                      # 실패 1 + 조각 2
+    assert len(edges) == 4
+    assert all(e.relation == DIFFERS_BY for e in edges)
+
+
+def test_f7_unsplittable_pair_is_the_only_one_left_unknown():
+    """더 못 쪼개는 쌍만 보류하고 **형제 조각은 계속 간다**.
+
+    오늘은 그 한 쌍 때문에 배치 전체가 unknown 이 된다. 사유도 갈라야 한다 —
+    "응답에 이 쌍이 없었습니다"는 절단에 대해서는 거짓말이다.
+    """
+    runner = _TruncatingConceptRunner(limit=99, always="fact-row-21")
+    edges, _ = judge_pairs(runner, _pairs(4), batch_size=4)
+
+    unknown = [e for e in edges if e.relation == UNKNOWN]
+    assert len(edges) == 4 and len(unknown) == 1
+    assert "절단" in unknown[0].reason
+
+
+def test_f7_split_is_counted():
+    """분할은 캐시 지문에 안 들어가므로 **계측이 유일한 증거**다."""
+    runner = _TruncatingConceptRunner(limit=4)
+    stats: dict = {}
+    judge_pairs(runner, _pairs(4), batch_size=4, stats=stats)
+
+    assert stats["batches_split"] == 1
+    assert stats["max_split_depth"] == 1
+    assert stats["min_items_used"] == 2
+
+
+def test_f7_without_truncation_is_unchanged():
+    """분할이 없으면 오늘과 같다 — 계측 키도 안 생긴다."""
+    runner = _TruncatingConceptRunner(limit=99)
+    stats: dict = {}
+    edges, _ = judge_pairs(runner, _pairs(4), batch_size=2, stats=stats)
+
+    assert runner.calls == 2 and len(edges) == 4
+    assert "batches_split" not in stats and "max_split_depth" not in stats
+
+
+def test_f7_split_reaches_graph_stats():
+    """설정에는 있는데 호출 경로에는 없는 결함을 이 저장소는 두 번 겪었다."""
+    store = _store()
+    for i in range(1, 4):
+        store.reference.facts.facts.append(
+            _fact(f"fact-row-{20 + i}", f"{i + 1}개월저장온도"))
+    graph = build_concept_graph(store, embedder=_FakeEmbedder(),
+                                runner=_TruncatingConceptRunner(limit=4),
+                                batch_size=4)
+    assert graph.stats["batches_split"] == 1
+
+
+def test_f7_reports_batch_progress():
+    """F7 배치마다 진척을 알린다 — 분할이 일어나도 원래 배치 번호로만 센다."""
+    from contentcompare import progress as prog
+
+    mem = prog.MemoryProgress()
+    prog.set_reporter(mem)
+    try:
+        prog.unit_start("concept")
+        judge_pairs(_TruncatingConceptRunner(limit=99), _pairs(3), batch_size=1)
+    finally:
+        prog.reset_reporter()
+    steps = [(e["done"], e["total"]) for e in mem.events if e["ev"] == "step"]
+    assert steps == [(0, 3), (1, 3), (2, 3), (3, 3)]
+    assert all(e["key"] == "concept" for e in mem.events if e["ev"] == "step")

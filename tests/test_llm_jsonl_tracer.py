@@ -229,13 +229,20 @@ def test_factory_wraps_chat_when_local_tracing_is_on(tmp_path):
 
 
 def test_factory_returns_bare_client_when_tracing_is_off():
-    """설정을 건드리지 않은 사용자에게는 **오늘과 동일 객체**여야 한다."""
+    """관측을 **전부** 끄면 맨 객체여야 한다.
+
+    ⚠️ 타임라인(``logging.timeline``)은 기본 on 이고 그것도 ``TracedChat`` 을 통해
+    LLM 호출을 잡으므로, "추적 off = 맨 객체"는 더 이상 참이 아니다. 감싸지 않는
+    조건은 이제 **셋 다 off** 다(Langfuse · trace_local · timeline).
+    """
     from contentcompare.llm.factory import build_clients
     from contentcompare.llm.tracing import reset_tracer
 
     reset_tracer()
     try:
-        chat, _embed = build_clients(AppConfig())
+        config = AppConfig()
+        config.logging.timeline = False
+        chat, _embed = build_clients(config)
         assert not isinstance(chat, TracedChat)
     finally:
         reset_tracer()

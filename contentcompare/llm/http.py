@@ -137,6 +137,8 @@ def post_json(
                 "%s 요청 한도(429) — %.0fs 대기 후 재시도 %d/%d",
                 url, delay, rl_attempt, retry.rate_limit_max_retries,
             )
+            _emit_retry("rate_limit", delay, rl_attempt,
+                        retry.rate_limit_max_retries, exc)
             sleep(delay)
         except transient as exc:
             attempt += 1
@@ -149,7 +151,26 @@ def post_json(
                 "%s 일시 오류(%s) — %.0fs 후 재시도 %d/%d",
                 url, exc, delay, attempt, retry.max_retries,
             )
+            _emit_retry("error", delay, attempt, retry.max_retries, exc)
             sleep(delay)
+
+
+def _emit_retry(status: str, delay: float, attempt: int, limit: int,
+                exc: BaseException) -> None:
+    """재시도를 타임라인에 남긴다 — ``internal``/``ollama``(requests) 경로용.
+
+    ``langchain`` 은 SDK 가 자체 재시도를 하므로 :mod:`.http_probe` 가 같은 일을
+    전송 계층에서 한다. **두 경로가 같은 축에 놓여야** 백엔드를 바꿔도 타임라인을
+    읽는 법이 달라지지 않는다.
+    """
+    from .. import timeline
+    from .tracing import current_stage
+
+    timeline.emit(
+        timeline.RETRY, current_stage(depth=1), status=status,
+        attempt=attempt, max=limit, wait_seconds=round(float(delay), 1),
+        error=f"{type(exc).__name__}: {exc}"[:200],
+    )
 
 
 def extract(data: dict, *path, url: str = "") -> Any:

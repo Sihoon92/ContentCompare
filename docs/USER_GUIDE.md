@@ -127,20 +127,19 @@ contentcompare ^
 ```
 
 ### 웹 UI
-```bash
-streamlit run app\streamlit_app.py
-```
-사이드바에서:
-1. **📁 파일 선택**(네이티브 창)으로 config.yaml 을 고르거나 경로를 입력 후 **📂 불러오기**
-   → 파일의 값이 위젯에 그대로 채워집니다. 한 번 고른 경로는 **다음 실행 때 자동으로 불러옵니다.**
-2. LLM 백엔드(ollama/internal/**langchain**)·모델·base_url·api_key, **임베딩 백엔드**
-   (fastembed/onnx/ollama 등)·모델/폴더 경로를 조정.
-3. **🔌 LLM 연결 테스트**로 확인.
+여러 사람이 브라우저로 접속해 쓰는 웹 서버다. 서버 PC(Windows + Office) 한 대에서 실행한다.
 
-본문에서 **📁 기준 엑셀 선택** / **📁 파일 선택(여러 개)** / **📂 폴더 선택** 버튼으로
-네이티브 창에서 파일·폴더를 고르면 **경로만** 채워집니다(업로드/복사가 아니라 원본을
-xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 실행** →
-필드별 판정 표 확인 → 리포트 `.md` 다운로드.
+1. 처음 한 번: `setup.bat`(패키지 설치 + 화면 빌드), `copy .env.example .env` 후 `.env` 에 LLM 접속 정보(`CC_LLM_BACKEND`·`CC_LLM_BASE_URL`·`CC_LLM_API_KEY`·`CC_CHAT_MODEL` …)와 관리자 비밀번호(`CC_ADMIN_PASSWORD`)를 채운다. 세부 튜닝값은 계속 `config/config.yaml`(`CC_CONFIG`)에 둔다.
+2. `start.bat check` 로 준비 상태를 확인하고 `start.bat` 으로 실행한다. 창에 접속 주소(`http://<PC 이름>:8000`)가 나오고 브라우저가 열린다.
+3. 다른 사람은 그 주소로 접속해 **파일(또는 폴더)을 업로드**하고 🚀 비교 실행을 누른다. 실행 창에서 진행률(%)·현재 단계·로그를 실시간으로 본다. 창을 닫아도 작업은 계속되고 '내 최근 작업'에서 다시 연다.
+4. 비교는 **한 번에 1건**씩 돈다(Office·LLM 요청 한도 때문). 다른 작업이 돌고 있으면 "대기 중 · 앞에 N건"으로 보인다.
+5. 끄기: 서버 창에서 Ctrl+C 를 **한 번** 누른다(최대 5초). cmd 가 "일괄 작업을 끝내시겠습니까 (Y/N)?" 라고 물으면 **Y** 로 답한다(서버는 그 전에 이미 멈춰 있다). 실행 중이던 작업은 '중단됨'으로 남고 다시 돌리지 않는다.
+
+- 🔐 관리자: 상단 버튼 → 비밀번호 → 로그(레벨·검색·다운로드)와 작업 관리(취소·삭제). 5회 틀리면 1분 잠긴다. HTTPS 가 없으므로 **사내망 전용**이다.
+- 서버 PC 에서 사람이 Office 를 함께 쓰지 말 것 — 작업이 비정상 종료되면 새로 뜬 Office 를 정리하면서 함께 닫힐 수 있다. Windows 서비스로 등록하지 말 것(Office 자동화는 로그인된 데스크톱 세션이 필요하다).
+- 서버 PC 에 Node.js 가 없으면 Node 가 있는 PC 에서 `cd web && npm ci && npm run build` 로 만든 `web\dist` 폴더를 복사한다.
+- 개발: `start.bat dev` — API(자동 재시작)와 화면(Vite, http://localhost:5173)을 각각 새 창으로 띄운다. 개발 모드의 API 포트는 항상 8000 이다(`CC_PORT` 는 무시된다). `--reload` 는 `.py` 파일이 바뀔 때마다 서버를 다시 시작하므로 실행 중인 작업이 '중단됨'이 된다 — 개발 모드에서 비교가 도는 동안에는 파이썬 코드를 고치지 말 것.
+- 기존 Streamlit 화면(`streamlit run app/streamlit_app.py`)은 새 화면이 검증될 때까지 남겨 둔다(한 사람이 로컬에서 쓸 때).
 
 ## 5. 결과 보는 법
 
@@ -157,10 +156,98 @@ xlwings/win32com 이 직접 엶 → 사내 보안·DRM 안전). **🚀 비교 �
 | 업로드 시 Permission denied | 사내 보안(nasca)/DRM 이 임시저장 차단 → **파일 경로 입력** 사용(원본 직접 오픈) |
 | Word `Open.Close`/COM AttributeError | 문서 열기 자체가 실패(DRM/권한) 또는 gen_py 캐시 손상. `logs\` 의 `[Word] 처리 실패` 직전 로그 확인. 캐시 정리: `%LOCALAPPDATA%\Temp\gen_py` 폴더 삭제 후 재시도 |
 | 내부 동작 로그 | 모든 실행은 `logs\contentcompare_<시각>.log` 에 기록(웹 UI 사이드바 '로그 보기'에서도 확인/다운로드) |
+| `APITimeoutError` 가 계속 난다 | 원인이 둘이다. ①**요청 한도**를 게이트웨이가 429 대신 '응답을 붙들어' 알리는 경우 → `llm.timeout_wait: 60` (아래) ②**생성이 느린 것**(배치당 출력이 많음) → `fact.record_batch_rows`/`fact_batch_blocks` 를 줄이기. ⏱ 타임라인의 재시도 결과로 갈린다 — 대기 후 성공하면 ①, 계속 실패하면 ② |
 | 사내 LLM 연결 실패 | `unset_proxy`/`base_url`/API 키 env 확인, `log_proxy: true` 로 실제 프록시 확인 |
-| 타임아웃/간헐 실패 | `timeout` 상향, `max_retries` 확인(자동 지수 백오프 재시도) |
+| 타임아웃/간헐 실패 | **⏱ 타임라인 먼저 보기**(아래) — 어느 단계·몇 번째 배치·몇 번째 시도에서 났는지가 나옵니다. 배치당 출력량이 원인이면 `fact.record_batch_rows` 를 줄이는 쪽이 `timeout` 상향보다 확실합니다 |
+| F5 값 대조에서 출력 절단 | 첫 요청에 JSON Schema가 적용됐다면 schema를 제거해 **1회만** 다시 판정합니다. 또 잘리거나 파싱/예산 문제가 나면 해당 항목만 `unknown`으로 남기고 다음 항목과 리포트 생성을 계속합니다. `comparison_result.json`의 `failure_reason`과 기준 문서 `run_stats.json.comparison`을 확인하세요 |
+| 실행 중 화면이 조용하다 | 정상입니다 — 타임라인이 켜져 있으면 단계·재시도가 실시간으로 찍힙니다. `--quiet` 로 끌 수 있고, 꺼도 파일에는 남습니다 |
+| 화면에 더 자세히 보고 싶다 | `--verbose` 로 INFO 까지 보입니다. **프롬프트·LLM 원문·HTTP 페이로드(DEBUG)는 화면에 안 나옵니다** — 로그 파일에는 항상 남으니 그쪽을 보세요(`logs/contentcompare_<시각>.log`). 서드파티 저수준 로그까지 열려면 `CONTENTCOMPARE_LOG_NOISY=1` |
 | 임베딩 매번 느림 | `cache_dir` 설정 확인(파일 해시 기반 캐시 재사용) |
 | 표시값과 다른 비교 | `excel.value_as_displayed`(표시문자 vs 원시값) 전환 |
+
+### 타임아웃이 반복될 때 (`timeout_wait`)
+
+사내 게이트웨이가 한도 초과를 **429 가 아니라 응답을 붙들고 있는 것**으로 알리면
+클라이언트에는 타임아웃으로 보입니다. 그때 짧게 재시도하면 같은 벽에 다시 부딪히므로
+한도가 회복될 만큼 기다렸다 다시 부릅니다.
+
+```yaml
+llm:
+  timeout_wait: 60        # 0=끔(기본). 타임아웃 뒤 대기 초
+  timeout_max_retries: 2
+  max_retries: 1          # ⚠️ 함께 낮출 것 — 아래 참고
+```
+
+⚠️ **대기는 SDK 자체 재시도와 곱해집니다.** `timeout: 120` · `max_retries: 3` 이면 한
+호출이 이미 최악 8분인데, 여기에 60초 대기 2회를 얹으면 **26분**이 됩니다. 켜면
+실행 시작 시 그 산수를 그대로 알려 주니 `max_retries` 를 0~1 로 낮추세요.
+
+**원인 판별**: 첫 대기 때 예외 실물이 함께 출력됩니다. 대기 후 재시도가 **성공하면
+요청 한도**, 계속 실패하면 원인은 한도가 아니라 **생성 지연**이므로 배치 크기를
+줄이는 쪽이 답입니다.
+
+### ⏱ 실행 타임라인 — 실패했을 때 가장 먼저 볼 것
+
+실행 중 화면에 단계·LLM 호출·재시도·대기가 시각과 함께 흐릅니다. 같은 내용이
+`artifacts/_timeline/<실행>.jsonl` 에 남아 나중에 다시 볼 수 있습니다.
+
+```
+17:59:11.1 ▶ F2 records · 자표준원문.xlsx (rows=120, batches=4)
+17:59:11.1   ▶ 배치 2/4 (rows=30)
+17:59:11.8   │  ⚠ 응답 없음(전송 실패·타임아웃) — 재시도 1/2
+17:59:12.6   ✗ F2 records · 자표준원문.xlsx · 배치 2/4 중단 — APITimeoutError (1.5s)
+```
+
+실패 줄 하나에 **어느 문서 · 어느 단계 · 몇 번째 배치 · 왜**가 함께 있습니다.
+
+```bash
+python scripts/show_timeline.py            # 최근 실행 전체
+python scripts/show_timeline.py --errors   # 실패·재시도·대기만
+python scripts/show_timeline.py --slow 60  # 60초 넘게 걸린 것만
+python scripts/show_timeline.py --list     # 남아 있는 실행 목록
+```
+
+웹 UI 에서는 **⏱ 타임라인** 탭에서 같은 내용을 막대그래프로 봅니다.
+실행이 끝나면 CLI 가 **단계별 소요**와 **다음에 볼 것**(증상별 조치)을 함께 출력합니다.
+
+설정은 `logging.timeline`(기본 켬) / `logging.timeline_console` / `logging.timeline_dir`.
+프롬프트 원문은 담기지 않습니다(길이·회차·상태코드만) — 원문이 필요하면
+`llm.trace_local` 을 켜세요.
+
+#### F5 출력 절단을 확인할 때
+
+타임라인의 `retry_without_schema`는 실패한 F5 판정에서 JSON Schema를 제거하고 한 번 더
+호출했다는 뜻입니다. 복구되면 `recovered_without_schema`, 복구되지 않으면 해당 결과에
+다음 `failure_reason` 중 하나가 남습니다.
+
+- `output_truncated`: schema 제거 호출도 출력 한도에서 절단됨
+- `parse_failure`: 응답을 JSON 판정으로 해석하지 못함
+- `budget_exceeded`: 비교 단계 호출 예산이 소진됨
+
+`comparison_result.json.stats.llm_calls`는 유효한 판정 응답을 얻은 비교 수이고,
+`stats.llm.calls`는 파싱 및 schema 제거 재시도를 포함한 실제 생성 횟수입니다. 복구된
+절단도 `llm_truncations`에는 남지만 `llm_failures`에는 포함되지 않습니다. 토큰 한도를
+높이거나 temperature를 바꾸는 것은 이 복구의 일부가 아닙니다. 같은 항목에서 같은 토큰
+수로 반복 절단되면 `llm.trace_local`의 접힌 응답 원문으로 반복 생성인지 확인하세요.
+
+#### 호출당 토큰·소요 — 배치 크기를 정하는 근거
+
+응답 줄에 서버가 알려준 **토큰 수와 생성 속도**가 함께 남습니다.
+
+```
+17:59:11.1   ├ LLM 요청 (rows=30, prompt_chars=12345)
+18:00:23.1   ├ ✓ 응답 (72.0s, input_tokens=3204, output_tokens=512, tok_per_sec=7.1, output_chars=1880) ⚠ 느림
+```
+
+`fact.record_batch_rows` 를 얼마로 줄일지는 이 숫자로 계산합니다 — 위 예에서 30행에
+출력 512토큰이 72초였으니, `llm.timeout: 120` 안에 들어오려면 배치당 출력이 대략
+850토큰을 넘지 않아야 합니다. **행당 약 17토큰**이므로 지금은 여유가 있고, 60행으로
+올리면 한계에 닿습니다. 반대로 `tok_per_sec` 이 실행마다 크게 흔들리면 배치 크기가
+아니라 서버 부하가 원인입니다.
+
+토큰 수는 **서버가 준 값 그대로**이고, 안 주는 게이트웨이면 그 칸이 통째로 빠집니다 —
+글자 수에서 토큰을 추정해 채우지 않습니다(추정과 실측이 섞이면 대조가 불가능해집니다).
+그때는 같은 줄의 `prompt_chars`/`output_chars` 를 대신 씁니다.
 
 ## 7. 비용/성능 메모
 

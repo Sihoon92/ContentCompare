@@ -29,7 +29,14 @@ from contentcompare.logging_setup import apply_logger_overrides, read_log_text, 
 from contentcompare.pipeline import ComparePipeline
 from contentcompare.models import RecordResult, Verdict
 from contentcompare.report import list_reports, read_report, render_markdown, save_report
+from contentcompare.timeline import (
+    list_timelines,
+    load_timeline,
+    start_timeline,
+    timeline_dir,
+)
 from contentcompare.ui import micro_world, runner
+from contentcompare.ui.timeline_view import render_timeline_html
 
 logger = logging.getLogger("contentcompare.ui")
 
@@ -481,6 +488,9 @@ def _run_tab(config: AppConfig):
                     engine, ref_path, len(target_paths))
         try:
             pipeline = make_pipeline(config, engine)
+            # 실행 타임라인 — Streamlit 은 콘솔이 없으므로 **파일 기록만** 한다.
+            # 결과는 ⏱ 타임라인 탭이 읽는다.
+            start_timeline(config, console=False)
             # LLM 입출력 추적. 미설정이면 NullTracer 라 아무 일도 하지 않는다.
             # 실행 하나를 trace 하나로 묶어야 "이 실행의 프롬프트들"로 볼 수 있다.
             tracer = get_tracer(config)
@@ -513,6 +523,40 @@ def _run_tab(config: AppConfig):
             reference_doc=os.path.basename(ref_path),
             target_docs=[os.path.basename(p) for p in target_paths],
         )
+
+
+def timeline_panel(config: AppConfig):
+    """⏱ 타임라인 — 실행 하나가 시간축 위에서 어떻게 흘렀나.
+
+    화면층은 위젯과 iframe 호출만 한다. 읽기는 :func:`~contentcompare.timeline.
+    load_timeline`, 그리기는 :func:`~contentcompare.ui.timeline_view.
+    render_timeline_html` 이 맡는다(UI 3층 분리).
+    """
+    st.subheader("⏱ 타임라인")
+    st.caption("단계 시작·종료, LLM 호출, 재시도, 한도 대기를 한 시간축에 놓는다. "
+               "실패했을 때 '어느 문서 · 어느 단계 · 몇 번째 배치 · 왜'를 여기서 읽는다.")
+
+    root = timeline_dir(config)
+    runs = list_timelines(root)
+    if not runs:
+        st.info(f"타임라인이 없습니다 ({root}). "
+                "설정의 `logging.timeline` 이 켜져 있는지 확인하고 한 번 실행하세요.")
+        return
+
+    left, right = st.columns([3, 1])
+    with left:
+        pick = st.selectbox("실행", runs, format_func=lambda p: p.stem)
+    with right:
+        errors_only = st.checkbox("실패·재시도만", value=False)
+
+    events = load_timeline(pick)
+    if errors_only:
+        from contentcompare.timeline import ERROR_STATUSES
+
+        events = [e for e in events
+                  if e.status in ERROR_STATUSES or e.kind in ("retry", "wait")]
+    st_html(render_timeline_html(events, title=pick.stem),
+            height=720, scrolling=True)
 
 
 def micro_world_panel(config: AppConfig):
@@ -606,14 +650,19 @@ def main():
 
     # 현미경을 리포트 옆에 둔다 — "리포트에서 이상한 판정을 봤다 → 옆 탭에서 추적"이
     # 실제 동선이기 때문이다.
-    tab_run, tab_report, tab_micro, tab_kb = st.tabs(
-        ["🚀 비교 실행", "📄 리포트 보기", "🔬 파이프라인 현미경", "📚 도메인 지식"])
+    # 타임라인은 현미경 옆이다 — 현미경이 "무엇이 나왔나"(산출물)를 보고 타임라인이
+    # "언제 무슨 일이 있었나"(과정)를 본다. 실패를 좇을 때 둘을 오가게 된다.
+    tab_run, tab_report, tab_micro, tab_time, tab_kb = st.tabs(
+        ["🚀 비교 실행", "📄 리포트 보기", "🔬 파이프라인 현미경",
+         "⏱ 타임라인", "📚 도메인 지식"])
     with tab_run:
         _run_tab(config)
     with tab_report:
         report_viewer_panel(config)
     with tab_micro:
         micro_world_panel(config)
+    with tab_time:
+        timeline_panel(config)
     with tab_kb:
         knowledge_panel(config)
 

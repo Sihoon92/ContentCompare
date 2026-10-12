@@ -14,6 +14,7 @@ from .artifacts import ArtifactStore
 from .llm_stage import LlmRunner, fingerprint_for
 from .prompts import PROFILER_SYSTEM, PROFILER_VERSION, build_profiler_user
 from .schema_models import DocumentProfile
+from .schemas import schema_for
 
 
 def profile_document(
@@ -22,7 +23,8 @@ def profile_document(
     """compact_raw dict → :class:`DocumentProfile`."""
 
     def compute() -> dict:
-        obj = runner.complete_json(PROFILER_SYSTEM, build_profiler_user(compact))
+        obj = runner.complete_json(PROFILER_SYSTEM, build_profiler_user(compact),
+                                   schema=schema_for("profiler"))
         return DocumentProfile.from_llm(
             obj, fallback_doc_type=compact.get("doc_type", "")
         ).to_dict()

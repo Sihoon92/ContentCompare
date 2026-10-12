@@ -13,11 +13,20 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from .. import progress as prog
+from ..llm.tracing import substage
 from .fact_models import Fact, FactSet
 from .fact_types import FT_DESCRIPTIVE, FT_QUALITATIVE, FT_QUANTITATIVE
-from .llm_stage import fingerprint_for
+from .llm_stage import fingerprint_for, run_batch
 from .prompts import FACT_SYSTEM, FACT_VERSION, build_fact_user
 from .record_models import RecordSet
+from .schemas import schema_for
+from .validator import _NUM_RE  # 수치 판정을 numeric_coverage 와 한 곳에 묶는다
+
+
+# search_text 보강 모드. config 의 ``fact.search_text_augment`` 가 그대로 들어온다.
+OFF, NUMBERS, FULL = "off", "numbers", "full"
+AUGMENT_MODES = (OFF, NUMBERS, FULL)
 
 
 def extract_facts(
@@ -30,6 +39,7 @@ def extract_facts(
     batch_blocks: int = 20,
     stats: Optional[dict] = None,
     lines_by_block: Optional[dict] = None,
+    search_text_augment: str = OFF,
 ) -> FactSet:
     """compact(+records) → ``FactSet``. doc_type 으로 Excel(코드)/Word·PPT(LLM) 분기.
 
@@ -51,22 +61,24 @@ def extract_facts(
 
         def compute() -> dict:
             computed["ran"] = True
-            return _facts_from_records(rs).to_dict()
+            return _facts_from_records(rs, search_text_augment).to_dict()
 
-        fp = fingerprint_for(json.dumps(rs.to_dict(), ensure_ascii=False)) if store else None
+        payload = json.dumps(rs.to_dict(), ensure_ascii=False) + _augment_key(search_text_augment)
+        fp = fingerprint_for(payload) if store else None
     else:
 
         def compute() -> dict:
             computed["ran"] = True
             return _facts_from_blocks(
                 compact, profile, runner, batch_blocks, drops,
-                lines_by_block=lines_by_block,
+                lines_by_block=lines_by_block, augment=search_text_augment,
             ).to_dict()
 
         lines_payload = _lines_index(lines_by_block)
         payload = json.dumps(compact, ensure_ascii=False)
         if lines_payload:
             payload += json.dumps(lines_payload, ensure_ascii=False, sort_keys=True)
+        payload += _augment_key(search_text_augment)
         fp = fingerprint_for(payload, FACT_VERSION) if store else None
 
     if store is not None:
@@ -86,7 +98,7 @@ def extract_facts(
 # --------------------------------------------------------------------------- #
 # Excel 경로 — records → facts (코드 결정적, 무 LLM)
 # --------------------------------------------------------------------------- #
-def _facts_from_records(records: RecordSet) -> FactSet:
+def _facts_from_records(records: RecordSet, augment: str = OFF) -> FactSet:
     facts: list[Fact] = []
     for rec in records.records:
         entity_name = rec.entity.display_name or (
@@ -101,7 +113,9 @@ def _facts_from_records(records: RecordSet) -> FactSet:
                 entity_name=entity_name,
                 entity_path=list(rec.entity.path),
                 attributes=attrs,
-                search_text=_build_search_text(entity_name, rec.entity.path, attrs),
+                search_text=_build_search_text(
+                    entity_name, rec.entity.path, attrs,
+                    rec.evidence_text, augment),
                 source={"doc_type": "excel", **rec.source.to_dict()},
                 evidence_text=rec.evidence_text,
                 confidence=rec.confidence,
@@ -133,20 +147,68 @@ def _fact_type_of(attrs: dict) -> str:
     return FT_DESCRIPTIVE
 
 
-def _build_search_text(entity_name: str, entity_path, attributes: dict) -> str:
-    """entity + path + 속성 값/단위를 공백 결합(중복 제거). F5 후보 검색용."""
+def _build_search_text(entity_name: str, entity_path, attributes: dict,
+                       evidence_text: str = "", augment: str = OFF) -> str:
+    """entity + path + 속성 값/단위를 공백 결합(중복 제거). F5 후보 검색용.
+
+    ``augment`` 는 **근거 원문으로 이 문자열을 보강할지**를 정한다. 기본 ``off`` 는
+    기존 동작 그대로다.
+
+    보강이 필요한 이유는 이 함수가 원문이 아니라 **속성에서 재조립**하기 때문이다.
+    속성 이름은 넣지 않고 값이 ``None`` 이면 건너뛰므로, F3 가 속성 칸만 만들고 값을
+    채우지 않으면 그 fact 의 검색 문자열에는 **숫자가 하나도 없다**. 같은 표의 옆
+    항목은 값이 채워져 숫자가 들어가므로 순위 경쟁이 조용히 기울어진다(실측: 정답
+    후보가 16위로 밀렸다가 근거 원문을 붙이자 1위).
+
+    ``numbers`` 는 그 구멍만 메우고(수치가 하나도 없는 fact 에 근거의 숫자만),
+    ``full`` 은 근거 전문을 붙인다. 둘을 가른 것은 ``-5~5℃`` 처럼 **값·단위가 붙은
+    형태**가 통째로 살아 있느냐가 검색 정확도를 가르기 때문이다 — ``numbers`` 는 그
+    형태를 ``-5``/``5`` 로 분해한다. 어느 쪽이 이득인지는 데이터마다 다르므로
+    ``scripts/sweep_recall.py`` 로 재고 정할 것.
+
+    ``fact_text`` 의 ``search_text or evidence_text`` 폴백으로는 이 문제를 못 잡는다 —
+    그 폴백은 ``search_text`` 가 **완전히 빈 문자열**일 때만 걸리고, 여기서는 이름과
+    단위가 남아 비어 있지 않다.
+    """
     tokens = [entity_name, *entity_path]
     for a in attributes.values():
         if a.value is not None:
             tokens.append(str(a.value))
         if a.unit:
             tokens.append(a.unit)
+    extra = _augment_tokens(attributes, evidence_text, augment)
+    if extra:
+        tokens.append(extra)
     seen: list[str] = []
     for t in tokens:
         t = str(t).strip()
         if t and t not in seen:
             seen.append(t)
     return " ".join(seen)
+
+
+def _augment_key(augment: str) -> str:
+    """캐시 지문에 섞을 조각. ``off`` 는 빈 문자열이라 **기존 캐시가 그대로 유효**하다.
+
+    이걸 빼먹으면 모드를 바꿔도 ``facts`` 단계가 캐시 히트라 옛 문자열이 그대로 나온다 —
+    실험이 조용히 아무 일도 안 하게 되는 최악의 실패다.
+    """
+    return "" if augment == OFF else f"|search_text_augment={augment}"
+
+
+def _augment_tokens(attributes: dict, evidence_text: str, augment: str) -> str:
+    """보강분 문자열. 모드가 ``off`` 이거나 붙일 것이 없으면 빈 문자열."""
+    if augment == OFF or not evidence_text:
+        return ""
+    if augment == FULL:
+        return evidence_text
+    if augment != NUMBERS:
+        return ""
+    # 수치가 이미 있으면 손대지 않는다 — validator.numeric_coverage 와 같은 판정이다.
+    # 두 곳이 갈리면 "경고는 뜨는데 보강은 안 되는" 짝이 생긴다.
+    if any(_NUM_RE.search(str(a.value)) for a in (attributes or {}).values()):
+        return ""
+    return " ".join(_NUM_RE.findall(evidence_text))
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +222,7 @@ def _facts_from_blocks(
     drops: Optional[dict] = None,
     *,
     lines_by_block: Optional[dict] = None,
+    augment: str = OFF,
 ) -> FactSet:
     doc_type = compact.get("doc_type")
     groups, unit_index = _units_by_group(compact, lines_by_block=lines_by_block)
@@ -170,10 +233,38 @@ def _facts_from_blocks(
     dropped: dict[str, int] = {"not_dict": 0, "no_valid_source_id": 0}
     samples: list[str] = []  # 드롭된 fact 의 entity_name 예시(원인 진단용)
     cited: set[str] = set()  # 실제로 근거로 쓰인 블록 id(커버리지 계측)
-    for batch in _with_context(_pack_batches(groups, batch_blocks)):
+    batches = _pack_batches(groups, batch_blocks)
+    index = 0          # 아래 두 클로저가 함께 읽는다(현재 배치 번호)
+    prev: list[dict] = []   # 직전에 처리한 블록들 — 다음 호출의 맥락 원천
+    split: dict[str, int] = {}
+
+    def label(blocks: list, depth: int) -> str:
+        """substage 이름. **깊이 0 은 오늘과 한 글자도 같다.**
+
+        Word/PPT 도 Excel 과 같은 이유로 배치 번호를 남긴다(record_normalizer 참고).
+        쪼개진 뒤에는 행 번호가 없으므로 **블록 id 범위**를 붙인다.
+        """
+        base = f"배치 {index}/{len(batches)}"
+        if depth == 0 or not blocks:
+            return base
+        return f"{base} 블록 {blocks[0].get('id')}..{blocks[-1].get('id')}"
+
+    def call(blocks: list, name: str) -> None:
+        """LLM 호출 + 후처리 + 맥락 갱신을 **한 덩어리로** 한다.
+
+        ``blocks`` 는 **맥락을 뺀 진짜 블록만**이다. 맥락은 여기서 붙인다 — 미리 붙여
+        넘기면 분할 지점이 맥락 블록을 가를 수 있고, 그러면 조각의 ``batch_ids`` 가
+        엉뚱해진다.
+        """
+        nonlocal seq, seen, inherited, prev
+        units = _prepend_context(prev, blocks)
         # 맥락 블록은 근거 id 로 인정하지 않는다 — 중복 fact 를 원천 차단한다.
-        batch_ids = {u["id"] for u in batch if not u.get("context")}
-        obj = runner.complete_json(FACT_SYSTEM, build_fact_user(batch, doc_type, profile))
+        batch_ids = {u["id"] for u in blocks}
+        with substage(name, blocks=len(batch_ids)):
+            obj = runner.complete_json(
+                FACT_SYSTEM, build_fact_user(units, doc_type, profile),
+                schema=schema_for("fact"),
+            )
         for raw in obj.get("facts") or []:
             seen += 1
             if not isinstance(raw, dict):
@@ -192,11 +283,21 @@ def _facts_from_blocks(
             fact.fact_id = f"fact-{doc_type}-{seq}"
             fact.source = _build_source(doc_type, valid_ids, unit_index)
             fact.search_text = _build_search_text(
-                fact.entity_name, fact.entity_path, fact.attributes
+                fact.entity_name, fact.entity_path, fact.attributes,
+                fact.evidence_text, augment,
             )
             inherited += 1 if fact.inherited_from else 0
             facts.append(fact)
+        # 다음 호출의 맥락은 **방금 처리한 것**의 꼬리다. 쪼개졌으면 조각 3b 가 배치 2 가
+        # 아니라 조각 3a 를 이어받는다(실패한 호출은 여기 못 오므로 prev 가 안 더럽혀진다).
+        prev = list(blocks)
+
+    prog.step(0, len(batches))
+    for index, batch in enumerate(batches, start=1):
+        run_batch(batch, call, name=label, stats=split)
+        prog.step(index, len(batches))
     if drops is not None:
+        drops.update(split)
         # 커버리지: 입력 블록 중 **어떤 fact 의 근거로도 인용되지 않은** 블록.
         # LLM 이 애초에 뽑지 않은 내용은 드롭 카운터에 안 잡히는 무증상 손실이라
         # (실측: Word 재실행 때 한 문단이 통째로 누락) 입력 대비로 봐야 보인다.
@@ -332,20 +433,21 @@ _CONTEXT_TABLE_ROWS = 2
 """맥락으로 실을 표의 최대 행 수. 표 하나가 배치 토큰을 통째로 삼키는 것을 막는다."""
 
 
-def _with_context(batches: list[list[dict]]) -> list[list[dict]]:
-    """각 배치 앞에 직전 배치의 꼬리 블록을 ``context`` 표시로 덧붙인다.
+def _prepend_context(prev: list[dict], blocks: list[dict]) -> list[dict]:
+    """**직전에 처리한** 블록들의 꼬리를 ``context`` 표시로 앞에 붙인다.
 
     원본 unit dict 를 건드리지 않고 **얕은 복사**를 붙인다 — 원본에 표시를 찍으면
     그 블록이 자기 배치에서도 맥락으로 렌더돼 fact 가 통째로 사라진다.
+
+    예전에는 배치 목록 전체를 미리 만들어 한 번에 붙였다. 출력 절단으로 배치가 **실행
+    중에** 쪼개질 수 있게 되면서 미리 만들 수 없게 됐다 — 조각 3b 의 맥락은 배치 2 가
+    아니라 **조각 3a** 여야 하기 때문이다. 그래서 "직전에 무엇을 처리했나"를 들고 다니며
+    그때그때 붙인다. 분할이 없으면 결과는 예전과 완전히 같다(배치 i 의 맥락 = 배치 i-1 의
+    꼬리).
     """
-    out: list[list[dict]] = []
-    for i, batch in enumerate(batches):
-        if i == 0:
-            out.append(list(batch))
-            continue
-        tail = batches[i - 1][-_CONTEXT_BLOCKS:]
-        out.append([_as_context(u) for u in tail] + list(batch))
-    return out
+    if not prev:
+        return list(blocks)
+    return [_as_context(u) for u in prev[-_CONTEXT_BLOCKS:]] + list(blocks)
 
 
 def _as_context(u: dict) -> dict:

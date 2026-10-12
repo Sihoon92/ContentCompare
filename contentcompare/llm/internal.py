@@ -16,7 +16,10 @@ import time
 from typing import Any, Callable, Optional
 
 from ..config import LLMConfig, no_proxy
+from .base import apply_extra_body
 from .http import RetryPolicy, extract, post_json
+from .truncation import LENGTH, finish_reason_of, from_truncated
+from .usage import UNKNOWN, Usage, from_response
 
 logger = logging.getLogger("contentcompare.llm")
 
@@ -32,6 +35,15 @@ class InternalBackend:
     :mod:`.ratelimit` 래퍼가 이 플래그를 보고 **사후 재시도를 건너뛴다**. 안 그러면
     예산 소진 메시지("요청 한도(429)로 …")를 래퍼가 다시 한도로 인식해 5회×60초가
     두 겹으로 쌓인다. 사전 스로틀은 그대로 적용된다.
+    """
+
+    last_usage: Usage = UNKNOWN
+    """마지막 ``complete()`` 의 토큰 사용량. 서버가 안 주면 미상으로 남는다.
+
+    **반환값 대신 속성인 이유**: ``LLMClient.complete`` 의 서명(``-> str``)을 바꾸면
+    ``comparison/``·``readers/`` 까지 파급되는데 그쪽은 코드 무수정 원칙이다.
+    :class:`~contentcompare.llm.tracing.TracedChat` 이 호출 직후 이 값을 읽어
+    타임라인에 얹는다 — ``handles_rate_limit`` 과 같은 덕 타이핑 규약이다.
     """
 
     def __init__(
@@ -89,18 +101,30 @@ class InternalBackend:
 
     # --- LLMClient -------------------------------------------------------- #
     def complete(self, system: str, user: str, *, temperature: float = 0.0) -> str:
+        self.last_usage = UNKNOWN  # 이유는 :attr:`last_usage` 참고
         url = f"{self.base_url}/chat/completions"
-        data = self._post(
-            url,
-            {
-                "model": self.config.chat_model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": temperature,
-            },
-        )
+        payload: dict[str, Any] = {
+            "model": self.config.chat_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+        }
+        # 0 이면 키를 아예 안 넣는다 — 오늘과 바이트 단위로 같은 요청이어야 한다.
+        if self.config.max_tokens:
+            payload["max_tokens"] = self.config.max_tokens
+        # 사고 끄기 등 게이트웨이별 필드. **코드가 정한 키는 안 덮는다.**
+        apply_extra_body(payload, self.config.extra_body)
+        data = self._post(url, payload)
+        self.last_usage = from_response(data)
+        # 이 백엔드는 절단을 **예외로 알리지 않는다** — 200 에 잘린 본문을 담아 주므로
+        # 지금까지 "LLM JSON 파싱 실패"로만 보였다. ``extract`` 보다 **먼저** 보는 이유는
+        # 잘린 응답이 ``message.content`` 경로를 통째로 빠뜨릴 수 있어서다(그러면
+        # "형식이 예상과 다릅니다"로 원인이 뒤바뀐다).
+        if finish_reason_of(data) == LENGTH:
+            raise from_truncated(data, backend="internal",
+                                 output=_partial_content(data))
         return extract(data, "choices", 0, "message", "content", url=url)
 
     # --- EmbeddingClient -------------------------------------------------- #
@@ -114,3 +138,18 @@ class InternalBackend:
         # input 순서 유지를 위해 index 로 정렬.
         items = sorted(items, key=lambda d: d.get("index", 0))
         return [extract(d, "embedding", url=url) for d in items]
+
+
+def _partial_content(data: Any) -> str:
+    """잘린 응답에서 본문을 **관대하게** 읽는다. 못 찾으면 빈 문자열.
+
+    ``extract`` 와 달리 던지지 않는다 — 여기서 던지면 "출력이 잘렸다"는 진짜 원인이
+    "응답 형식이 이상하다"로 바뀐다. 못 읽은 것은 :mod:`.truncation` 원칙대로 미상으로 둔다.
+    """
+    try:
+        choices = data.get("choices") or []
+        message = (choices[0] or {}).get("message") or {}
+        content = message.get("content")
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return content if isinstance(content, str) else ""

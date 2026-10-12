@@ -27,6 +27,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from .. import progress as prog
 from ..config import AppConfig, FactConfig
 from ..knowledge import load_knowledge
 from ..llm.tracing import stage
@@ -47,6 +48,41 @@ from .schema_models import ColumnSchema
 from .validator import validate_facts
 
 logger = logging.getLogger(__name__)
+
+# 진행률(:mod:`contentcompare.progress`)의 문서 하위 단계 — ``_process_one`` 의 순서와 같다.
+# Excel 의 F3 는 코드 결정적이라 순식간에 지나가지만 단계로는 센다(무엇이 끝났는지 보이게).
+EXCEL_PARTS = ("F0 raw", "F1 profile", "F1 schema", "F2 records", "F3 facts", "F4a 검증")
+BLOCK_PARTS = ("F0 raw", "F1 profile", "F3 facts", "F4a 검증")
+_EXCEL_EXTS = (".xlsx", ".xls", ".xlsm")
+
+
+def _doc_parts(path: str) -> tuple[str, ...]:
+    """확장자로 하위 단계 목록을 고른다 — 단위 시작 시점(F0 전)에는 doc_type 을 아직 모른다."""
+    return EXCEL_PARTS if os.path.splitext(path)[1].lower() in _EXCEL_EXTS else BLOCK_PARTS
+
+
+def compare_unit_keys(names: list[str]) -> list[str]:
+    """대상마다 F5 진행률 단위 키. 같은 basename 이 다시 나오면 ``#2``, ``#3`` 을 붙인다.
+
+    폴더 업로드는 하위 경로를 보존하므로 ``a/규격.docx``·``b/규격.docx`` 가 흔하다. 키가
+    겹치면 ``summarize`` 가 첫 것만 세서, 두 번째 F5 가 도는 내내 막대가 100% 에 머물고
+    "현재 단계"가 빈다 — 이 모듈이 막으려던 "끝나지 않았는데 100%" 그 자체다.
+    """
+    seen: dict[str, int] = {}
+    keys: list[str] = []
+    for name in names:
+        base = os.path.basename(name)
+        seen[base] = seen.get(base, 0) + 1
+        n = seen[base]
+        keys.append(f"compare:{base}" if n == 1 else f"compare:{base}#{n}")
+    return keys
+
+
+def _enter(parts: tuple[str, ...], name: str) -> None:
+    """하위 단계 진입을 알린다. 목록에 없는 이름이면 조용히 넘어간다 — 진행률이 실행을
+    막으면 안 된다(확장자와 실제 doc_type 이 어긋나는 문서가 와도 죽지 않는다)."""
+    if name in parts:
+        prog.part(parts.index(name) + 1, name)
 
 
 @dataclass
@@ -126,20 +162,51 @@ class FactPipeline:
         문서 하나가 실패해도(COM 오류·LLM 예산 초과·JSON 파싱 실패) 나머지는 계속
         처리하고, 그 문서의 summary 에 ``status="error"`` 와 사유를 남긴다.
         ``finally`` 에서 열린 COM 문서를 정리한다.
+
+        ``progress`` 콜백(문서 단위)과 별개로 :mod:`contentcompare.progress` 에 단계별
+        진척을 알린다 — 보고기가 설치되지 않았으면 아무 일도 하지 않는다.
         """
         docs = [reference, *targets]
         store = FactStore()
         result = FactRunResult()
+        prog.plan(self._progress_units(reference, targets))
         try:
             for i, path in enumerate(docs, start=1):
-                summary = self._process_one_safe(path, store, is_reference=(i == 1))
+                summary = self._process_one_safe(
+                    path, store, is_reference=(i == 1), unit_key=f"doc:{i - 1}")
                 result.summaries.append(summary)
                 if progress:
                     progress(i, len(docs), path)
-            self._compare_and_report(store, reference, targets, result)
+            # 성공한 대상만 store 에 들어가므로 F5 단위 키도 그 순서로 추린다 — 앞선 동명
+            # 대상이 실패해도 살아남은 쪽이 자기 키(``#2``)로 진행을 알린다.
+            unit_keys = [
+                key for key, summary in zip(compare_unit_keys(targets), result.summaries[1:])
+                if summary.get("status") == "ok"
+            ]
+            self._compare_and_report(store, reference, targets, result, unit_keys=unit_keys)
             return result
         finally:
+            # 시작도 못 한 단위(실패한 대상의 F5, 대상이 없어 건너뛴 F7)를 닫는다.
+            # 이게 없으면 막대가 100% 에 닿지 못해 "끝났는데 멈춘 것처럼" 보인다.
+            prog.finish_remaining("건너뜀")
             close_all_office()
+
+    def _progress_units(self, reference: str, targets: list[str]) -> list[prog.Unit]:
+        """진행률 단계 N — **시작 시 확정하고 실행 중 바꾸지 않는다**(설계 §7.1).
+
+        F5 단위 키는 :func:`compare_unit_keys` 가 만든다 — basename 이 겹치면 ``#2`` 를
+        붙여 단위를 따로 세운다.
+        """
+        docs = [reference, *targets]
+        units = [prog.Unit(f"doc:{i}", os.path.basename(p), prog.DOC)
+                 for i, p in enumerate(docs)]
+        if self.fact.use_concept_graph:
+            units.append(prog.Unit("concept", "F7 개념 판정", prog.CONCEPT))
+        units += [
+            prog.Unit(key, f"F5 값 대조 · {os.path.basename(t)}", prog.COMPARE)
+            for key, t in zip(compare_unit_keys(targets), targets)
+        ]
+        return units
 
     # ------------------------------------------------------------------ #
     # F5 + F6
@@ -150,17 +217,24 @@ class FactPipeline:
         reference: str,
         targets: list[str],
         result: FactRunResult,
+        *,
+        unit_keys: Optional[list[str]] = None,
     ) -> None:
-        merged = self._compare_from_store(store, reference, targets)
+        merged = self._compare_from_store(store, reference, targets, unit_keys=unit_keys)
         result.comparisons = merged.comparisons
         result.compare_stats = merged.compare_stats
         result.markdown = merged.markdown
         result.concept_graph = merged.concept_graph
 
     def _compare_from_store(
-        self, store: FactStore, reference: str, targets: list[str]
+        self, store: FactStore, reference: str, targets: list[str],
+        *, unit_keys: Optional[list[str]] = None,
     ) -> FactRunResult:
-        """fact 가 모인 상태에서 개념 그래프 → 비교 → 리포트까지 한다."""
+        """fact 가 모인 상태에서 개념 그래프 → 비교 → 리포트까지 한다.
+
+        ``unit_keys`` 는 ``store.targets`` 순서의 F5 진행률 단위 키다. 없으면(테스트·스크립트가
+        직접 부를 때) 대상 이름으로 같은 규칙(:func:`compare_unit_keys`)을 적용한다.
+        """
         result = FactRunResult()
         if not store.ready:
             logger.warning("[Fact] 비교 생략 — 기준/대상 fact 가 부족합니다: %s", store.summary())
@@ -181,12 +255,17 @@ class FactPipeline:
         assert ref_doc is not None  # store.ready 가 보장
 
         gate = AcceptanceGate(self.fact.fast_path)
-        for target in store.targets:
+        if unit_keys is None:
+            unit_keys = compare_unit_keys([t.doc_name for t in store.targets])
+        for target, unit_key in zip(store.targets, unit_keys):
             matcher = self._matcher_for(graph, ref_doc, target)
             # 후보가 없을 때의 사유는 매칭 전략이 안다(개념 경로 = '연결 없음').
             explain = getattr(matcher, "explain_missing", None)
-            with stage(f"F5 값 대조 · {target.doc_name}"):
-                for ref_fact in ref_doc.facts.facts:
+            ref_facts = ref_doc.facts.facts
+            with prog.unit(unit_key), \
+                    stage(f"F5 값 대조 · {target.doc_name}"):
+                prog.step(0, len(ref_facts))
+                for n, ref_fact in enumerate(ref_facts, start=1):
                     candidates = matcher.search(ref_fact)
                     probe = comparator.compare_code(
                         ref_fact,
@@ -208,6 +287,7 @@ class FactPipeline:
                     comparison.review_triggers = reasons
                     comparison.attribute_coverage = probe.attribute_coverage
                     result.comparisons.append(comparison)
+                    prog.step(n, len(ref_facts))
 
         # 1:N 계측 — ``multi_candidate_overridden`` 이 "1:1 축약이 만들던 오판 건수"다.
         # 0 이면 축약이 애초에 오판을 만들지 않았다는 뜻이므로 그 자체가 유효한 정보다.
@@ -215,18 +295,23 @@ class FactPipeline:
         result.compare_stats = {
             "comparisons": len(result.comparisons),
             "decided_by_llm": sum(1 for c in result.comparisons if c.decided_by == "llm"),
-            "llm_calls": comparator.llm_calls,
-            "llm_failures": comparator.llm_failures,
-            "llm_budget_exceeded": comparator.llm_budget_exceeded,
+            **comparator.stats(),
+            # comparator.llm_calls 는 성공적으로 판정 JSON 을 얻은 **비교 수**이고,
+            # 이 묶음의 calls 는 파싱·schema 제거 재시도까지 포함한 실제 생성 횟수다.
+            "llm": (
+                runner.stats() if runner is not None else {
+                    "calls": 0, "retries": 0,
+                    "parse_failures": 0, "structured_calls": 0,
+                }
+            ),
             "multi_candidate_comparisons": len(multi),
             "multi_candidate_overridden": sum(1 for c in multi if c.result_changed),
-            "quote_unverified": comparator.quote_unverified,
-            "dropped_findings": comparator.dropped_findings,
             "concept": dict(graph.stats) if graph is not None else {},
             # 게이트가 꺼져 있으면 키를 아예 넣지 않는다 — 0 으로 채우면
             # "게이트가 아무것도 안 잡았다"로 오독된다.
             **(gate_stats(result.comparisons) if self.fact.fast_path.enabled else {}),
         }
+        self._save_comparison_stats(ref_doc, result.compare_stats)
         self._save_comparison(ref_doc, result)
         # 지연 import — report 패키지가 fact 결과 모델을 참조하므로 모듈 최상단에서
         # 서로를 부르면 순환 import 가 된다.
@@ -255,7 +340,7 @@ class FactPipeline:
         )
         # 후보 쌍 진단은 **이번 실행의 값**이어야 하므로 캐시하지 않는다(run_stats 와 같다).
         pairs_out: Optional[dict] = {} if self.fact.save_candidate_pairs else None
-        with stage("F7 개념 판정"):
+        with prog.unit("concept"), stage("F7 개념 판정"):
             graph = build_concept_graph(
                 store,
                 embedder=self._embed_client(),
@@ -310,15 +395,68 @@ class FactPipeline:
             "comparisons": [c.to_dict() for c in result.comparisons],
         })
 
+    def _save_comparison_stats(self, ref_doc: DocFacts, stats: dict) -> None:
+        """기준 문서 ``run_stats.json``에 이번 F5 계측을 병합한다.
+
+        F0~F4a finally가 먼저 저장한 문서 계측을 보존하고 ``comparison``만 교체한다.
+        손상된 기존 JSON을 빈 파일로 덮으면 원인 추적 자료를 잃으므로 그대로 둔다.
+        """
+        if not self.fact.save_artifacts:
+            return
+        store = ArtifactStore(
+            self.fact.artifacts_dir, ref_doc.doc_name,
+            enabled=True, cache=False,
+        )
+        try:
+            saved = store.load("run_stats")
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("[Fact] run_stats 비교 계측 병합 실패(기존 파일 보존): %s", exc)
+            return
+        if saved is None:
+            saved = {}
+        if not isinstance(saved, dict):
+            logger.warning("[Fact] run_stats 비교 계측 병합 실패(dict 아님, 기존 파일 보존)")
+            return
+        merged = dict(saved)
+        merged["comparison"] = dict(stats)
+        try:
+            store.save_atomic("run_stats", merged)
+        except OSError as exc:
+            logger.warning("[Fact] run_stats 비교 계측 저장 실패: %s", exc)
+
+    @staticmethod
+    def _stage_durations_for(doc_label: str) -> list[dict]:
+        """이 문서의 단계별 소요(타임라인이 꺼져 있거나 실패하면 빈 목록).
+
+        계측 수집이 본 실행을 방해하면 안 되므로 어떤 실패도 삼킨다 — ``run_stats``
+        저장 자체가 ``finally`` 안에 있고, 그 안에서 예외가 나면 **원래 예외를
+        가린다**(그것이 우리가 보려는 예외다).
+        """
+        from ..timeline import get_timeline, load_timeline, stage_durations
+
+        path = getattr(get_timeline(), "path", "")
+        if not path:
+            return []
+        try:
+            rows = stage_durations(load_timeline(path))
+        except Exception:  # noqa: BLE001
+            return []
+        return [r for r in rows if doc_label in r["name"]]
+
     def _process_one_safe(
-        self, path: str, store: FactStore, *, is_reference: bool = False
+        self, path: str, store: FactStore, *, is_reference: bool = False,
+        unit_key: str = "",
     ) -> dict:
         """문서 1개를 처리하되 예외를 격리해 summary 로 변환하고, fact 를 store 에 넣는다.
 
         실문서 라이브에서는 COM 추출 예외(``pywintypes.com_error``/``OSError``)가
         LLM 오류만큼 흔하므로 넓게 잡는다. traceback 은 로그 파일에 남긴다.
+
+        진행률 단위는 여기서 열고 닫는다 — 실패도 완료로 센다(격리하고 계속하는 동작과 같다).
         """
         name = os.path.basename(path)
+        key = unit_key or f"doc:{name}"
+        prog.unit_start(key, parts=len(_doc_parts(path)))
         # 실패해도 "어디까지 갔는지"를 보고해야 하므로 진행 상태를 밖에서 들고 있는다.
         stages: list[str] = []
         stats: dict[str, Any] = {}
@@ -326,9 +464,11 @@ class FactPipeline:
             summary = self._process_one(path, stages, stats, store, is_reference)
             summary["status"] = "ok"
             logger.info("[Fact] ✅ %s (LLM %d회)", name, summary.get("llm_calls", 0))
+            prog.unit_done(key)
             return summary
         except Exception as e:  # noqa: BLE001 — 문서 단위 격리가 목적
             logger.exception("[Fact] ❌ %s 처리 실패", name)
+            prog.unit_done(key, ok=False, error=type(e).__name__)
             return {
                 "path": path,
                 "status": "error",
@@ -352,6 +492,7 @@ class FactPipeline:
         진행 단계와 계측값을 잃지 않기 위해서다.
         """
         doc_label = os.path.basename(path)
+        parts = _doc_parts(path)
         store = ArtifactStore(
             self.fact.artifacts_dir,
             doc_label,
@@ -359,6 +500,7 @@ class FactPipeline:
             cache=self.fact.cache,
         )
         # F0: raw → physical_raw, compact → compact_raw
+        _enter(parts, "F0 raw")
         raw_obj = self._extract(path)
         store.save("physical_raw", raw_obj.to_dict())
         stages.append("physical_raw")
@@ -378,14 +520,17 @@ class FactPipeline:
             # ``stage(...)`` 는 Langfuse trace 에 붙일 단계 이름이다(추적이 꺼져 있으면
             # 컨텍스트 변수만 설정하는 사실상 무비용 연산). 이름이 없으면 trace 가
             # 한 덩어리로 뭉쳐 어느 단계의 프롬프트인지 알 수 없다.
+            _enter(parts, "F1 profile")
             with stage(f"F1 document_profile · {doc_label}"):
                 profile = profile_document(compact, runner, store)
             stages.append("document_profile")
             if compact.get("doc_type") == "excel":
+                _enter(parts, "F1 schema")
                 with stage(f"F1 column_schema · {doc_label}"):
                     tp, cs = induce_schema(compact, profile, runner, store)
                 column_schema = cs
                 stages += ["table_profile", "column_schema"]
+                _enter(parts, "F2 records")
                 with stage(f"F2 records · {doc_label}"):
                     records = normalize_records(
                         compact, tp, cs, runner,
@@ -393,9 +538,14 @@ class FactPipeline:
                         stats=record_stats,
                     )
                 stages.append("records")
+                _enter(parts, "F3 facts")
                 # F3: records → facts (코드 결정적, 무 LLM)
-                facts = extract_facts(compact, records=records, store=store, stats=fact_stats)
+                facts = extract_facts(
+                    compact, records=records, store=store, stats=fact_stats,
+                    search_text_augment=self.fact.search_text_augment,
+                )
             else:
+                _enter(parts, "F3 facts")
                 # F3: Word/PPT 는 블록/도형 → facts 직행 (LLM)
                 with stage(f"F3 facts · {doc_label}"):
                     facts = extract_facts(
@@ -403,6 +553,7 @@ class FactPipeline:
                         store=store, batch_blocks=self.fact.fact_batch_blocks,
                         stats=fact_stats,
                         lines_by_block=raw_obj.to_dict(),
+                        search_text_augment=self.fact.search_text_augment,
                     )
             stages.append("facts")
 
@@ -419,6 +570,7 @@ class FactPipeline:
 
             # F4a: 코드 검증(무 LLM). error 가 붙은 fact 는 버리지 않고 저신뢰로 표시해
             # F5 가 unknown 판정 근거로 쓴다.
+            _enter(parts, "F4a 검증")
             report = validate_facts(facts, compact, column_schema=column_schema)
             store.save("validation_report", report.to_dict())
             stages.append("validation_report")
@@ -440,6 +592,11 @@ class FactPipeline:
                 stats["records"] = record_stats
             if fact_stats:
                 stats["facts"] = fact_stats
+            # 단계별 소요 — ``stages`` 는 "어디까지 갔나"만 답하고 "어디서 오래
+            # 걸렸나"는 답하지 못했다. 타임라인에서 이 문서 몫만 뽑아 함께 남긴다.
+            durations = self._stage_durations_for(doc_label)
+            if durations:
+                stats["stage_durations"] = durations
             try:
                 store.save("run_stats", {"path": path, "stages": stages, **stats})
             except OSError:  # 계측 저장 실패가 본 예외를 가리지 않도록
